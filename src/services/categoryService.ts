@@ -2,7 +2,7 @@ import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../config/constants';
 import { onSSE } from '../lib/sse';
 import type { Category, CategoryFormData } from '../types';
-import { mapCategory } from './supabaseMappers';
+import { mapCategory } from './mappers';
 
 const localKey = (userId: string) => `cashflow-local-categories-${userId}`;
 

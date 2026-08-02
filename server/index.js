@@ -753,59 +753,24 @@ function sendGeminiError(res, httpStatus, {
   });
 }
 
-// ===================== Supabase Helpers =====================
+// ===================== Auth Helpers =====================
 
-function getSupabaseServerClient() {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-  if (!supabaseUrl || !serviceRoleKey) return null;
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-function getBearerToken(req) {
-  const header = req.headers.authorization || '';
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] || '';
-}
-
+/**
+ * Resolve user dari session Better Auth (req.user diisi authMiddleware).
+ * Migrasi dari validasi Supabase JWT — kini memakai cookie session Better Auth
+ * yang sama dengan seluruh route lain (pola sama dengan resolveAdmin / CF-053).
+ */
 async function resolveAgentSearchUser(req, { required = false } = {}) {
-  const token = getBearerToken(req);
-  const supabase = getSupabaseServerClient();
-
-  if (token && supabase) {
-    const { data, error } = await supabase.auth.getUser(token);
-
-    if (error || !data?.user?.id) {
-      const authError = new Error('Session Supabase tidak valid atau sudah kedaluwarsa.');
-      authError.status = 401;
-      authError.code = 'AGENT_SEARCH_INVALID_REQUEST';
-      throw authError;
-    }
-
-    return data.user.id;
+  const user = req.user;
+  if (user?.id) {
+    return user.id;
   }
 
   if (required) {
-    const authError = new Error(
-      supabase
-        ? 'Authorization Bearer Supabase access token wajib dikirim untuk sync/search data user.'
-        : 'SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY wajib ada di server untuk verifikasi token.',
-    );
-
+    const authError = new Error('Autentikasi diperlukan. Silakan login terlebih dahulu.');
     authError.status = 401;
     authError.code = 'AGENT_SEARCH_INVALID_REQUEST';
     throw authError;
-  }
-
-  if (NODE_ENV !== 'production' && typeof req.body?.userId === 'string') {
-    return req.body.userId;
   }
 
   return null;

@@ -11,7 +11,7 @@ const sections = [
   {
     icon: Database,
     title: 'Data yang Disimpan',
-    body: 'Supabase hanya menyimpan hasil ekstraksi transaksi: nominal, tanggal, merchant, kategori, metode pembayaran, sumber Gmail, messageId, dan confidence score. Isi email lengkap tidak disimpan.',
+    body: 'CashFlow hanya menyimpan hasil ekstraksi transaksi: nominal, tanggal, merchant, kategori, metode pembayaran, sumber Gmail, messageId, dan confidence score. Isi email lengkap tidak disimpan.',
   },
   {
     icon: KeyRound,
@@ -26,7 +26,7 @@ const sections = [
   {
     icon: Trash2,
     title: 'Kontrol User',
-    body: 'User memiliki opsi export data, reset data, disconnect Gmail, dan logout. Akses data dibatasi oleh Supabase RLS berbasis user_id.',
+    body: 'User memiliki opsi export data, reset data, disconnect Gmail, dan logout. Akses data dibatasi oleh autentikasi session berbasis user di server.',
   },
 ];
 

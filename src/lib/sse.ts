@@ -1,6 +1,6 @@
 /**
  * SSE (Server-Sent Events) Client for Real-time Frontend Updates
- * Replaces Supabase Realtime (postgres_changes).
+ * Replaces realtime database change notifications (postgres_changes).
  */
 import { getApiBaseUrl } from '../config/api';
 

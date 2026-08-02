@@ -32,9 +32,36 @@ export interface MintedSession {
   userId: string;
 }
 
+/** Buat sesi Better Auth untuk userId tertentu (shared — dipakai admin & non-admin). */
+async function insertSession(turso: ReturnType<typeof createClient>, userId: string): Promise<MintedSession> {
+  const token = crypto.randomBytes(24).toString('base64url').slice(0, 32);
+  const secret =
+    process.env.BETTER_AUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    'cashflow-dev-secret-change-in-production';
+  const sig = crypto.createHmac('sha256', secret).update(token).digest('base64');
+  const now = new Date();
+
+  await turso.execute({
+    sql: `INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, ipAddress, userAgent, userId)
+          VALUES (?, ?, ?, ?, ?, '', 'e2e-test', ?)`,
+    args: [
+      token,
+      new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      token,
+      now.toISOString(),
+      now.toISOString(),
+      userId,
+    ],
+  });
+
+  return { cookie: `${token}.${sig}`, userId };
+}
+
 /**
  * Mint sesi Better Auth yang valid dan kembalikan cookie + userId.
  * Sesi ditandai userAgent='e2e-test' agar mudah dibersihkan.
+ * Memakai user pertama di tabel `user` (qoidrifat23@gmail.com = ADMIN_EMAILS).
  */
 export async function mintSessionCookie(): Promise<MintedSession> {
   loadEnv();
@@ -54,34 +81,46 @@ export async function mintSessionCookie(): Promise<MintedSession> {
       throw new Error('Tidak ada user di tabel `user` — jalankan migrasi/seed terlebih dahulu.');
     }
 
-    const token = crypto.randomBytes(24).toString('base64url').slice(0, 32);
-    const secret =
-      process.env.BETTER_AUTH_SECRET ||
-      process.env.AUTH_SECRET ||
-      'cashflow-dev-secret-change-in-production';
-    const sig = crypto.createHmac('sha256', secret).update(token).digest('base64');
-    const now = new Date();
-
-    await turso.execute({
-      sql: `INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, ipAddress, userAgent, userId)
-            VALUES (?, ?, ?, ?, ?, '', 'e2e-test', ?)`,
-      args: [
-        token,
-        new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        token,
-        now.toISOString(),
-        now.toISOString(),
-        userId,
-      ],
-    });
-
-    return { cookie: `${token}.${sig}`, userId };
+    return await insertSession(turso, userId);
   } finally {
     turso.close();
   }
 }
 
-/** Hapus semua sesi E2E (userAgent='e2e-test') dari Turso. */
+/**
+ * Mint sesi untuk user dengan email tertentu — membuat user sementara bila belum ada.
+ * Dipakai untuk menguji gate admin 403 (email TIDAK di ADMIN_EMAILS).
+ * User test ditandai email berawalan 'e2e-' agar aman dibersihkan di cleanup.
+ */
+export async function mintSessionCookieForEmail(email: string): Promise<MintedSession> {
+  loadEnv();
+
+  const turso = createClient({
+    url: process.env.TURSO_DATABASE_URL as string,
+    authToken: process.env.TURSO_AUTH_TOKEN as string,
+  });
+
+  try {
+    const existing = await turso.execute({
+      sql: 'SELECT id FROM user WHERE email = ?',
+      args: [email],
+    });
+    let userId = existing.rows[0]?.id as string | undefined;
+    if (!userId) {
+      userId = crypto.randomBytes(16).toString('hex');
+      await turso.execute({
+        sql: `INSERT INTO user (id, name, email, emailVerified) VALUES (?, ?, ?, 1)`,
+        args: [userId, 'E2E Non-Admin', email],
+      });
+    }
+
+    return await insertSession(turso, userId);
+  } finally {
+    turso.close();
+  }
+}
+
+/** Hapus sesi E2E (userAgent='e2e-test') + user test (email 'e2e-*') dari Turso. */
 export async function cleanupTestSessions(): Promise<void> {
   loadEnv();
   const turso = createClient({
@@ -91,6 +130,11 @@ export async function cleanupTestSessions(): Promise<void> {
   try {
     await turso.execute({
       sql: `DELETE FROM session WHERE userAgent = 'e2e-test'`,
+      args: [],
+    });
+    // User test non-admin (dibuat mintSessionCookieForEmail) — email prefiks 'e2e-'.
+    await turso.execute({
+      sql: `DELETE FROM user WHERE email LIKE 'e2e-%'`,
       args: [],
     });
   } finally {

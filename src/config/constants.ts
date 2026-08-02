@@ -93,19 +93,8 @@ export const STORAGE_KEYS = {
   DEFAULT_CURRENCY: 'cashflow-default-currency',
 } as const;
 
-// Supabase tables
-export const SUPABASE_TABLES = {
-  PROFILES: 'profiles',
-  TRANSACTIONS: 'transactions',
-  CATEGORIES: 'categories',
-  BUDGETS: 'budgets',
-  GMAIL_SYNC_LOGS: 'gmail_sync_logs',
-  NOTIFICATIONS: 'notifications',
-} as const;
-
 // Error messages
 export const ERROR_MESSAGES = {
-  SUPABASE_CONFIG: 'Supabase belum dikonfigurasi. Isi VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY.',
   NOT_LOGGED_IN: 'Anda belum login. Silakan login terlebih dahulu.',
   GMAIL_PERMISSION_DENIED: 'Akses ke Gmail ditolak. Berikan izin untuk melanjutkan.',
   NO_DATA: 'Belum ada data untuk ditampilkan.',

@@ -1,4 +1,12 @@
 /**
+ * ⚠️ LEGACY — Supabase sudah di-decommission (2026-08-02).
+ *
+ * Script ini HANYA untuk migrasi data historis (jika project Supabase masih
+ * hidup sementara sebelum dihapus manual). Server runtime tidak memakai Supabase
+ * sebagai dependensi aktif — folder supabase/ (functions, migrations) dipertahankan
+ * sebagai dormant. Kredensial SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY TIDAK lagi
+ * tersedia di server/.env — isi manual via env bila ingin re-run.
+ *
  * Script Migrasi Data: Supabase PostgreSQL -> Turso (SQLite / libSQL)
  *
  * Versi ini menangani perbedaan skema secara GENERIK:
@@ -17,8 +25,8 @@
  *   node scripts/migrateSupabaseToTurso.js
  *   node scripts/migrateSupabaseToTurso.js --skip-users-seed
  *   node scripts/migrateSupabaseToTurso.js --only transactions,categories
- * (membaca kredensial dari server/.env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
- *  TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+ * (membaca kredensial dari env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+ *  TURSO_DATABASE_URL, TURSO_AUTH_TOKEN — SUPABASE kini tidak ada di server/.env)
  */
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient as createTursoClient } from '@libsql/client';

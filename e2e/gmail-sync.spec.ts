@@ -7,9 +7,10 @@
  *      (/api/gmail/logs?includeSummary=1) — bukan hardcode.
  *   2. Klik filter status (Perlu Review, Diterima Otomatis, Semua) → list count
  *      selalu cocok dengan summary cards.
- *   3. Pagination: klik tombol "Berikutnya" sampai halaman terakhir (total 519,
- *      pageSize 100 → 6 halaman) → counter "Menampilkan X-Y dari N email" selalu
- *      benar dan indikator "Halaman X dari Y" ikut berubah.
+ *   3. Pagination: klik tombol "Berikutnya" sampai halaman terakhir (total
+ *      PINNED.gmailLogsTotal, pageSize 100 → 6 halaman) → counter
+ *      "Menampilkan X-Y dari N email" selalu benar dan indikator "Halaman X dari Y"
+ *      ikut berubah.
  *
  * Menjalankan:
  *   npx playwright test e2e/gmail-sync.spec.ts
@@ -27,6 +28,7 @@ import {
   waitListRange,
 } from './helpers/pagination';
 import { collectPageErrors } from './helpers/errors';
+import { PINNED, PINNED_DESCRIPTION } from './helpers/fixtures';
 
 const KEYWORD = 'email';
 
@@ -96,9 +98,8 @@ test.describe('Gmail Sync page (e2e)', () => {
     });
     expect(apiResp.ok()).toBeTruthy();
     const api = await apiResp.json();
-    // Pinned: dataset migrasi saat ini = 519 email (regression guard — update bila
-    // data bertambah secara intentional via scan baru).
-    expect(api.total).toBe(519);
+    // Regression guard: dataset migrasi = 519 email (definisi di fixtures.ts)
+    expect(api.total, PINNED_DESCRIPTION.gmailLogsTotal).toBe(PINNED.gmailLogsTotal);
     expect(api.summary).toBeDefined();
 
     await page.goto('/gmail-sync');
@@ -129,7 +130,7 @@ test.describe('Gmail Sync page (e2e)', () => {
     });
     expect(apiResp.ok()).toBeTruthy();
     const api = await apiResp.json();
-    expect(api.total).toBe(519);
+    expect(api.total, PINNED_DESCRIPTION.gmailLogsTotal).toBe(PINNED.gmailLogsTotal);
 
     await page.goto('/gmail-sync');
     await page.waitForLoadState('domcontentloaded');
@@ -166,12 +167,14 @@ test.describe('Gmail Sync page (e2e)', () => {
     });
     expect(apiResp.ok()).toBeTruthy();
     const api = await apiResp.json();
-    expect(api.total).toBe(519);
+    expect(api.total, PINNED_DESCRIPTION.gmailLogsTotal).toBe(PINNED.gmailLogsTotal);
 
     const total = api.total;
     const pageSize = 100;
-    const totalPages = Math.ceil(total / pageSize); // 519/100 → 6
-    expect(totalPages).toBe(6);
+    const totalPages = Math.ceil(total / pageSize); // dari PINNED.gmailLogsTotal
+    expect(totalPages, `totalPages dari ${PINNED_DESCRIPTION.gmailLogsTotal}`).toBe(
+      Math.ceil(PINNED.gmailLogsTotal / pageSize),
+    );
 
     await page.goto('/gmail-sync');
     await page.waitForLoadState('domcontentloaded');

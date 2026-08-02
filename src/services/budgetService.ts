@@ -2,7 +2,7 @@ import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { onSSE } from '../lib/sse';
 import type { Budget, BudgetFormData, Transaction } from '../types';
 import { getBudgetStatus } from '../lib/utils';
-import { mapBudget } from './supabaseMappers';
+import { mapBudget } from './mappers';
 
 const localKey = (userId: string) => `cashflow-local-budgets-${userId}`;
 

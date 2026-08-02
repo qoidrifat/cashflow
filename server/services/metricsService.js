@@ -3,7 +3,10 @@
  *
  * PRINCIPLES:
  * - Recording is NON-BLOCKING (fire-and-forget; errors swallowed internally).
- * - Uses the Supabase service-role client (server-side, explicit intent).
+ * - Uses the Turso/libSQL client (server-side) via getTurso().
+ *   (Migrasi: sebelumnya memakai Supabase query-builder API yang tidak
+ *   kompatibel dengan libSQL — semua endpoint admin metrics 500. Kini raw SQL
+ *   dengan prepared statements.)
  * - Never logs PII/raw email body/base64/financial values to metadata.
  */
 
@@ -14,6 +17,20 @@ function getMetricsClient() {
   return getTurso();
 }
 
+/** Bangun WHERE + args untuk filter usage umum. */
+function buildUsageWhere({ from, to, feature = null, status = 'all' } = {}) {
+  const clauses = [];
+  const args = [];
+  if (from) { clauses.push('created_at >= ?'); args.push(from); }
+  if (to) { clauses.push('created_at <= ?'); args.push(to); }
+  if (feature) { clauses.push('feature = ?'); args.push(feature); }
+  if (status === 'success') {
+    clauses.push(`status = 'success'`);
+  } else if (status === 'failed') {
+    clauses.push(`status IN ('error', 'timeout', 'rate_limited')`);
+  }
+  return { where: clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '', args };
+}
 
 /**
  * Calculate estimated cost from token counts.
@@ -58,19 +75,25 @@ export async function recordAIUsage({
     const client = getMetricsClient();
     if (!client) return;
     const { costUsd, costIdr } = calculateCost(provider, model, promptTokens, completionTokens);
-    await client.from('ai_usage_metrics').insert({
-      user_id: userId,
-      feature,
-      provider,
-      model,
-      prompt_tokens: Math.max(0, Math.round(Number(promptTokens) || 0)),
-      completion_tokens: Math.max(0, Math.round(Number(completionTokens) || 0)),
-      estimated_cost_usd: costUsd,
-      estimated_cost_idr: costIdr,
-      execution_time_ms: executionTimeMs == null ? null : Math.round(executionTimeMs),
-      status,
-      error_message: errorMessage ? String(errorMessage).slice(0, 500) : null,
-      metadata: sanitizeMetadata(metadata),
+    await client.execute({
+      sql: `INSERT INTO ai_usage_metrics
+            (user_id, feature, provider, model, prompt_tokens, completion_tokens,
+             estimated_cost_usd, estimated_cost_idr, execution_time_ms, status, error_message, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        userId ?? null,
+        feature,
+        provider,
+        model,
+        Math.max(0, Math.round(Number(promptTokens) || 0)),
+        Math.max(0, Math.round(Number(completionTokens) || 0)),
+        costUsd,
+        costIdr,
+        executionTimeMs == null ? null : Math.round(executionTimeMs),
+        status,
+        errorMessage ? String(errorMessage).slice(0, 500) : null,
+        JSON.stringify(sanitizeMetadata(metadata)),
+      ],
     });
   } catch {
     // swallow — metrics must never break the feature
@@ -90,12 +113,16 @@ export async function recordSystemMetric({
   try {
     const client = getMetricsClient();
     if (!client) return;
-    await client.from('system_metrics').insert({
-      metric_name: metricName,
-      metric_value: Number(metricValue) || 0,
-      feature,
-      user_id: userId,
-      metadata: sanitizeMetadata(metadata),
+    await client.execute({
+      sql: `INSERT INTO system_metrics (metric_name, metric_value, feature, user_id, metadata)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        metricName,
+        Number(metricValue) || 0,
+        feature,
+        userId,
+        JSON.stringify(sanitizeMetadata(metadata)),
+      ],
     });
   } catch {
     // swallow
@@ -106,7 +133,7 @@ export async function recordSystemMetric({
  * Remove sensitive keys/values from metadata before storage.
  */
 function sanitizeMetadata(metadata) {
-  if (!metadata || typeof metadata !== 'object') return {};
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
   const SENSITIVE = /(token|secret|key|jwt|authorization|credential|base64|image|body|raw|password|email)/i;
   const output = {};
   for (const [k, v] of Object.entries(metadata)) {
@@ -122,6 +149,17 @@ function sanitizeMetadata(metadata) {
   return output;
 }
 
+/** Parse metadata TEXT JSON dengan aman (bisa string dari DB). */
+function parseMetadata(value) {
+  if (value == null || value === '') return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
 // ===================== Query Functions =====================
 
 /**
@@ -131,15 +169,16 @@ export async function getAIUsageSummary({ from, to, feature = null } = {}) {
   const client = getMetricsClient();
   if (!client) return emptyUsageSummary();
 
-  let query = client.from('ai_usage_metrics').select('*');
-  if (from) query = query.gte('created_at', from);
-  if (to) query = query.lte('created_at', to);
-  if (feature) query = query.eq('feature', feature);
-
-  const { data, error } = await query;
-  if (error || !data) return emptyUsageSummary();
-
-  return aggregateUsage(data);
+  const { where, args } = buildUsageWhere({ from, to, feature });
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM ai_usage_metrics${where}`,
+      args,
+    });
+    return aggregateUsage(rows);
+  } catch {
+    return emptyUsageSummary();
+  }
 }
 
 function aggregateUsage(rows) {
@@ -199,24 +238,27 @@ export async function getCostTrend({ from, to } = {}) {
   const client = getMetricsClient();
   if (!client) return [];
 
-  let query = client.from('ai_usage_metrics').select('created_at, estimated_cost_idr, total_tokens');
-  if (from) query = query.gte('created_at', from);
-  if (to) query = query.lte('created_at', to);
+  const { where, args } = buildUsageWhere({ from, to });
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT created_at, estimated_cost_idr, total_tokens FROM ai_usage_metrics${where}`,
+      args,
+    });
 
-  const { data, error } = await query;
-  if (error || !data) return [];
-
-  const byDay = {};
-  for (const r of data) {
-    const day = String(r.created_at).slice(0, 10);
-    if (!byDay[day]) byDay[day] = { date: day, costIdr: 0, tokens: 0, calls: 0 };
-    byDay[day].costIdr += Number(r.estimated_cost_idr) || 0;
-    byDay[day].tokens += Number(r.total_tokens) || 0;
-    byDay[day].calls += 1;
+    const byDay = {};
+    for (const r of rows) {
+      const day = String(r.created_at).slice(0, 10);
+      if (!byDay[day]) byDay[day] = { date: day, costIdr: 0, tokens: 0, calls: 0 };
+      byDay[day].costIdr += Number(r.estimated_cost_idr) || 0;
+      byDay[day].tokens += Number(r.total_tokens) || 0;
+      byDay[day].calls += 1;
+    }
+    return Object.values(byDay)
+      .map((d) => ({ ...d, costIdr: Math.round(d.costIdr * 100) / 100 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return [];
   }
-  return Object.values(byDay)
-    .map((d) => ({ ...d, costIdr: Math.round(d.costIdr * 100) / 100 }))
-    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
@@ -226,27 +268,35 @@ export async function getSystemMetrics({ metricName, from, to, feature = null } 
   const client = getMetricsClient();
   if (!client) return { data: [], summary: { total: 0, avg: 0, min: 0, max: 0, count: 0 } };
 
-  let query = client.from('system_metrics').select('*').order('created_at', { ascending: false }).limit(1000);
-  if (metricName) query = query.eq('metric_name', metricName);
-  if (feature) query = query.eq('feature', feature);
-  if (from) query = query.gte('created_at', from);
-  if (to) query = query.lte('created_at', to);
+  const clauses = [];
+  const args = [];
+  if (metricName) { clauses.push('metric_name = ?'); args.push(metricName); }
+  if (feature) { clauses.push('feature = ?'); args.push(feature); }
+  if (from) { clauses.push('created_at >= ?'); args.push(from); }
+  if (to) { clauses.push('created_at <= ?'); args.push(to); }
+  const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
 
-  const { data, error } = await query;
-  if (error || !data) return { data: [], summary: { total: 0, avg: 0, min: 0, max: 0, count: 0 } };
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM system_metrics${where} ORDER BY created_at DESC LIMIT 1000`,
+      args,
+    });
 
-  const values = data.map((r) => Number(r.metric_value) || 0);
-  const total = values.reduce((a, b) => a + b, 0);
-  return {
-    data,
-    summary: {
-      total: Math.round(total * 100) / 100,
-      avg: values.length ? Math.round((total / values.length) * 100) / 100 : 0,
-      min: values.length ? Math.min(...values) : 0,
-      max: values.length ? Math.max(...values) : 0,
-      count: values.length,
-    },
-  };
+    const values = rows.map((r) => Number(r.metric_value) || 0);
+    const total = values.reduce((a, b) => a + b, 0);
+    return {
+      data: rows,
+      summary: {
+        total: Math.round(total * 100) / 100,
+        avg: values.length ? Math.round((total / values.length) * 100) / 100 : 0,
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
+        count: values.length,
+      },
+    };
+  } catch {
+    return { data: [], summary: { total: 0, avg: 0, min: 0, max: 0, count: 0 } };
+  }
 }
 
 /**
@@ -256,26 +306,29 @@ export async function getFeatureHealth({ feature, from, to } = {}) {
   const client = getMetricsClient();
   if (!client) return { feature, totalCalls: 0, successRate: 0, failureCount: 0, avgTimeMs: 0 };
 
-  let query = client.from('ai_usage_metrics').select('status, execution_time_ms').eq('feature', feature);
-  if (from) query = query.gte('created_at', from);
-  if (to) query = query.lte('created_at', to);
+  const { where, args } = buildUsageWhere({ feature, from, to });
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT status, execution_time_ms FROM ai_usage_metrics${where}`,
+      args,
+    });
 
-  const { data, error } = await query;
-  if (error || !data) return { feature, totalCalls: 0, successRate: 0, failureCount: 0, avgTimeMs: 0 };
+    const total = rows.length;
+    const success = rows.filter((r) => r.status === 'success').length;
+    const failureCount = total - success;
+    const times = rows.map((r) => Number(r.execution_time_ms) || 0).filter((t) => t > 0);
+    const avgTimeMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
 
-  const total = data.length;
-  const success = data.filter((r) => r.status === 'success').length;
-  const failureCount = total - success;
-  const times = data.map((r) => Number(r.execution_time_ms) || 0).filter((t) => t > 0);
-  const avgTimeMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
-
-  return {
-    feature,
-    totalCalls: total,
-    successRate: total > 0 ? Math.round((success / total) * 1000) / 1000 : 0,
-    failureCount,
-    avgTimeMs,
-  };
+    return {
+      feature,
+      totalCalls: total,
+      successRate: total > 0 ? Math.round((success / total) * 1000) / 1000 : 0,
+      failureCount,
+      avgTimeMs,
+    };
+  } catch {
+    return { feature, totalCalls: 0, successRate: 0, failureCount: 0, avgTimeMs: 0 };
+  }
 }
 
 // Statuses that count as a failed AI call.
@@ -325,51 +378,50 @@ export async function getFeatureCalls({
     return { feature, summary, page: safePage, pageSize: safeSize, total: 0, items: [] };
   }
 
-  let query = client
-    .from('ai_usage_metrics')
-    .select(
-      'id, created_at, provider, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_idr, execution_time_ms, status, error_message, metadata',
-      { count: 'exact' },
-    )
-    .eq('feature', feature);
+  const { where, args } = buildUsageWhere({ feature, from, to, status });
+  try {
+    const { rows: countRows } = await client.execute({
+      sql: `SELECT COUNT(*) AS cnt FROM ai_usage_metrics${where}`,
+      args,
+    });
+    const total = Number(countRows[0]?.cnt) || 0;
 
-  if (from) query = query.gte('created_at', from);
-  if (to) query = query.lte('created_at', to);
-  if (status === 'success') query = query.eq('status', 'success');
-  else if (status === 'failed') query = query.in('status', FAILED_STATUSES);
+    const fromIdx = (safePage - 1) * safeSize;
+    const { rows } = await client.execute({
+      sql: `SELECT id, created_at, provider, model, prompt_tokens, completion_tokens,
+                   total_tokens, estimated_cost_idr, execution_time_ms, status, error_message, metadata
+            FROM ai_usage_metrics${where}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?`,
+      args: [...args, safeSize, fromIdx],
+    });
 
-  const fromIdx = (safePage - 1) * safeSize;
-  const toIdx = fromIdx + safeSize - 1;
-  query = query.order('created_at', { ascending: false }).range(fromIdx, toIdx);
+    const items = rows.map((r) => ({
+      id: r.id,
+      createdAt: r.created_at,
+      provider: r.provider,
+      model: r.model,
+      promptTokens: Number(r.prompt_tokens) || 0,
+      completionTokens: Number(r.completion_tokens) || 0,
+      totalTokens: Number(r.total_tokens) || 0,
+      costIdr: Math.round((Number(r.estimated_cost_idr) || 0) * 100) / 100,
+      executionTimeMs: r.execution_time_ms == null ? null : Number(r.execution_time_ms),
+      status: r.status,
+      errorMessage: r.status === 'success' ? null : sanitizeErrorMessage(r.error_message),
+      metadata: sanitizeMetadata(parseMetadata(r.metadata)),
+    }));
 
-  const { data, error, count } = await query;
-  if (error || !data) {
+    return {
+      feature,
+      summary,
+      page: safePage,
+      pageSize: safeSize,
+      total,
+      items,
+    };
+  } catch {
     return { feature, summary, page: safePage, pageSize: safeSize, total: 0, items: [] };
   }
-
-  const items = data.map((r) => ({
-    id: r.id,
-    createdAt: r.created_at,
-    provider: r.provider,
-    model: r.model,
-    promptTokens: Number(r.prompt_tokens) || 0,
-    completionTokens: Number(r.completion_tokens) || 0,
-    totalTokens: Number(r.total_tokens) || 0,
-    costIdr: Math.round((Number(r.estimated_cost_idr) || 0) * 100) / 100,
-    executionTimeMs: r.execution_time_ms == null ? null : Number(r.execution_time_ms),
-    status: r.status,
-    errorMessage: r.status === 'success' ? null : sanitizeErrorMessage(r.error_message),
-    metadata: sanitizeMetadata(r.metadata),
-  }));
-
-  return {
-    feature,
-    summary,
-    page: safePage,
-    pageSize: safeSize,
-    total: Number(count) || 0,
-    items,
-  };
 }
 
 /**
@@ -379,8 +431,16 @@ export async function checkAlerts() {
   const client = getMetricsClient();
   if (!client) return [];
 
-  const { data: rules, error } = await client.from('alert_rules').select('*').eq('is_active', true);
-  if (error || !rules) return [];
+  let rules = [];
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM alert_rules WHERE is_active = 1`,
+      args: [],
+    });
+    rules = rows;
+  } catch {
+    return [];
+  }
 
   const results = [];
   for (const rule of rules) {
@@ -389,20 +449,19 @@ export async function checkAlerts() {
 
     try {
       if (rule.metric_name === 'estimated_cost_idr') {
-        const { data } = await client
-          .from('ai_usage_metrics')
-          .select('estimated_cost_idr')
-          .gte('created_at', windowStart);
-        currentValue = (data || []).reduce((a, r) => a + (Number(r.estimated_cost_idr) || 0), 0);
+        const { rows } = await client.execute({
+          sql: `SELECT estimated_cost_idr FROM ai_usage_metrics WHERE created_at >= ?`,
+          args: [windowStart],
+        });
+        currentValue = (rows || []).reduce((a, r) => a + (Number(r.estimated_cost_idr) || 0), 0);
       } else if (rule.metric_name.endsWith('_rate')) {
         currentValue = await computeRate(client, rule.metric_name, windowStart);
       } else {
-        const { data } = await client
-          .from('system_metrics')
-          .select('metric_value')
-          .eq('metric_name', rule.metric_name)
-          .gte('created_at', windowStart);
-        currentValue = (data || []).reduce((a, r) => a + (Number(r.metric_value) || 0), 0);
+        const { rows } = await client.execute({
+          sql: `SELECT metric_value FROM system_metrics WHERE metric_name = ? AND created_at >= ?`,
+          args: [rule.metric_name, windowStart],
+        });
+        currentValue = (rows || []).reduce((a, r) => a + (Number(r.metric_value) || 0), 0);
       }
     } catch {
       currentValue = 0;
@@ -410,7 +469,10 @@ export async function checkAlerts() {
 
     const triggered = evaluateCondition(currentValue, rule.condition, Number(rule.threshold));
     if (triggered) {
-      client.from('alert_rules').update({ last_triggered_at: new Date().toISOString() }).eq('id', rule.id).then(() => {}, () => {});
+      client.execute({
+        sql: `UPDATE alert_rules SET last_triggered_at = ? WHERE id = ?`,
+        args: [new Date().toISOString(), rule.id],
+      }).then(() => {}, () => {});
     }
     results.push({
       name: rule.name,
@@ -430,14 +492,17 @@ async function computeRate(client, metricName, windowStart) {
   const feature = metricName.startsWith('agent_search') ? 'agent_search'
     : metricName.startsWith('ocr') ? 'ocr_receipt' : null;
   if (!feature) return 0;
-  const { data } = await client
-    .from('ai_usage_metrics')
-    .select('status')
-    .eq('feature', feature)
-    .gte('created_at', windowStart);
-  if (!data || data.length === 0) return 0;
-  const failures = data.filter((r) => r.status !== 'success').length;
-  return failures / data.length;
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT status FROM ai_usage_metrics WHERE feature = ? AND created_at >= ?`,
+      args: [feature, windowStart],
+    });
+    if (!rows || rows.length === 0) return 0;
+    const failures = rows.filter((r) => r.status !== 'success').length;
+    return failures / rows.length;
+  } catch {
+    return 0;
+  }
 }
 
 function evaluateCondition(value, condition, threshold) {

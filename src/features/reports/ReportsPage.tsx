@@ -23,7 +23,6 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { getAllTransactions, calculateBalance } from '../../services/transactionService';
 import { buildSpendingForecast, generateMonthlyFinancialReport } from '../../services/aiInsightService';
 import { exportMonthlyReportPdf } from '../../services/pdfExportService';
-import { initSupabase } from '../../config/supabase';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import { ChartSkeleton } from '../../components/ui/Skeleton';
@@ -50,9 +49,7 @@ export default function ReportsPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [period, setPeriod] = useState<Period>('monthly');
 
-  useEffect(() => {
-    initSupabase();
-  }, []);
+
 
   useEffect(() => {
     if (!firebaseUser) return;

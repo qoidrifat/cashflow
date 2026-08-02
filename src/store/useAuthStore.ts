@@ -7,7 +7,7 @@ import {
 } from '../services/authService';
 
 interface AuthState {
-  /** Authenticated Supabase user mapped to legacy app shape */
+  /** Authenticated user mapped to legacy app shape */
   firebaseUser: AppUser | null;
   /** Whether auth is still loading */
   isLoading: boolean;
@@ -20,7 +20,7 @@ interface AuthState {
 
   /** Initialize auth listener (returns unsubscribe function) */
   init: () => () => void;
-  /** Login with Google via Supabase Auth */
+  /** Login with Google */
   login: () => Promise<void>;
   /** Logout */
   logout: () => Promise<void>;
@@ -38,7 +38,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logoutAnimationActive: false,
 
   init: () => {
-    // Subscribe to Supabase Auth state changes
+    // Subscribe to auth state changes
     const unsubscribe = onAuthStateChanged((user) => {
       set({
         firebaseUser: user,

@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { onSSE } from '../lib/sse';
 import type { PaymentMethod, SortOption, Transaction, TransactionFormData, TransactionSource, TransactionType } from '../types';
-import { mapTransaction } from './supabaseMappers';
+import { mapTransaction } from './mappers';
 import { triggerTransactionReviewNotification } from './notificationTriggers';
 
 const localKey = (userId: string) => `cashflow-local-transactions-${userId}`;

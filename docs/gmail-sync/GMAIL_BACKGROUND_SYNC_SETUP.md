@@ -1,5 +1,10 @@
 # Gmail Background Sync Setup
 
+> ⚠️ **DEPRECATED (2026-08-02)** — Supabase sudah di-decommission penuh dari CashFlow.
+> Server-side background sync via Supabase Edge Function (`gmail-auto-sync`) + Cron
+> TIDAK lagi tersedia. Dokumen ini dipertahankan hanya sebagai catatan historis.
+> Auto sync yang masih aktif: client-side sync saat aplikasi terbuka (server Express + Turso).
+
 ## 1. Overview
 
 Dokumen ini menjelaskan cara mengaktifkan **background auto sync** untuk Gmail Sync CashFlow.

@@ -135,10 +135,10 @@ AGENT_SEARCH_DATA_BUCKET=cashflow-agent-search-data
 AGENT_SEARCH_USER_HASH_SALT=generate-a-long-random-production-salt
 
 GOOGLE_APPLICATION_CREDENTIALS=./google-agent-search-service-account.json
-
-SUPABASE_URL=your-supabase-url
-SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
 ```
+
+> Catatan (2026-08-02): Supabase sudah di-decommission. `SUPABASE_URL` dan
+> `SUPABASE_SERVICE_ROLE_KEY` TIDAK lagi dibutuhkan/dipakai oleh server runtime.
 
 Production wajib mengisi `AGENT_SEARCH_USER_HASH_SALT` dengan salt random yang stabil. Jika kosong, backend memakai fallback development agar local testing tidak gagal, tetapi hash production bisa berubah jika salt nanti diganti.
 
@@ -149,7 +149,7 @@ VITE_AGENT_SEARCH_ENABLED=true
 VITE_AI_SEARCH_ROUTE_ENABLED=true
 ```
 
-Jangan menaruh `GOOGLE_APPLICATION_CREDENTIALS`, private key, atau Supabase service role di frontend.
+Jangan menaruh `GOOGLE_APPLICATION_CREDENTIALS`, private key, atau service role/key di frontend.
 
 ## 12. Test Health
 
@@ -210,10 +210,11 @@ Endpoint:
 
 ```bash
 curl -X POST http://localhost:5181/api/agent-search/sync-transactions \
-  -H "Authorization: Bearer SUPABASE_ACCESS_TOKEN"
+  -b "better-auth.session_token=<SESSION_COOKIE>"
 ```
 
-Backend akan verify token Supabase, mengambil `user.id`, query `transactions` hanya milik user tersebut, lalu export field aman.
+Backend mengambil user dari session Better Auth (`req.user` — cookie, bukan Supabase JWT),
+lalu query `transactions` hanya milik user tersebut dan export field aman.
 
 ## 15. Sync Gmail Logs
 
@@ -221,7 +222,7 @@ Endpoint:
 
 ```bash
 curl -X POST http://localhost:5181/api/agent-search/sync-gmail-logs \
-  -H "Authorization: Bearer SUPABASE_ACCESS_TOKEN"
+  -b "better-auth.session_token=<SESSION_COOKIE>"
 ```
 
 Yang diindex hanya metadata aman: subject ringkas, sender domain, status, error code/message ringkas, extracted note, amount/merchant dari metadata aman jika ada, confidence, tanggal email, dan scanned_at. Full Gmail body tidak diindex.
@@ -232,7 +233,7 @@ Endpoint:
 
 ```bash
 curl -X POST http://localhost:5181/api/agent-search/sync-receipts \
-  -H "Authorization: Bearer SUPABASE_ACCESS_TOKEN"
+  -b "better-auth.session_token=<SESSION_COOKIE>"
 ```
 
 Yang diindex hanya metadata transaksi receipt scan. File gambar, base64, signed URL, dan public URL privat tidak dikirim.
@@ -301,7 +302,7 @@ Data yang tidak boleh diindex:
 - Service role
 - API key
 - Private key
-- Supabase JWT
+- JWT / session token (Better Auth)
 - Base64 struk
 - File gambar bukti
 - Permanent signed URL/private storage URL

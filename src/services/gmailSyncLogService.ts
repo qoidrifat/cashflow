@@ -1,6 +1,6 @@
 import { apiGet, apiPost } from '../config/api';
 import type { GmailSyncLog, SyncEmailStatus } from '../types';
-import { mapGmailSyncLog } from './supabaseMappers';
+import { mapGmailSyncLog } from './mappers';
 import { useAuthStore } from '../store/useAuthStore';
 
 export interface GmailSyncSummary {

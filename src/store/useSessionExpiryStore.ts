@@ -4,7 +4,7 @@ import { create } from 'zustand';
  * CF-056: Centralized "session expired" state.
  *
  * A single source of truth that any layer (service code, HTTP error handlers,
- * Supabase auth listener) can flip when it detects that the user's session or
+ * auth listener) can flip when it detects that the user's session or
  * OAuth credentials are no longer valid. The flag is IDEMPOTENT — once the
  * expiry flow has started, repeated triggers are ignored so the pop-up and the
  * auto-logout only ever run ONCE even if many requests fail at the same time.

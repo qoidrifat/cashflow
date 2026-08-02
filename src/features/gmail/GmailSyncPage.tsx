@@ -36,7 +36,6 @@ import { buildFallbackTransactionFromEmail } from '../../lib/geminiFallbackParse
 import { GEMINI_ERROR_CODES, isQuotaOrCreditsError } from '../../lib/geminiErrors';
 import { addTransaction, DuplicateTransactionError } from '../../services/transactionService';
 import { triggerGmailSyncNotification } from '../../services/notificationTriggers';
-import { initSupabase } from '../../config/supabase';
 import { classifyEmail, extractDomain } from '../../lib/gmailClassifier';
 import { evaluateLocalGmailParser, shouldSendToAi, type LocalParserResult } from '../../lib/gmailLocalParser';
 import { logger } from '../../lib/logger';
@@ -248,7 +247,7 @@ export default function GmailSyncPage() {
   const [geminiHealth, setGeminiHealth] = useState<{ ok: boolean; status: string; message: string } | null>(null);
 
   // ===================== Result Pagination State =====================
-  // Data hasil scan dimuat dari Supabase dengan pagination (100 per halaman)
+  // Data hasil scan dimuat dari server dengan pagination (100 per halaman)
   // Riwayat tetap tersimpan meskipun user pindah halaman, refresh, atau logout-login
   const [paginatedLogs, setPaginatedLogs] = useState<import('../../services/gmailSyncLogService').PaginatedSyncLogsResult | null>(null);
   const [logsCurrentPage, setLogsCurrentPage] = useState(1);
@@ -349,7 +348,6 @@ export default function GmailSyncPage() {
   }), []);
 
   useEffect(() => {
-    initSupabase();
     setIsConnected(!!firebaseUser);
   }, [firebaseUser]);
 
@@ -392,7 +390,7 @@ export default function GmailSyncPage() {
   }, []);
 
   // ===================== Load Sync Run History =====================
-  // Riwayat dimuat dari Supabase setiap kali halaman dibuka
+  // Riwayat dimuat dari server setiap kali halaman dibuka
   // Setelah pindah halaman, refresh, atau logout-login, data tetap ada
   const loadSyncRuns = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!firebaseUser?.uid) return;
@@ -456,7 +454,7 @@ export default function GmailSyncPage() {
           syncIntervalMinutes: settings.syncIntervalMinutes,
         });
 
-        // Synckan state enabled dari Supabase (lebih otoritatif daripada localStorage)
+        // Synckan state enabled dari server (lebih otoritatif daripada localStorage)
         if (settings.autoSyncEnabled !== gmailSyncEnabled) {
           setGmailSyncEnabled(settings.autoSyncEnabled);
         }
@@ -556,7 +554,7 @@ export default function GmailSyncPage() {
     setSyncProgress(null);
     syncProgressRef.current = null;
 
-    // Buat sync run di Supabase agar riwayat tercatat
+    // Buat sync run di server agar riwayat tercatat
     let syncRunId: string | null = null;
     const todayStr = new Date().toISOString().split('T')[0];
     if (firebaseUser?.uid) {
@@ -941,9 +939,9 @@ export default function GmailSyncPage() {
             metadata: getProgressMetadata(finalProgress),
           });
           setActiveSyncRunId(null);
-          // Refresh riwayat dari Supabase
+          // Refresh riwayat dari server
           void loadSyncRuns();
-          // Setelah scan selesai, muat hasil dari Supabase dengan pagination
+          // Setelah scan selesai, muat hasil dari server dengan pagination
           setLogsCurrentPage(1);
           setSelectedSyncRunId(syncRunId);
           void loadPaginatedResults(syncRunId, 1);
@@ -1315,7 +1313,7 @@ export default function GmailSyncPage() {
   };
 
   /**
-   * Retry all previously failed emails from Supabase + Gmail API
+   * Retry all previously failed emails from server + Gmail API
    */
   const handleRetryFailedEmails = async () => {
     if (!firebaseUser) return;
@@ -1342,7 +1340,7 @@ export default function GmailSyncPage() {
         currentStep: 'preparing',
       });
 
-      // Step 1: Query Supabase untuk messageId yang failed
+      // Step 1: Query server untuk messageId yang failed
       const failedEmails = await getFailedEmailIds(firebaseUser.uid, 200);
 
       if (failedEmails.length === 0) {
@@ -1591,8 +1589,8 @@ export default function GmailSyncPage() {
     setExpandedEmail((prev) => (prev === emailId ? null : emailId));
   };
 
-  // ===================== Load Paginated Results from Supabase =====================
-  // Hasil scan dimuat dari Supabase dengan pagination agar tetap tersimpan
+  // ===================== Load Paginated Results from server =====================
+  // Hasil scan dimuat dari server dengan pagination agar tetap tersimpan
   // meskipun user pindah halaman, refresh browser, atau logout-login.
   // Maksimal 100 email per halaman. Semua halaman bisa diakses via pagination.
   const loadPaginatedResults = useCallback(async (_syncRunId?: string | null, page?: number) => {
@@ -1623,7 +1621,7 @@ export default function GmailSyncPage() {
       setPaginatedLogs(result);
       setLogsCurrentPage(targetPage);
       // Populasi state in-memory agar summary cards & filter bar tetap tampil
-      // meskipun halaman di-refresh (email diambil dari log Supabase)
+      // meskipun halaman di-refresh (email diambil dari log server)
       if (result.data.length > 0) {
         setEmails((prev) => {
           if (prev.length > 0) return prev;
@@ -1938,7 +1936,7 @@ export default function GmailSyncPage() {
           </div>
         )}
 
-        {/* Email list — menampilkan hasil dari Supabase dengan pagination 100 per halaman */}
+        {/* Email list — menampilkan hasil dari server dengan pagination 100 per halaman */}
         {!logsLoading && !logsError && paginatedLogs && paginatedLogs.data.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -2056,7 +2054,7 @@ export default function GmailSyncPage() {
           </div>
         )}
 
-        {/* Riwayat Sync — Data dari Supabase, tetap ada setelah pindah halaman/refresh/logout */}
+        {/* Riwayat Sync — Data dari server, tetap ada setelah pindah halaman/refresh/logout */}
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <History className="w-4 h-4 text-app-subtle" />

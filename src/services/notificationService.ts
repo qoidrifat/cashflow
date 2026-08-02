@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { onSSE } from '../lib/sse';
 import type { AppNotification, CreateNotificationInput, NotificationType } from '../types';
-import { mapNotification } from './supabaseMappers';
+import { mapNotification } from './mappers';
 
 export interface NotificationQueryOptions {
   limit?: number;

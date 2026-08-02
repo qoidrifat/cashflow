@@ -26,7 +26,7 @@ export default function LandingPage() {
     {
       icon: <Shield className="w-6 h-6" />,
       title: 'Aman & Privasi',
-      description: 'Data kamu aman dengan Supabase RLS',
+      description: 'Data kamu aman dengan autentikasi session dan akses data per-user di server.',
     },
   ];
 

@@ -1,9 +1,46 @@
 # Stability Report — CashFlow E2E
 
 > Quality gate: suite E2E dijalankan 3× berurutan → **0 flaky failures** (kriteria sukses enterprise).
-> Tanggal: 1 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
+> Tanggal: 2 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
 
-## Hasil Final (setelah semua perbaikan)
+## Hasil Final (2026-08-02 — setelah fix authMiddleware + P1, 17 test / 6 spec)
+
+| Run | Hasil | Waktu | Flaky/Failed |
+|---|---|---|---|
+| 1 | **17 passed** | 1.0m | 0 |
+| 2 | **17 passed** | 57.5s | 0 |
+| 3 | **17 passed** | 59.9s | 0 |
+
+**Verdict: ✅ 0 flaky dalam 3× run berurutan — kriteria stabilitas terpenuhi.**
+
+Rincian per spec (17 test): agent-search-auth 3 · admin-metrics-auth 3 · core-pages 3 (budgets/reports/notifications) · dashboard 2 · gmail-sync 3 · transactions 3.
+
+> Sebelumnya (era 8 test): run 3× berturut-turut 8/8 (43.1/41.7/42.6s) — 0 flaky; pasca-audit (14 test): 14/14 × 3 (1.1m/56.3s/55.4s). Angka di atas adalah **baseline terbaru** setelah `core-pages.spec.ts` ditambahkan (P1).
+
+---
+
+## Riwayat Flake Terbaru (2026-08-02) — fix `authMiddleware` (P0)
+
+### Gejala
+
+Setelah spec `admin-metrics-auth.spec.ts` ditambahkan, full suite menunjukkan **4 flaky**:
+admin-metrics-auth test (c) "dengan cookie admin → 200" · agent-search-auth test 3 · gmail-sync test 1 & 2. Error-context: `Expected: 200, Received: 401` pada `/api/admin/metrics/alerts` — **cookie admin valid, 5 endpoint sebelumnya lolos, endpoint terakhir 401**.
+
+### Root cause
+
+`server/middleware/authMiddleware.js` menelan **SEMUA error** `auth.api.getSession` di try/catch kosong → `req.user = null` → resolveAdmin/requireAuth melempar **401 transient** saat blip koneksi Turso (DB error disamarkan sebagai "belum login").
+
+### Fix
+
+Pisahkan dua kondisi:
+- **(a)** `getSession()` mengembalikan `null` (cookie tidak ada/tidak valid) → `req.user = null` → 401 **benar**.
+- **(b)** `getSession()` **throw** (error DB) → retry sekali (150ms); bila masih gagal → `next(error)` → Express error handler → **500 jujur** (bukan 401 palsu).
+
+Diverifikasi: `node --check` OK · health 200 · admin/agent-search tanpa cookie = 401 · sync-docs publik = 200 (anon tetap aman) · **3× run 14/14 — 0 flaky** (saat itu; kini 17/17 setelah P1).
+
+---
+
+## Hasil Final (era awal — setelah perbaikan race, 8 test)
 
 | Run | Hasil | Waktu | Flaky/Failed |
 |---|---|---|---|

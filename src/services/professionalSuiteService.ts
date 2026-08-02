@@ -11,7 +11,7 @@ import type {
   WalletAccount,
   WalletAccountFormData,
 } from '../types';
-import { mapSavingGoal, mapSubscription, mapWallet } from './supabaseMappers';
+import { mapSavingGoal, mapSubscription, mapWallet } from './mappers';
 
 type CollectionKey = 'wallets' | 'goals' | 'subscriptions';
 

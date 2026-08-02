@@ -289,6 +289,71 @@ CREATE TABLE IF NOT EXISTS admin_metrics (
 );
 
 -- =============================================
+-- Monitoring & Observability (CF-053)
+-- Migrasi dari Supabase migration 20260622000000_create_monitoring_tables.sql
+-- =============================================
+
+-- AI Usage Metrics (per AI call: token, cost estimasi, status)
+CREATE TABLE IF NOT EXISTS ai_usage_metrics (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES user(id) ON DELETE SET NULL,
+  feature TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER GENERATED ALWAYS AS (prompt_tokens + completion_tokens) STORED,
+  estimated_cost_usd REAL NOT NULL DEFAULT 0,
+  estimated_cost_idr REAL NOT NULL DEFAULT 0,
+  execution_time_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'success',
+  error_message TEXT,
+  metadata TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_feature_created ON ai_usage_metrics(feature, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage_metrics(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_metrics(created_at DESC);
+
+-- System Metrics (event counters: gmail_sync_failed, agent_search_count, dst)
+CREATE TABLE IF NOT EXISTS system_metrics (
+  id TEXT PRIMARY KEY,
+  metric_name TEXT NOT NULL,
+  metric_value REAL NOT NULL DEFAULT 1,
+  feature TEXT,
+  user_id TEXT REFERENCES user(id) ON DELETE SET NULL,
+  metadata TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_metrics_name_created ON system_metrics(metric_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_metrics_feature_created ON system_metrics(feature, created_at DESC);
+
+-- Alert Rules (threshold monitoring, seed default di bawah)
+CREATE TABLE IF NOT EXISTS alert_rules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  metric_name TEXT NOT NULL,
+  condition TEXT NOT NULL CHECK (condition IN ('gt', 'lt', 'eq')),
+  threshold REAL NOT NULL,
+  window_minutes INTEGER NOT NULL DEFAULT 60,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  last_triggered_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules(is_active) WHERE is_active = 1;
+
+-- Seed default alert rules (idempotent via UNIQUE name)
+INSERT OR IGNORE INTO alert_rules (name, metric_name, condition, threshold, window_minutes)
+VALUES
+  ('ai_cost_daily', 'estimated_cost_idr', 'gt', 50000, 1440),
+  ('gmail_sync_failures', 'gmail_sync_failed', 'gt', 10, 10),
+  ('agent_search_error_rate', 'agent_search_error_rate', 'gt', 0.10, 60),
+  ('ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60);
+
+-- =============================================
 -- INDEXES
 -- =============================================
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);

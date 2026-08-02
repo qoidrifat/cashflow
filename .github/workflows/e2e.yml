@@ -22,10 +22,6 @@ permissions:
 env:
   CI: 'true'
   NODE_VERSION: '20'
-  # Client-side Supabase vars (frontend boot). Kosong aman bila E2E tidak
-  # mengeksekusi flow Supabase; isi secret bila app memerlukan boot penuh.
-  VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
   VITE_AGENT_SEARCH_ENABLED: 'false'
   VITE_AI_SEARCH_ROUTE_ENABLED: 'true'
 

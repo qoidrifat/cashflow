@@ -1,4 +1,12 @@
 /**
+ * ⚠️ LEGACY — Supabase sudah di-decommission (2026-08-02).
+ *
+ * Script ini HANYA untuk migrasi data historis (jika project Supabase masih
+ * hidup sementara sebelum dihapus manual). Server runtime tidak memakai Supabase
+ * sebagai dependensi aktif — folder supabase/ (functions, migrations) dipertahankan
+ * sebagai dormant. Kredensial SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY TIDAK lagi
+ * tersedia di server/.env — isi manual via env bila ingin re-run.
+ *
  * Migrasi Data Gmail Sync: Supabase PostgreSQL -> Turso (SQLite / libSQL)
  *
  * Kenapa script terpisah dari migrateSupabaseToTurso.js:
@@ -13,8 +21,8 @@
  * Cara penggunaan:
  *   node scripts/migrateGmailSupabaseToTurso.mjs
  *   node scripts/migrateGmailSupabaseToTurso.mjs --skip-users-seed
- * (membaca kredensial dari server/.env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
- *  TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+ * (membaca kredensial dari env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+ *  TURSO_DATABASE_URL, TURSO_AUTH_TOKEN — SUPABASE kini tidak ada di server/.env)
  *
  * Catatan: Script ini HANYA menyentuh 3 tabel Gmail (gmail_sync_logs,
  * gmail_sync_runs, gmail_sync_settings). Satu-satunya write di luar itu adalah

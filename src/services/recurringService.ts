@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { onSSE } from '../lib/sse';
 import type { RecurringFormData, RecurringTransaction } from '../types';
-import { mapRecurring } from './supabaseMappers';
+import { mapRecurring } from './mappers';
 import { addTransaction, DuplicateTransactionError } from './transactionService';
 
 const localKey = (userId: string) => `cashflow-local-recurring-${userId}`;

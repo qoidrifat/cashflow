@@ -20,7 +20,7 @@ export async function getGmailAccessToken(): Promise<string | null> {
 /**
  * Get current Auth user
  */
-async function getCurrentSupabaseUser() {
+async function getCurrentAuthUser() {
   const user = await getCurrentUser();
   if (!user) throw new Error('User belum login');
   return { id: user.id, email: user.email };
@@ -92,15 +92,15 @@ export interface GmailFetchProgress {
  *
  * Safety: dibatasi MAX_EMAILS_PER_SCAN (5000) untuk mencegah infinite loop.
  *
- * Note: full body hanya dipakai sementara di memori untuk AI extraction dan tidak disimpan ke Supabase.
+ * Note: full body hanya dipakai sementara di memori untuk AI extraction dan tidak disimpan ke database.
  */
 export async function fetchTransactionEmails(
   onProgress?: (progress: GmailFetchProgress) => void,
 ): Promise<GmailEmail[]> {
   // Verifikasi user sudah login (throw error if not)
-  await getCurrentSupabaseUser();
+  await getCurrentAuthUser();
 
-  // Token OAuth Google dari Supabase Auth session dengan scope gmail.readonly.
+  // Token OAuth Google dari session user dengan scope gmail.readonly.
   const token = await getGmailAccessToken();
   if (!token) {
     throw new Error('Gagal mendapatkan token akses Gmail.');
@@ -482,7 +482,7 @@ export async function fetchEmailsById(
   messageIds: string[],
   onProgress?: (progress: GmailFetchProgress) => void,
 ): Promise<GmailEmail[]> {
-  await getCurrentSupabaseUser();
+  await getCurrentAuthUser();
 
   const token = await getGmailAccessToken();
   if (!token) throw new Error('Gagal mendapatkan token akses Gmail.');

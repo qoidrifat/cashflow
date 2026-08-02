@@ -23,6 +23,7 @@ import {
   waitListRange,
 } from './helpers/pagination';
 import { collectPageErrors } from './helpers/errors';
+import { PINNED, PINNED_DESCRIPTION } from './helpers/fixtures';
 
 const KEYWORD = 'transaksi';
 
@@ -50,9 +51,8 @@ test.describe('Transaksi page (e2e)', () => {
     });
     expect(apiResp.ok()).toBeTruthy();
     const api = await apiResp.json();
-    // Pinned: dataset migrasi saat ini = 284 transaksi (regression guard — update
-    // bila data bertambah secara intentional).
-    expect(api.total).toBe(284);
+    // Regression guard: dataset migrasi = 284 transaksi (definisi di fixtures.ts)
+    expect(api.total, PINNED_DESCRIPTION.transactionsTotal).toBe(PINNED.transactionsTotal);
 
     await page.goto('/transactions');
     await page.waitForLoadState('domcontentloaded');
@@ -79,8 +79,8 @@ test.describe('Transaksi page (e2e)', () => {
       const j = await resp.json();
       totals[type] = j.total;
     }
-    expect(totals.income).toBe(86);
-    expect(totals.expense).toBe(131);
+    expect(totals.income, PINNED_DESCRIPTION.transactionsIncome).toBe(PINNED.transactionsIncome);
+    expect(totals.expense, PINNED_DESCRIPTION.transactionsExpense).toBe(PINNED.transactionsExpense);
 
     await page.goto('/transactions');
     await page.waitForLoadState('domcontentloaded');
@@ -111,12 +111,14 @@ test.describe('Transaksi page (e2e)', () => {
     });
     expect(apiResp.ok()).toBeTruthy();
     const api = await apiResp.json();
-    expect(api.total).toBe(284);
+    expect(api.total, PINNED_DESCRIPTION.transactionsTotal).toBe(PINNED.transactionsTotal);
 
     const total = api.total;
     const pageSize = 50;
-    const totalPages = Math.ceil(total / pageSize); // 284/50 → 6
-    expect(totalPages).toBe(6);
+    const totalPages = Math.ceil(total / pageSize); // dari PINNED.transactionsTotal
+    expect(totalPages, `totalPages dari ${PINNED_DESCRIPTION.transactionsTotal}`).toBe(
+      Math.ceil(PINNED.transactionsTotal / pageSize),
+    );
 
     await page.goto('/transactions');
     await page.waitForLoadState('domcontentloaded');

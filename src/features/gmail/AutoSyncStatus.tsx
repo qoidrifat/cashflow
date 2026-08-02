@@ -199,8 +199,8 @@ export default function AutoSyncStatus({
             {gmailSyncEnabled ? 'Auto Sync Aktif (Aplikasi Aktif)' : 'Auto Sync'}
           </p>
           <p className="text-primary-500 dark:text-primary-400 mt-0.5">
-            Auto Sync saat ini berjalan saat aplikasi aktif. Untuk scan di latar belakang
-            tanpa membuka aplikasi, setup Supabase Edge Function + Cron{' '}
+            Auto Sync saat ini berjalan saat aplikasi aktif. Scan di latar belakang
+            tanpa membuka aplikasi tidak lagi didukung (fitur Edge Function dihapus).{' '}
             <a
               href="/docs/gmail-sync/GMAIL_BACKGROUND_SYNC_SETUP.md"
               className="underline hover:no-underline"

@@ -59,7 +59,7 @@ export default function App() {
     if (processedUid.current === firebaseUser.uid) return;
     processedUid.current = firebaseUser.uid;
 
-    // Give Supabase auth/session time to settle, then process dues
+    // Give auth/session time to settle, then process dues
     const timer = setTimeout(() => {
       processDueRecurringTransactions(firebaseUser.uid).catch((err) =>
         logger.error('[App] Failed to process recurring', err)

@@ -23,7 +23,6 @@ import {
   updateTransaction,
   type PaginatedTransactionsResult,
 } from '../../services/transactionService';
-import { initSupabase } from '../../config/supabase';
 import { PAYMENT_METHODS } from '../../config/constants';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
@@ -74,9 +73,7 @@ export default function TransactionsPage() {
   const [filterMaxAmount, setFilterMaxAmount] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('date-desc');
 
-  useEffect(() => {
-    initSupabase();
-  }, []);
+
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setDebouncedSearch(search), 300);

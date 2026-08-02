@@ -229,7 +229,7 @@ export function scanResultToFormData(
 }
 
 /**
- * Save a scanned transaction to Supabase.
+ * Save a scanned transaction.
  */
 export async function saveScanTransaction(
   userId: string,

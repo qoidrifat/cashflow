@@ -8,7 +8,6 @@ import { listenToBudgets, addBudget, deleteBudget, updateBudget } from '../../se
 import { getAllTransactions, listenToTransactions } from '../../services/transactionService';
 import { triggerBudgetOverNotification, triggerBudgetWarningNotification } from '../../services/notificationTriggers';
 import { buildBudgetRecommendations } from '../../services/aiInsightService';
-import { initSupabase } from '../../config/supabase';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -49,9 +48,7 @@ export default function BudgetsPage() {
   const currentMonth = getCurrentMonth();
   const currentYear = getCurrentYear();
 
-  useEffect(() => {
-    initSupabase();
-  }, []);
+
 
   useEffect(() => {
     if (!firebaseUser) return;

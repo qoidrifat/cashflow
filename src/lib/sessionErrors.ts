@@ -1,6 +1,6 @@
 /**
  * CF-056: Detect whether an error/response indicates an EXPIRED or INVALID
- * authentication session (Supabase Auth session OR Google OAuth token).
+ * authentication session (Better Auth session OR Google OAuth token).
  *
  * This is a POSITIVE-MATCH detector: it returns true ONLY for clear auth-expiry
  * signals. Transient failures (HTTP 500, timeouts, network errors) never match,
@@ -10,7 +10,7 @@
  *  - HTTP 401 (Unauthorized / UNAUTHENTICATED)
  *  - Google: "Request had invalid authentication credentials",
  *    "Expected OAuth 2 access token", "UNAUTHENTICATED"
- *  - Supabase / OAuth: "invalid_grant", "jwt expired", "token expired",
+ *  - OAuth / auth: "invalid_grant", "jwt expired", "token expired",
  *    "refresh token", "session expired"
  *
  * NOTE: HTTP 403 alone is NOT treated as expiry — it usually means

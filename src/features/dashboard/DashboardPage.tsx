@@ -16,7 +16,6 @@ import { useAppStore } from '../../store/useAppStore';
 import { listenToTransactions, calculateBalance } from '../../services/transactionService';
 import { listenToBudgets } from '../../services/budgetService';
 import { triggerBudgetOverNotification, triggerBudgetWarningNotification } from '../../services/notificationTriggers';
-import { initSupabase } from '../../config/supabase';
 import { cn, formatCurrency, getCurrentMonth, getCurrentYear } from '../../lib/utils';
 import type { Budget, BudgetStatus, Transaction } from '../../types';
 import Header from '../../components/layout/Header';
@@ -31,7 +30,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 function getDashboardErrorMessage(message: string): string {
   const normalized = message.toLowerCase();
   if (normalized.includes('schema cache') || normalized.includes('could not find the table')) {
-    return 'Database Supabase belum siap atau schema cache belum reload. Pastikan migration core CashFlow sudah dijalankan, lalu klik Coba Lagi.';
+    return 'Database belum siap. Pastikan server API aktif dan data sudah dimigrasi, lalu klik Coba Lagi.';
   }
   if (normalized.includes('permission denied') || normalized.includes('row-level security')) {
     return 'Data tidak bisa dibaca karena policy RLS belum mengizinkan user saat ini. Pastikan policy memakai auth.uid() = user_id.';
@@ -89,9 +88,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
-  useEffect(() => {
-    initSupabase();
-  }, []);
+
 
   useEffect(() => {
     if (!firebaseUser) return;

@@ -1,5 +1,12 @@
 # Spec: Monitoring & Observability (CF-053)
 
+> ⚠️ **SUPERSEDED (2026-08-02)** — Supabase decommissioned. Metrics kini murni
+> custom di **Turso** (`ai_usage_metrics`, `system_metrics`, `alert_rules`) via
+> `server/services/metricsService.js` (raw SQL libSQL). Admin gate memakai
+> `resolveAdmin` (Better Auth `req.user` + `ADMIN_EMAILS`) — BUKAN Supabase JWT,
+> dan TIDAK ada RLS (authorization di lapisan middleware Express). Bagian
+> "Supabase Reports / Metrics API" di bawah adalah arsip sejarah — jangan dipakai.
+
 ## Behavior Contract
 
 ### Metrics Recording (non-blocking)
@@ -10,9 +17,11 @@
 
 ### Admin Access
 - Admin = email present in `ADMIN_EMAILS` env (comma-separated).
-- Verified server-side via Supabase JWT email claim in `resolveAdmin()`.
-- Non-admin → HTTP 403 → dashboard shows "Akses ditolak" state.
-- Metrics tables have RLS enabled with NO permissive policy → only service role reads/writes.
+- Verified server-side via **Better Auth `req.user`** (dari `authMiddleware`) di
+  `resolveAdmin()` — bukan Supabase JWT.
+- Non-admin → HTTP 403 (`ADMIN_METRICS_403`) → dashboard shows "Akses ditolak" state.
+- **Tidak ada RLS** — authorization di lapisan middleware Express; tabel di Turso
+  hanya diakses lewat server (klien tidak pernah memegang kredensial DB).
 
 ### Instrumented Features
 | Feature | Token data | System metrics |
@@ -28,39 +37,23 @@
 - `agent_search_error_rate`: > 0.10 in 60m
 - `ocr_failure_rate`: > 0.20 in 60m
 
-## Tahap 1 — Supabase Reports (built-in, no code)
+## ~~Tahap 1 — Supabase Reports~~ (ARSIP — Supabase decommissioned 2026-08-02)
 
-Supabase provides built-in Reports via dashboard (no implementation needed):
-- **Database**: CPU, slow queries, DB size growth
-- **API**: request volume, error rates
-- **Auth**: login counts, active users
-- **Storage / Realtime**: usage stats
+~~Supabase provides built-in Reports via dashboard (no implementation needed)~~
+— **TIDAK berlaku lagi**: project Supabase `bwczweuomlwmgwgrsadt` dihapus.
+Infra observability kini hanya via custom metrics Turso + `/api/admin/metrics/*`.
 
-Key tables to monitor via Supabase Reports:
-`transactions`, `receipts`, `gmail_sync_logs`, `notifications`, `profiles`, `budgets`.
+## ~~Tahap 6 — Supabase Metrics API~~ (ARSIP — tidak akan dipakai)
 
-Access: Supabase Dashboard → Reports section. Use for infra-level observability
-that complements the custom AI cost/health metrics built in CF-053.
-
-## Tahap 6 — Supabase Metrics API (future, documentation only)
-
-For future Prometheus/Grafana integration (NOT implemented in CF-053):
-- Endpoint: `/customer/v1/privileged/metrics` (vendor-agnostic)
-- Auth: Basic Auth with Project Ref + Service Role / metrics secret
-- Scrape interval: ~60s
-- Recommended visualization: Grafana Cloud Free tier
-
-This is documented as preparation only. CashFlow's custom metrics
-(`ai_usage_metrics`, `system_metrics`) cover the AI cost/health needs today.
-
-References (rephrased for compliance with licensing restrictions):
-- Supabase Metrics API: https://supabase.com/docs/guides/platform/metrics
-- Supabase Reports: https://supabase.com/docs/guides/telemetry/reports/
-- Vendor-agnostic Metrics: https://supabase.com/docs/guides/telemetry/metrics/vendor-agnostic
+~~Prometheus/Grafana integration via Supabase Metrics API~~ — **batal** pasca
+decommission. Bila butuh Grafana di masa depan: scrape langsung dari endpoint
+custom `/api/admin/metrics/*` (server-side, admin-guarded).
 
 ## Setup
 
-1. Run migration `20260622000000_create_monitoring_tables.sql`
+1. Tabel monitoring (`ai_usage_metrics`, `system_metrics`, `alert_rules`,
+   `admin_metrics`) sudah ada di `turso-schema.sql` (Turso) — bukan migrasi
+   Supabase.
 2. Set `ADMIN_EMAILS=you@example.com` in `server/.env`
 3. Optionally set `USD_TO_IDR` (default 16000)
 4. Restart server
