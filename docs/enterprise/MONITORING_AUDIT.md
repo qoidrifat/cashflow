@@ -55,6 +55,8 @@ Admin Dashboard (/admin/monitoring) ← /api/admin/metrics/* (resolveAdmin: ADMI
 - **Privacy-first**: `sanitizeMetadata` (drop key sensitif + nested object + cap 200 char), `sanitizeErrorMessage` (redact JWT/key/path, cap 400), "Never logs PII/raw email body/base64/financial values".
 - **Raw SQL Turso** dengan prepared statements (migrasi dari Supabase query builder yang tidak kompatibel).
 - **Alert rules**: 5 seed default (ai_cost_daily, gmail_sync_failures, agent_search_error_rate, ocr_failure_rate, cache_hit_rate — deteksi degradasi LRU cache: hit rate < 50% dalam 60 menit), evaluasi windowed di `checkAlerts()`, idempotent seed.
+- **Notification channel (gap #1 ditutup)**: `server/services/alertNotifier.js` — rule triggered → (a) **webhook** POST JSON ke `ALERT_WEBHOOK_URL` (Slack/Discord/generic) + (b) **in-app notification** untuk admin (tabel `notifications` + SSE bell icon); cooldown via `last_notified_at` (`ALERT_COOLDOWN_MINUTES`, default 60m) — anti-spam. Non-blocking (tidak pernah melempar).
+- **Scheduler (gap #7 ditutup)**: `runAlertEvaluation()` (tanpa cache) dipanggil `setInterval` 60s (`ALERT_SCHEDULER_INTERVAL_MS`) sejak server start — alert dievaluasi & notifikasi terkirim walau tanpa admin membuka dashboard. Nonaktif: `ALERT_SCHEDULER_ENABLED=false` atau server uji (PORT 5182).
 - **Pagination** untuk riwayat per-feature (`getFeatureCalls`, limit pageSize ≤100).
 - **E2E guard**: contract test admin summary + auth gate spec.
 
@@ -64,13 +66,13 @@ Admin Dashboard (/admin/monitoring) ← /api/admin/metrics/* (resolveAdmin: ADMI
 
 | # | Gap | Rekomendasi | Prioritas |
 |---|---|---|---|
-| 1 | **Tidak ada channel alerting** — `checkAlerts` hanya dirender di dashboard; tidak kirim notifikasi | Email/webhook (Gmail API atau webhook generic) bila alert triggered; simpan last_notified | **P1** |
+| 1 | **Tidak ada channel alerting** — `checkAlerts` hanya dirender di dashboard; tidak kirim notifikasi | ✅ **Ditutup** — webhook generic (`ALERT_WEBHOOK_URL`) + in-app admin notification + cooldown `last_notified_at` (`alertNotifier.js`) | **P1** |
 | 2 | Tidak ada HTTP metrics (status code, latency per route) | Middleware metrics (res.on('finish') → system_metrics) | **P1** |
 | 3 | Tidak ada CPU/memory/disk | `process.memoryUsage()`/`os.loadavg()` periodic → system_metrics; atau APM | **P2** |
 | 4 | Tidak ada SLO/SLI/SLA formal | Definisikan SLI: availability (/api/health 99.9%), latency p95 (budget perf ada: 1200ms), error rate; SLO target; SLA internal | **P2** |
 | 5 | Tidak ada distributed tracing | request-id global + trace span untuk AI call (parentId di metadata) | **P2** |
 | 6 | Per-user usage tidak terlihat admin (by design) | Opsional: agregat anonim (hash userId) untuk abuse detection | **P3** |
-| 7 | Alert evaluasi sinkron di request path | Scheduler terpisah (setInterval/Cloud Scheduler) untuk `checkAlerts` berkala | **P2** |
+| 7 | Alert evaluasi sinkron di request path | ✅ **Ditutup** — scheduler `setInterval` 60s (`runAlertEvaluation`, bypass cache) di server/index.js | **P2** |
 | 8 | SSE health tidak terpantau | System metric koneksi aktif per user (count/timestamp) | **P3** |
 | 9 | Cost Agent Search = 0 (`perQueryUsd: 0`) | Set per kontrak riil / catat per query | **P2** |
 
@@ -93,12 +95,12 @@ Admin Dashboard (/admin/monitoring) ← /api/admin/metrics/* (resolveAdmin: ADMI
 | Dimensi | Skor /10 | Keterangan |
 |---|---|---|
 | Feature & AI metrics | 8.0 | Lengkap + cost + latency + status, non-blocking, privacy-first |
-| Alert rules | 6.0 | Ada evaluasi + threshold, tapi tanpa channel pengiriman |
+| Alert rules | 8.0 | Evaluasi + threshold + channel pengiriman (webhook + in-app) + cooldown + scheduler berkala |
 | Dashboard | 7.5 | MonitoringPage admin lengkap (summary/trend/feature-health/calls/alerts) |
 | HTTP/infra metrics | 2.0 | Tidak ada 4xx/5xx, CPU, memory |
 | Tracing | 1.5 | RequestId parsial (AI routes saja) |
 | SLO/SLI | 1.0 | Belum didefinisikan |
-| **Monitoring** | **4.5 / 10** | Fondasi metrics kuat; channel alert + infra + SLO belum ada |
+| **Monitoring** | **4.9 / 10** | Fondasi metrics kuat + channel alert & scheduler (gap #1/#7 ditutup); HTTP metrics, infra & SLO masih gap |
 
 ---
 

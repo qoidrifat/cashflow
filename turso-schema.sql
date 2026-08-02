@@ -340,8 +340,15 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   window_minutes INTEGER NOT NULL DEFAULT 60,
   is_active INTEGER NOT NULL DEFAULT 1,
   last_triggered_at TEXT,
+  last_notified_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Migrasi idempotent untuk DB yang sudah ada (CREATE IF NOT EXISTS tidak
+-- menambah kolom). initTursoSchema mengeksekusi tiap statement & meng-ignore
+-- error — ALTER ini error hanya bila kolom sudah ada (fresh DB), sukses di
+-- DB lama. (MONITORING_AUDIT gap #1: channel notifikasi + cooldown.)
+ALTER TABLE alert_rules ADD COLUMN last_notified_at TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules(is_active) WHERE is_active = 1;
 

@@ -128,8 +128,11 @@ test.describe('Admin AI Response Cache panel (e2e)', () => {
       await expect(page.getByText(stat, { exact: true })).toBeVisible();
     }
 
-    // Progress bar (mint ≥50% / amber <50% — keduanya valid)
-    await expect(page.locator('.bg-mint-500').or(page.locator('.bg-amber-500')).first()).toBeVisible();
+    // Progress bar (mint ≥50% / amber <50% — keduanya valid). CATATAN: bar
+    // ber-width 0% saat hitRate 0 (cache kosong fresh restart) → Playwright
+    // menganggap elemen width-0 'hidden' → assert via toHaveCount (attached),
+    // bukan toBeVisible (bar selalu ada di DOM, lebarnya bervariasi oleh data).
+    await expect(page.locator('.bg-mint-500, .bg-amber-500').first()).toHaveCount(1);
 
     pageErrors.expectClean();
   });

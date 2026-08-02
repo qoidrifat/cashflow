@@ -67,6 +67,7 @@ import { registerAgentSearchRoutes } from './routes/agentSearchRoutes.js';
 import { registerAdminMetricsRoutes } from './routes/adminMetricsRoutes.js';
 import { registerHealthRoutes } from './routes/healthRoutes.js';
 import { getTurso, closeTurso } from './lib/turso.js';
+import { runAlertEvaluation } from './services/metricsService.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { logger } from './lib/logger.js';
@@ -392,6 +393,35 @@ app.use((err, _req, res, next) => {
 
 // ===================== Start Server =====================
 
+// ===================== Alert Scheduler (MONITORING_AUDIT gap #7) =============
+// Evaluasi alert BERKALA (default 60s) walau tidak ada admin yang membuka
+// dashboard — sehingga notification channel (gap #1) benar-benar mengirim.
+// checkAlerts() punya cache 60s utk request path; runAlertEvaluation() bypass
+// cache (khusus scheduler).
+// Env: ALERT_SCHEDULER_ENABLED=false utk matikan; ALERT_SCHEDULER_INTERVAL_MS
+// utk ubah interval. Nonaktif otomatis di server uji (PORT 5182 — rate-limit
+// spec) agar tidak ada side-effect saat E2E.
+const ALERT_SCHEDULER_ENABLED = process.env.ALERT_SCHEDULER_ENABLED !== 'false' && PORT !== 5182;
+const ALERT_SCHEDULER_INTERVAL_MS = (() => {
+  const v = parseInt(process.env.ALERT_SCHEDULER_INTERVAL_MS, 10);
+  return Number.isFinite(v) && v > 0 ? v : 60_000;
+})();
+
+let alertSchedulerTimer = null;
+function startAlertScheduler() {
+  if (!ALERT_SCHEDULER_ENABLED) {
+    logger.info({ port: PORT }, 'Alert scheduler dinonaktifkan (env/test server)');
+    return;
+  }
+  alertSchedulerTimer = setInterval(() => {
+    runAlertEvaluation()
+      .catch((err) => logger.warn({ err: err.message }, 'Alert scheduler evaluation gagal'));
+  }, ALERT_SCHEDULER_INTERVAL_MS);
+  // unref: timer tidak menahan proses shutdown
+  alertSchedulerTimer.unref();
+  logger.info({ intervalMs: ALERT_SCHEDULER_INTERVAL_MS }, 'Alert scheduler aktif (evaluasi berkala)');
+}
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   const {
     geminiReady,
@@ -438,6 +468,8 @@ const server = app.listen(PORT, '0.0.0.0', () => {
         }
       });
   }
+
+  startAlertScheduler();
 });
 
 // ===================== Graceful Shutdown (Sprint 1.2) =====================
@@ -445,6 +477,10 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 // exit 0. Force exit setelah 10s (hindari hang saat drain macet).
 function shutdown(signal) {
   logger.info({ signal }, 'Graceful shutdown dimulai');
+  if (alertSchedulerTimer) {
+    clearInterval(alertSchedulerTimer);
+    alertSchedulerTimer = null;
+  }
   // PENTING: tutup SSE SEBELUM menunggu server.close(). server.close() menunggu
   // seluruh koneksi existing selesai; koneksi SSE (keep-alive) tidak pernah selesai
   // sendiri → tanpa ini callback close tidak akan pernah dipanggil (bug review).

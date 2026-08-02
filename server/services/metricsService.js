@@ -13,6 +13,7 @@
 import crypto from 'node:crypto';
 import { getTurso } from '../lib/turso.js';
 import { AI_PRICING, USD_TO_IDR } from '../config/metricsConfig.js';
+import { notifyTriggeredAlerts } from './alertNotifier.js';
 
 function getMetricsClient() {
   return getTurso();
@@ -481,6 +482,15 @@ export async function checkAlerts() {
   return value;
 }
 
+/**
+ * Evaluasi alert TANPA cache — dipakai scheduler berkala (MONITORING_AUDIT
+ * gap #7) agar alert dievaluasi & notifikasi terkirim walau tidak ada admin
+ * yang membuka dashboard. checkAlerts() (cache 60s) tetap untuk request path.
+ */
+export async function runAlertEvaluation() {
+  return computeAlerts();
+}
+
 async function computeAlerts() {
   const client = getMetricsClient();
   if (!client) return [];
@@ -497,6 +507,7 @@ async function computeAlerts() {
   }
 
   const results = [];
+  const triggeredRules = [];
   for (const rule of rules) {
     // Sprint 4 (review): windowStart harus space-format agar cocok dengan created_at (bug laten).
     const windowStart = toDbTime(new Date(Date.now() - rule.window_minutes * 60_000).toISOString());
@@ -533,6 +544,15 @@ async function computeAlerts() {
         sql: `UPDATE alert_rules SET last_triggered_at = ? WHERE id = ?`,
         args: [new Date().toISOString(), rule.id],
       }).then(() => {}, () => {});
+      triggeredRules.push({
+        name: rule.name,
+        metricName: rule.metric_name,
+        status: 'triggered',
+        currentValue: Math.round(currentValue * 1000) / 1000,
+        threshold: Number(rule.threshold),
+        condition: rule.condition,
+        windowMinutes: rule.window_minutes,
+      });
     }
     results.push({
       name: rule.name,
@@ -544,6 +564,13 @@ async function computeAlerts() {
       windowMinutes: rule.window_minutes,
     });
   }
+
+  // Alert channel (MONITORING_AUDIT gap #1): kirim notifikasi untuk rule yang
+  // baru triggered — fire-and-forget, channel tidak boleh memblokir evaluasi.
+  if (triggeredRules.length > 0) {
+    notifyTriggeredAlerts(triggeredRules).catch(() => {});
+  }
+
   return results;
 }
 
@@ -620,5 +647,6 @@ export default {
   getFeatureCalls,
   sanitizeErrorMessage,
   checkAlerts,
+  runAlertEvaluation,
   computeHitRateFromCounts,
 };
