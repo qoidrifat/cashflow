@@ -3,6 +3,7 @@
  * Singleton instance for the Turso/libSQL database connection.
  */
 import { createClient } from '@libsql/client';
+import { logger } from './logger.js';
 
 let client = null;
 
@@ -16,7 +17,7 @@ export function getTurso() {
   const authToken = process.env.TURSO_AUTH_TOKEN;
 
   if (!url) {
-    console.warn('[Turso] TURSO_DATABASE_URL belum diisi.');
+    logger.warn({}, 'TURSO_DATABASE_URL belum diisi');
     return null;
   }
 
@@ -25,8 +26,8 @@ export function getTurso() {
     authToken: authToken || undefined,
   });
 
-  console.log(`[Turso] Database client siap (${url}).`);
-  initTursoSchema(client).catch((err) => console.error('[Turso] Error initializing schema:', err));
+  logger.info({ url }, 'Database client Turso siap');
+  initTursoSchema(client).catch((err) => logger.error({ err: err.message }, 'Error initializing schema'));
   return client;
 }
 
@@ -43,7 +44,7 @@ export function closeTurso() {
     try {
       client.close();
     } catch (err) {
-      console.warn('[Turso] close error:', err.message);
+      logger.warn({ err: err.message }, 'close error');
     }
     client = null;
   }
@@ -70,9 +71,9 @@ export async function initTursoSchema(tursoClient) {
         // ignore duplicate index/table errors if existing
       }
     }
-    console.log('[Turso] Schema database berhasil diverifikasi.');
+    logger.info({}, 'Schema database Turso terverifikasi');
   } catch (err) {
-    console.warn('[Turso] Warning initializing schema:', err.message);
+    logger.warn({ err: err.message }, 'Warning initializing schema');
   }
 }
 

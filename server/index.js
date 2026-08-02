@@ -69,6 +69,8 @@ import { registerHealthRoutes } from './routes/healthRoutes.js';
 import { getTurso, closeTurso } from './lib/turso.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
+import { logger } from './lib/logger.js';
+import { requestIdMiddleware, httpMetricsMiddleware } from './middleware/observabilityMiddleware.js';
 import {
   configureVertexAI,
   initGemini,
@@ -265,6 +267,8 @@ const security = (limiter) => (RATE_LIMIT_ENABLED ? limiter : (req, _res, next) 
 
 const app = express();
 
+// Sprint 2: request-ID global (paling awal agar semua middleware punya req.id).
+app.use(requestIdMiddleware);
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(helmet({
   contentSecurityPolicy: {
@@ -320,6 +324,10 @@ app.use('/api/auth', (req, _res, next) => {
 app.use('/api/auth', security(authLimiter));
 app.all('/api/auth/*', toNodeHandler(getAuth()));
 app.use(authMiddleware);
+
+// HTTP metrics + request log (setelah auth → req.user tersedia; sebelum rate
+// limiter agar respons 429 ikut terhitung).
+app.use(httpMetricsMiddleware);
 
 // Rate limiting umum API + jalur AI (setelah auth → key per-user tersedia).
 app.use(security(generalLimiter));
@@ -394,14 +402,15 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     location,
   } = getVertexState();
 
-  console.log(`[Server] CashFlow AI Proxy berjalan di port ${PORT}`);
-  console.log(`[Server] Provider: Vertex AI`);
-  console.log(`[Server] Gemini: ${geminiReady ? '✅ Siap' : '❌ Belum dikonfigurasi'}`);
-  console.log(`[Server] Model utama: ${primaryModel}`);
-  console.log(`[Server] Model fallback: ${fallbackModel}`);
-  console.log(`[Server] Project: ${projectId || '-'}`);
-  console.log(`[Server] Location: ${location}`);
-  console.log(`[Server] Allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+  logger.info({
+    port: PORT,
+    geminiReady,
+    primaryModel,
+    fallbackModel,
+    projectId: projectId || null,
+    location,
+    allowedOrigins: ALLOWED_ORIGINS,
+  }, 'CashFlow AI Proxy berjalan');
 
   if (geminiReady && vertexAI) {
     generateVertexContent({
@@ -418,15 +427,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       label: 'startup-connectivity-test',
     })
       .then((result) => {
-        console.log(`[Server] Vertex AI connectivity: ✅ model "${result.modelUsed}" berhasil merespons.`);
+        logger.info({ model: result.modelUsed }, 'Vertex AI connectivity OK');
       })
       .catch((error) => {
         const classified = classifyVertexError(error);
-        console.warn(`[Server] ⚠️  Vertex AI connectivity test gagal: ${classified.code}`);
-        console.warn(`[Server] ⚠️  ${classified.message}`);
+        logger.warn({ code: classified.code, message: classified.message }, 'Vertex AI connectivity test gagal');
 
         if (!isProduction()) {
-          console.warn(`[Server] ⚠️  Detail: ${error.message}`);
+          logger.warn({ detail: error.message }, 'Vertex AI connectivity detail');
         }
       });
   }
@@ -436,27 +444,27 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 // SIGTERM/SIGINT: hentikan terima request baru → tutup koneksi SSE + Turso →
 // exit 0. Force exit setelah 10s (hindari hang saat drain macet).
 function shutdown(signal) {
-  console.log(`[Server] ${signal} diterima — graceful shutdown dimulai...`);
+  logger.info({ signal }, 'Graceful shutdown dimulai');
   // PENTING: tutup SSE SEBELUM menunggu server.close(). server.close() menunggu
   // seluruh koneksi existing selesai; koneksi SSE (keep-alive) tidak pernah selesai
   // sendiri → tanpa ini callback close tidak akan pernah dipanggil (bug review).
   try {
     closeSSEClients();
   } catch (error) {
-    console.error('[Server] closeSSEClients error:', error.message);
+    logger.error({ err: error.message }, 'closeSSEClients error');
   }
   server.close(() => {
-    console.log('[Server] HTTP ditutup. Membersihkan Turso...');
+    logger.info({}, 'HTTP ditutup. Membersihkan Turso...');
     try {
       closeTurso();
     } catch (error) {
-      console.error('[Server] closeTurso error:', error.message);
+      logger.error({ err: error.message }, 'closeTurso error');
     }
-    console.log('[Server] Shutdown bersih selesai.');
+    logger.info({}, 'Shutdown bersih selesai');
     process.exit(0);
   });
   setTimeout(() => {
-    console.error('[Server] Graceful shutdown timeout (10s) — force exit.');
+    logger.error({}, 'Graceful shutdown timeout (10s) — force exit');
     process.exit(1);
   }, 10000).unref();
 }

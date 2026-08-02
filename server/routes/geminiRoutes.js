@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import multer from 'multer';
 import metricsService from '../services/metricsService.js';
+import { logger } from '../lib/logger.js';
 import {
   getVertexState,
   isProduction,
@@ -119,20 +120,21 @@ export function registerGeminiRoutes(app) {
     try {
       const prompt = buildReceiptExtractionPrompt(userHint || {});
 
-      console.log('[receipt-ai] request received', {
+      logger.info({
         requestId,
         fileSize: estimatedBytes,
         mimeType: safeMimeType,
         model: primaryModel,
         provider: 'vertex-ai',
-      });
+      }, 'receipt-ai request received');
 
       const generated = await generateGeminiVision(prompt, {
         mimeType: safeMimeType,
         data: imageBase64,
       }, {
         feature: 'ocr_receipt',
-        metricMeta: { mimeType: safeMimeType, sizeBytes: estimatedBytes },
+        userId: req.user?.id || null,
+        metricMeta: { mimeType: safeMimeType, sizeBytes: estimatedBytes, requestId: req.id || requestId },
       });
 
       const rawResponse = generated.text;
@@ -173,11 +175,11 @@ export function registerGeminiRoutes(app) {
     } catch (error) {
       const classified = classifyVertexError(error);
 
-      console.error('[Server] Receipt image extraction error:', {
+      logger.error({
         requestId,
         code: classified.code,
         message: error.message,
-      });
+      }, 'Receipt image extraction error');
 
       return res.status(classified.httpStatus).json({
         success: false,
@@ -226,7 +228,11 @@ export function registerGeminiRoutes(app) {
         emailDate || new Date().toISOString().split('T')[0],
       );
 
-      const generated = await generateGeminiText(prompt, { feature: 'gmail_sync' });
+      const generated = await generateGeminiText(prompt, {
+        feature: 'gmail_sync',
+        userId: req.user?.id || null,
+        metricMeta: { requestId: req.id || requestId },
+      });
       const rawResponse = generated.text;
 
       if (!rawResponse) {
@@ -278,13 +284,11 @@ export function registerGeminiRoutes(app) {
       const classified = classifyVertexError(error);
       metricsService.recordSystemMetric({ metricName: 'gmail_sync_failed', feature: 'gmail_sync', metadata: { code: classified.code } }).catch(() => {});
 
-      console.error('[Server] Vertex AI Gemini email extraction error:', {
+      logger.error({
         requestId,
         code: classified.code,
         message: error.message,
-        subject: typeof subject === 'string' ? subject.substring(0, 120) : '',
-        sender: typeof sender === 'string' ? sender.substring(0, 120) : '',
-      });
+      }, 'Vertex AI Gemini email extraction error');
 
       return sendGeminiError(res, classified.httpStatus, {
         requestId,
@@ -332,7 +336,11 @@ export function registerGeminiRoutes(app) {
           : [],
       });
 
-      const generated = await generateGeminiText(prompt, { feature: 'insight_generator' });
+      const generated = await generateGeminiText(prompt, {
+        feature: 'insight_generator',
+        userId: req.user?.id || null,
+        metricMeta: { requestId: req.id || requestId },
+      });
       const rawResponse = generated.text;
 
       if (!rawResponse) {
@@ -371,11 +379,11 @@ export function registerGeminiRoutes(app) {
     } catch (error) {
       const classified = classifyVertexError(error);
 
-      console.error('[Server] Vertex AI monthly report error:', {
+      logger.error({
         requestId,
         code: classified.code,
         message: error.message,
-      });
+      }, 'Vertex AI monthly report error');
 
       return res.status(classified.httpStatus).json({
         success: false,

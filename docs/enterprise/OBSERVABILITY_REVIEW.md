@@ -102,3 +102,40 @@ export const logger = pino({ base: { app: 'cashflow-server' } });
 ## 6. Konklusi
 
 Observability adalah gap terbesar bersama infrastruktur. **Mulai dari request-id + pino + HTTP metrics** (3 aksi kecil) — tanpa mengubah arsitektur, langsung menaikkan skor ke ~5.5. OpenTelemetry hanya relevan setelah multi-service (AI gateway terpisah).
+
+---
+
+## 7. STATUS IMPLEMENTASI — Sprint 2 (Selesai, 2 Agustus 2026)
+
+Aksi #1–#4 dari tabel prioritas di atas **telah diimplementasikan dan diverifikasi**:
+
+| # | Aksi | Status | Implementasi & Bukti |
+|---|---|---|---|
+| 1 | Request-ID middleware | ✅ **Done** | `server/middleware/observabilityMiddleware.js` — `requestIdMiddleware` (ambil `x-request-id` header atau generate `req_<ts>_<hex>`; echo ke response header). Terverifikasi: `curl -D -` → `x-request-id: req_...` di setiap respons |
+| 2 | pino structured logging | ✅ **Done** | `server/lib/logger.js` (pino 10, `LOG_LEVEL` env, redact `cookie/authorization/token/secret/password/apiKey`). Semua `console.*` di server dikonversi (0 tersisa). Log JSON: `{"requestId","method","path","status","ms","userId"}` |
+| 3 | HTTP metrics middleware | ✅ **Done** | `httpMetricsMiddleware` — `res.on('finish')` → `http_2xx/3xx/4xx/5xx_total` + `http_latency_ms` ke `system_metrics` (non-blocking, `metadata.route/method/requestId/userId`). Terverifikasi: 231 rows di Turso |
+| 4 | requestId → metricMeta AI | ✅ **Done** | `geminiRoutes.js` (receipt/extract/monthly-report) + `agentSearchService.js` kini meneruskan `requestId` ke `metricMeta` AI → korelasi request ↔ AI call |
+| 5 | SSE health metrics | ⏳ Backlog | Dicatat sebagai rekomendasi berikutnya (belum dikerjakan — butuh `sse_connections` delta) |
+| 6 | DB timing (sampled) | ⏳ Backlog | Rekomendasi; bungkus `getTurso().execute` dengan sampling 1/10 |
+| 7 | OpenTelemetry | ⏳ Jauh | Hanya relevan setelah multi-service |
+
+### Detail teknis
+
+- **Order middleware** di `server/index.js`: `requestId` → cors → auth → `httpMetrics` → rate limit → routes. 429 rate-limit ikut terhitung sebagai metric (di-hitung setelah auth, sebelum limiter).
+- **Skip list HTTP metrics**: `/api/events` (SSE long-lived) + semua `*health*` endpoint (`/api/health`, `/api/gemini/health`, `/api/agent-search/health`) — polling load balancer tidak membanjiri `system_metrics` (rekomendasi code review).
+- **2 DB write per request** (counter + latency) bersifat fire-and-forget non-blocking; untuk produksi traffic tinggi, pertimbangkan batching/sampling (lihat PERFORMANCE_REVIEW).
+- **Perubahan pino di file**: `index.js`, `lib/auth.js`, `lib/turso.js`, `lib/vertexContext.js`, `middleware/authMiddleware.js`, `routes/geminiRoutes.js`, `services/agentSearchService.js`.
+
+### Skor observability pasca-Sprint 2: **3.0 → 6.0 / 10**
+
+| Dimensi | Sebelum | Sesudah |
+|---|---|---|
+| Logs | 2.0 | 6.5 (structured, level-filter, redact) |
+| Tracing | 1.5 | 4.5 (request-id global, korelasi AI call) |
+| Correlation ID | 1.0 | 7.0 (echo header + log + metrics) |
+| Request metrics | 0.0 | 7.0 (4xx/5xx + latency per route) |
+| **Observability** | **3.0** | **6.0** |
+
+### Validasi
+
+- `npm run lint` ✅ · `typecheck` ✅ · `build` ✅ · unit 57/57 ✅ · contract 8/8 ✅ · **E2E 25/25 (0 flaky)** ✅

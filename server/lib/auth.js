@@ -6,6 +6,7 @@ import { betterAuth } from 'better-auth';
 import { createClient } from '@libsql/client';
 import { LibsqlDialect } from '@libsql/kysely-libsql';
 import { dash } from '@better-auth/infra';
+import { logger } from './logger.js';
 
 const DEV_FALLBACK_SECRET = 'cashflow-dev-secret-change-in-production';
 
@@ -40,9 +41,9 @@ export function getAuth() {
   // Defense-in-depth: warning kapan pun fallback dipakai (termasuk bila NODE_ENV
   // lupa di-set di deployment) — hard throw hanya di produksi.
   if (usingFallbackSecret) {
-    console.warn(
-      '[Auth] PERINGATAN: memakai fallback secret development. ' +
-        'Set BETTER_AUTH_SECRET di server/.env (atau env deployment) sebelum produksi.',
+    logger.warn(
+      { isProduction },
+      'Auth: memakai fallback secret development. Set BETTER_AUTH_SECRET sebelum produksi.',
     );
   }
 
@@ -113,6 +114,6 @@ export function getAuth() {
     ],
   });
 
-  console.log('[Auth] Better Auth siap dengan Google OAuth.');
+  logger.info({ baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:5181' }, 'Better Auth siap dengan Google OAuth');
   return authInstance;
 }

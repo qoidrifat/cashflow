@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import { GoogleGenAI } from '@google/genai';
 import metricsService from '../services/metricsService.js';
 import { FEATURE_PROVIDER } from '../config/metricsConfig.js';
+import { logger } from './logger.js';
 
 // ===================== State (mutable, di-set index.js) =====================
 
@@ -50,17 +51,17 @@ export function isProduction() {
 
 export function initGemini() {
   if (!state.projectId) {
-    console.warn('[Server] GOOGLE_CLOUD_PROJECT / GCP_PROJECT_ID belum diisi. Vertex AI Gemini tidak akan berfungsi.');
+    logger.warn({}, 'GOOGLE_CLOUD_PROJECT / GCP_PROJECT_ID belum diisi — Vertex AI Gemini tidak berfungsi');
     return false;
   }
 
   if (!state.rawCredentials) {
-    console.warn('[Server] GOOGLE_APPLICATION_CREDENTIALS belum diisi. Vertex AI Gemini membutuhkan service account.');
+    logger.warn({}, 'GOOGLE_APPLICATION_CREDENTIALS belum diisi — Vertex AI Gemini membutuhkan service account');
     return false;
   }
 
   if (!fs.existsSync(state.credentialsAbs)) {
-    console.warn('[Server] File GOOGLE_APPLICATION_CREDENTIALS tidak ditemukan:', state.credentialsAbs);
+    logger.warn({ path: state.credentialsAbs }, 'File GOOGLE_APPLICATION_CREDENTIALS tidak ditemukan');
     return false;
   }
 
@@ -71,13 +72,11 @@ export function initGemini() {
       location: state.location,
     });
 
-    console.log(`[Server] Vertex AI Gemini model "${state.primaryModel}" siap digunakan.`);
-    console.log(`[Server] Vertex AI project: ${state.projectId}`);
-    console.log(`[Server] Vertex AI location: ${state.location}`);
+    logger.info({ model: state.primaryModel, project: state.projectId, location: state.location }, 'Vertex AI Gemini siap');
     state.geminiReady = true;
     return true;
   } catch (error) {
-    console.error('[Server] Gagal inisialisasi Vertex AI Gemini:', error.message);
+    logger.error({ err: error.message }, 'Gagal inisialisasi Vertex AI Gemini');
     return false;
   }
 }
@@ -630,14 +629,14 @@ export async function generateVertexContent({
 
       const isLastModel = currentModel === state.models[state.models.length - 1];
 
-      console.warn('[Vertex AI] generateContent failed', {
+      logger.warn({
         label,
         model: currentModel,
         code: classified.code,
         message: error.message,
         canTryFallback,
         isLastModel,
-      });
+      }, 'generateContent failed');
 
       if (!canTryFallback || isLastModel) {
         // CF-053: record failure (non-blocking)

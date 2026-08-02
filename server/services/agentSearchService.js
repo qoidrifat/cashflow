@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleAuth } from 'google-auth-library';
 import { Storage } from '@google-cloud/storage';
+import { logger } from '../lib/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -238,9 +239,9 @@ function assertProductionSalt() {
   }
   if (!saltWarned) {
     saltWarned = true;
-    console.warn(
-      '[AgentSearch] PERINGATAN: memakai fallback dev AGENT_SEARCH_USER_HASH_SALT. ' +
-        'Set env di produksi sebelum launch.',
+    logger.warn(
+      { isProduction: process.env.NODE_ENV === 'production' },
+      'AgentSearch: memakai fallback dev AGENT_SEARCH_USER_HASH_SALT. Set env di produksi sebelum launch.',
     );
   }
 }
@@ -663,7 +664,7 @@ export async function queryAgentSearch({ query, tab = 'help', userId }) {
   const results = filterOwnedResults(rawResults, safeTab, userId, { serverFilterApplied });
 
   // Observability (no PII): pinpoint where results vanish.
-  console.log('[agent-search] query diagnostics', {
+  logger.info({
     tab: safeTab,
     hashPrefix: userId ? hashUserId(userId).slice(0, 16) : null,
     serverFilterApplied,
@@ -672,7 +673,7 @@ export async function queryAgentSearch({ query, tab = 'help', userId }) {
     extractedCount: rawResults.length,
     userIdHashFieldPresent: fieldPresentCount,
     finalCount: results.length,
-  });
+  }, 'agent-search query diagnostics');
 
   return {
     ok: true,

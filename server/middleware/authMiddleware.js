@@ -5,6 +5,7 @@
  */
 import { getAuth } from '../lib/auth.js';
 import { fromNodeHeaders } from 'better-auth/node';
+import { logger } from '../lib/logger.js';
 
 /** Jeda sebelum retry getSession saat blip DB (ms). */
 const SESSION_RETRY_DELAY_MS = 150;
@@ -39,9 +40,9 @@ export async function authMiddleware(req, res, next) {
         headers: fromNodeHeaders(req.headers),
       });
     } catch (secondError) {
-      console.error(
-        '[authMiddleware] getSession gagal setelah retry — error DB, bukan status login:',
-        secondError?.message || secondError,
+      logger.error(
+        { err: secondError?.message || String(secondError) },
+        'authMiddleware: getSession gagal setelah retry — error DB, bukan status login',
       );
       return next(secondError);
     }
