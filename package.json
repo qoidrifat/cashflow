@@ -13,7 +13,7 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "test:e2e": "playwright test --grep-invert \"@visual|@perf\"",
     "test:e2e:gmail": "playwright test e2e/gmail-sync.spec.ts",
-    "test:e2e:gmail-review": "playwright test e2e/gmail-review-approve.spec.ts",
+    "test:e2e:gmail-review": "playwright test e2e/gmail-review-approve.spec.ts e2e/gmail-review-reject.spec.ts",
     "test:e2e:transactions": "playwright test e2e/transactions.spec.ts",
     "test:e2e:dashboard": "playwright test e2e/dashboard.spec.ts",
     "test:e2e:agent-search": "playwright test e2e/agent-search-auth.spec.ts",
