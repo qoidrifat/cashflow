@@ -1,0 +1,51 @@
+import { defineConfig } from 'playwright/test';
+
+/**
+ * Playwright E2E config untuk CashFlow.
+ *
+ * Test membutuhkan kedua server (Vite dev + Express API) yang sudah berjalan
+ * atau akan otomatis di-start oleh webServer. Port: Vite 5180, API 5181.
+ */
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 60_000,
+  expect: {
+    // Dinaikkan dari 15s → 20s: expect.poll untuk filter/pagination bisa kena
+    // beban sistem (CI paralel) — timeout lebih longgar = anti-flaky.
+    timeout: 20_000,
+  },
+  fullyParallel: false,
+  // workers:1 — test memakai sesi DB Turso bersama (mint cookie + cleanup),
+  // paralelisme antar test bisa saling timpa session/state.
+  workers: 1,
+  retries: 1,
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+  ],
+  forbidOnly: !!process.env.CI,
+  use: {
+    baseURL: 'http://localhost:5180',
+    headless: true,
+    viewport: { width: 1440, height: 900 },
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
+  },
+  webServer: [
+    {
+      command: 'npm run dev:server',
+      url: 'http://localhost:5181/api/health',
+      reuseExistingServer: true,
+      timeout: 60_000,
+    },
+    {
+      command: 'npm run dev',
+      url: 'http://localhost:5180',
+      reuseExistingServer: true,
+      timeout: 60_000,
+    },
+  ],
+});

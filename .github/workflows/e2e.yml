@@ -1,0 +1,122 @@
+name: E2E
+
+on:
+  push:
+    branches: [main, gh-pages]
+  pull_request:
+    branches: [main, gh-pages]
+  workflow_dispatch:
+
+# Penting: SERIALISASI GLOBAL semua run E2E.
+# Playwright workers:1 + webServer bersama + DB Turso bersama (mintSession menulis
+# ke DB yang sama) → dua run paralel (mis. push ke main + PR) akan saling rebut
+# server/DB dan memicu flaky (ditemukan saat investigasi flake). Jangan ubah group
+# menjadi per-ref — push & PR punya ref berbeda dan bisa berjalan paralel.
+concurrency:
+  group: e2e
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CI: 'true'
+  NODE_VERSION: '20'
+  # Client-side Supabase vars (frontend boot). Kosong aman bila E2E tidak
+  # mengeksekusi flow Supabase; isi secret bila app memerlukan boot penuh.
+  VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+  VITE_AGENT_SEARCH_ENABLED: 'false'
+  VITE_AI_SEARCH_ROUTE_ENABLED: 'true'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # QUALITY GATES — lint, typecheck, build
+  # ─────────────────────────────────────────────────────────────
+  quality:
+    name: Lint · Typecheck · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (tsc src)
+        run: npm run lint
+
+      - name: Typecheck E2E
+        run: npm run test:e2e:typecheck
+
+      - name: Build
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E REGRESSION — Playwright, butuh Turso DB (via secrets)
+  # ─────────────────────────────────────────────────────────────
+  e2e:
+    name: Playwright E2E (8 tests)
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 30
+    env:
+      # Server API (server/index.js) membaca env ini; webServer auto-start
+      # memakainya saat boot. Tanpa ini API gagal start → semua test gagal.
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      # Opsional — hanya dibutuhkan jika spec AI di masa depan berjalan riil.
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      # server/ punya package.json sendiri dengan dep ekstra (cookie-parser,
+      # @better-auth/infra, google-auth-library, @google-cloud/storage) yang TIDAK
+      # ada di root package.json. webServer menjalankan node server/index.js, jadi
+      # dep server wajib diinstall atau server gagal boot → seluruh suite gagal.
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify Turso secrets
+        if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
+        run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (diperlukan untuk boot API dan minting sesi e2e)' && exit 1
+
+      - name: Run E2E suite
+        run: npm run test:e2e
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test artifacts — traces · screenshots · videos (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 14

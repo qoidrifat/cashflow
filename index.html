@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="CashFlow GenZ - Aplikasi manajemen keuangan pribadi modern untuk Gen Z" />
+    <meta name="theme-color" content="#f7f8fb" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="icon" type="image/webp" href="/logo/cashflow-icon.webp" />
+    <link rel="apple-touch-icon" href="/logo/cashflow-icon.webp" />
+    <title>CashFlow - Kelola Keuangan dengan Gaya Gen Z</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('cashflow-theme') || 'system';
+          var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var resolved = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+          document.documentElement.classList.toggle('dark', resolved === 'dark');
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.resolvedTheme = resolved;
+          document.documentElement.style.colorScheme = resolved;
+        } catch (error) {
+          document.documentElement.dataset.theme = 'system';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

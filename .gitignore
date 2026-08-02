@@ -1,0 +1,35 @@
+node_modules
+
+# Playwright E2E artifacts
+test-results/
+playwright-report/
+blob-report//
+dist/
+dist-ssr/
+*.local
+
+# Server credentials
+server/.env
+server/*.env
+!server/.env.example
+server/*.json
+!server/package.json
+!server/package-lock.json
+server/*service-account*.json
+server/google-agent-search-service-account.json
+*.service-account.json
+
+# Supabase CLI local state — metadata koneksi (project ref, pooler URL, org id)
+supabase/.temp/
+
+# Dev-server logs & screen recordings (artifact lokal, bisa berisi PII/stack trace)
+.dev-server*.log
+public/logout-success-recording*
+public/recordings/
+
+# Database lokal berisi data user nyata (transaksi, gmail logs, sesi auth)
+*.db
+*.db-journal
+
+# Agent runtime state (scratch/session internal — bukan produk)
+.bob/

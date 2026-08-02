@@ -1,0 +1,13 @@
+# GitHub Actions + YAML selalu LF — mencegah CRLF pada runner Linux
+# (kritikal untuk .github/workflows/*.yml)
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Normalisasi line ending umum
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.sql text eol=lf
+*.md text eol=lf
