@@ -1,21 +1,27 @@
 # Stability Report — CashFlow E2E
 
 > Quality gate: suite E2E dijalankan 3× berurutan → **0 flaky failures** (kriteria sukses enterprise).
-> Tanggal: 2 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
+> Tanggal: 3 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
 
-## Hasil Final (2026-08-02 — setelah fix authMiddleware + P1, 17 test / 6 spec)
+## Hasil Final (2026-08-03 — setelah gate SSE + coverage review lengkap, 38 test / 13 spec)
 
 | Run | Hasil | Waktu | Flaky/Failed |
 |---|---|---|---|
-| 1 | **17 passed** | 1.0m | 0 |
-| 2 | **17 passed** | 57.5s | 0 |
-| 3 | **17 passed** | 59.9s | 0 |
+| 1 | **38 passed** | 2.8m | 0 |
+| 2 | **38 passed** | 2.7m | 0 |
+| 3 | **38 passed** | 2.8m | 0 |
 
 **Verdict: ✅ 0 flaky dalam 3× run berurutan — kriteria stabilitas terpenuhi.**
 
-Rincian per spec (17 test): agent-search-auth 3 · admin-metrics-auth 3 · core-pages 3 (budgets/reports/notifications) · dashboard 2 · gmail-sync 3 · transactions 3.
+Rincian per spec (38 test): contract-check 9 (API contract) · notifications-realtime 4 (approve/reject/duplicate/amount-missing) · transactions 3 · gmail-sync 3 · core-pages 3 (budgets/reports/notifications) · agent-search-auth 3 · admin-metrics-auth 3 · admin-cache 3 · dashboard 2 · gmail-review-approve 1 · gmail-review-reject 1 · gmail-review-duplicate 1 · gmail-review-amount-missing 1 · rate-limit 1.
 
-> Sebelumnya (era 8 test): run 3× berturut-turut 8/8 (43.1/41.7/42.6s) — 0 flaky; pasca-audit (14 test): 14/14 × 3 (1.1m/56.3s/55.4s). Angka di atas adalah **baseline terbaru** setelah `core-pages.spec.ts` ditambahkan (P1).
+### Stabilisasi SSE (gate deterministik — apa yang berubah sejak baseline 17 test)
+
+1. **`waitRealtimeConnected`** (kini di `e2e/helpers/realtime.ts`) — gate SSE deterministik: tunggu ikon WifiOff hilang (`realtimeConnected === true`) SEBELUM aksi approve/reject/duplicate/amount-missing di `notifications-realtime.spec.ts`. SSE lambat connect tidak lagi membuat push terlewat → menuitem tidak muncul → flake. Audit (2026-08-03) mengonfirmasi **hanya spec SSE-push-UI yang butuh gate ini** — spec review yang meng-assert state server via `expect.poll` API tidak (sudah deterministik bawaan).
+2. **Coverage realtime diperluas ke 4/4 hasil review** (approve → success, reject → info, duplicate → warning, amount-missing → error) — tiap test punya `pageErrors.expectClean()`.
+3. Refactor helper (d0d12aa) + relokasi `realtime.ts` (3f5168f) tidak mengubah perilaku — hanya pemusatan logika.
+
+> Baseline sebelumnya (2026-08-02): 17 test / 6 spec — 17/17 × 3 (1.0m/57.5s/59.9s) 0 flaky. Era 8 test: 8/8 × 3 (43.1/41.7/42.6s) 0 flaky; pasca-audit 14 test: 14/14 × 3. Angka di atas adalah **baseline terbaru** (38 test) setelah gate SSE + 4 spec review + notifikasi realtime + rate-limit + admin-cache.
 
 ---
 
