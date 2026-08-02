@@ -8,11 +8,13 @@
  *   GET /api/admin/metrics/feature-health
  *   GET /api/admin/metrics/feature/:feature/calls
  *   GET /api/admin/metrics/alerts
+ *   GET /api/admin/metrics/cache
  *
  * Auth: req.user dari authMiddleware (Better Auth) + ADMIN_EMAILS env.
  */
 import metricsService from '../services/metricsService.js';
 import { getAdminEmails, FEATURES } from '../config/metricsConfig.js';
+import { getAICacheStats } from '../lib/aiCache.js';
 
 /**
  * Resolve admin user dari session Better Auth (req.user diisi authMiddleware).
@@ -166,6 +168,19 @@ export function registerAdminMetricsRoutes(app) {
       await resolveAdmin(req);
       const alerts = await metricsService.checkAlerts();
       return res.json({ ok: true, alerts });
+    } catch (error) {
+      return sendAdminError(res, error);
+    }
+  });
+
+  // GET /api/admin/metrics/cache — statistik AI response cache (LRU, Sprint 3)
+  app.get('/api/admin/metrics/cache', async (req, res) => {
+    try {
+      await resolveAdmin(req);
+      const stats = getAICacheStats();
+      const total = stats.hits + stats.misses;
+      const hitRate = total > 0 ? Math.round((stats.hits / total) * 1000) / 1000 : 0;
+      return res.json({ ok: true, ...stats, hitRate });
     } catch (error) {
       return sendAdminError(res, error);
     }

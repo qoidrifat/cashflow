@@ -14,6 +14,7 @@
  *   6. /api/notifications                    — array rows
  *   7. /api/admin/metrics/summary            — ok, today/week/month buckets
  *   8. /api/agent-search/config              — ok, config (publik, tanpa cookie)
+ *   9. /api/admin/metrics/cache              — ok, LRU stats + hitRate
  *
  * Anti-flaky: tiap check dibungkus expect.poll (pola yang sama dengan
  * admin-metrics-auth.spec) — toleran terhadap 401 transient saat blip Turso,
@@ -25,7 +26,7 @@
  */
 import { test, expect, type APIRequestContext, type APIResponse } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, type MintedSession } from '../helpers/mintSession';
-import { bodyOf, type Contract, gmailLogsContract, transactionsPaginatedContract, transactionsListContract, budgetsContract, categoriesContract, notificationsContract, adminSummaryContract, agentSearchConfigContract } from './contracts';
+import { bodyOf, type Contract, gmailLogsContract, transactionsPaginatedContract, transactionsListContract, budgetsContract, categoriesContract, notificationsContract, adminSummaryContract, agentSearchConfigContract, adminCacheContract } from './contracts';
 
 /** GET dengan cookie eksplisit (fixture request = context terpisah). */
 async function getWithCookie(
@@ -142,6 +143,15 @@ test.describe('API contract — schema drift detection (e2e)', () => {
       agentSearchConfigContract,
       '/api/agent-search/config',
       undefined, // publik
+    );
+  });
+
+  test('Admin cache stats contract (ok, LRU stats + hitRate)', async ({ request }) => {
+    await checkContract(
+      request,
+      adminCacheContract,
+      '/api/admin/metrics/cache',
+      session.cookie,
     );
   });
 });

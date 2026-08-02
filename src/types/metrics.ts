@@ -89,3 +89,15 @@ export interface FeatureCallsResponse {
   total: number;
   items: FeatureCall[];
 }
+
+export interface AICacheStats {
+  ok: boolean;
+  size: number;
+  maxEntries: number;
+  hits: number;
+  misses: number;
+  sets: number;
+  evictions: number;
+  /** Rasio hit/(hit+miss) — 0 bila belum ada request cacheable. */
+  hitRate: number;
+}

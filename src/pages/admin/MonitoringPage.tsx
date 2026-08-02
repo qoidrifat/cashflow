@@ -6,17 +6,17 @@ import {
 } from 'recharts';
 import {
   DollarSign, Cpu, Activity, Clock, AlertTriangle, CheckCircle2,
-  RefreshCw, ShieldAlert,
+  RefreshCw, ShieldAlert, Database, Zap, XCircle, Trash2,
 } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { useAuthStore } from '../../store/useAuthStore';
 import {
-  fetchMetricsSummary, fetchAiUsage, fetchFeatureHealth, fetchAlerts,
+  fetchMetricsSummary, fetchAiUsage, fetchFeatureHealth, fetchAlerts, fetchAICacheStats,
 } from '../../services/adminMetrics';
 import type {
-  MetricsSummary, CostTrendPoint, FeatureHealth, AlertStatus,
+  MetricsSummary, CostTrendPoint, FeatureHealth, AlertStatus, AICacheStats,
 } from '../../types/metrics';
 import { cn } from '../../lib/utils';
 
@@ -44,6 +44,7 @@ export default function MonitoringPage() {
   const [trend, setTrend] = useState<CostTrendPoint[]>([]);
   const [health, setHealth] = useState<FeatureHealth[]>([]);
   const [alerts, setAlerts] = useState<AlertStatus[]>([]);
+  const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
 
@@ -51,16 +52,20 @@ export default function MonitoringPage() {
     setLoading(true);
     setError(null);
     try {
-      const [summaryRes, usageRes, healthRes, alertsRes] = await Promise.all([
+      // Panel cache bersifat observability bonus — kegagalan endpoint-nya tidak boleh
+      // menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
+      const [summaryRes, usageRes, healthRes, alertsRes, cacheRes] = await Promise.all([
         fetchMetricsSummary(),
         fetchAiUsage(),
         fetchFeatureHealth(),
         fetchAlerts(),
+        fetchAICacheStats().catch(() => null),
       ]);
       setSummary(summaryRes);
       setTrend(usageRes.trend || []);
       setHealth(healthRes.health || []);
       setAlerts(alertsRes.alerts || []);
+      setCacheStats(cacheRes);
     } catch (err) {
       const typed = err as Error & { code?: string };
       setError({ code: typed.code, message: typed.message || 'Gagal memuat data monitoring.' });
@@ -129,6 +134,41 @@ export default function MonitoringPage() {
               <MetricCard icon={<Activity className="h-4 w-4" />} label="Calls Hari Ini" value={String(summary.today.calls)} accent="text-amber-500" />
               <MetricCard icon={<Clock className="h-4 w-4" />} label="Avg Time" value={`${summary.today.avgTimeMs} ms`} accent="text-blue-500" />
             </div>
+
+            {/* AI Response Cache panel (Sprint 3 LRU) */}
+            {cacheStats && (
+              <Card>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-app-text">AI Response Cache</h3>
+                  <span className="text-[11px] text-app-subtle font-medium">LRU in-process · max {cacheStats.maxEntries} entri</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-end justify-between mb-1">
+                      <p className="text-[10px] text-app-subtle font-medium">Hit Rate</p>
+                      <p className="text-sm font-black text-app-text">
+                        {cacheStats.hits + cacheStats.misses === 0 ? '—' : `${Math.round(cacheStats.hitRate * 100)}%`}
+                      </p>
+                    </div>
+                    <div className="h-2 rounded-full bg-app-hover overflow-hidden">
+                      <div
+                        className={cn('h-full rounded-full transition-all', cacheStats.hitRate >= 0.5 ? 'bg-mint-500' : 'bg-amber-500')}
+                        style={{ width: `${Math.min(100, Math.round(cacheStats.hitRate * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <CacheStat icon={<Zap className="h-3.5 w-3.5 text-mint-500" />} label="Hits" value={String(cacheStats.hits)} />
+                    <CacheStat icon={<XCircle className="h-3.5 w-3.5 text-amber-500" />} label="Misses" value={String(cacheStats.misses)} />
+                    <CacheStat icon={<Database className="h-3.5 w-3.5 text-primary-500" />} label="Tersimpan" value={`${cacheStats.size}/${cacheStats.maxEntries}`} />
+                    <CacheStat icon={<Trash2 className="h-3.5 w-3.5 text-app-subtle" />} label="Evictions" value={String(cacheStats.evictions)} />
+                  </div>
+                </div>
+                <p className="mt-3 text-[11px] text-app-subtle">
+                  Cache menyimpan hasil ekstraksi sukses (gmail_sync 7 hari, ocr_receipt 1 jam) — hit berarti request identik tidak memanggil Vertex AI lagi.
+                </p>
+              </Card>
+            )}
 
             {/* Cost trend chart */}
             <Card>
@@ -270,6 +310,15 @@ function MetricCard({ icon, label, value, accent }: { icon: React.ReactNode; lab
       <p className="text-[10px] text-app-subtle font-medium">{label}</p>
       <p className="text-lg font-black text-app-text mt-0.5">{value}</p>
     </Card>
+  );
+}
+
+function CacheStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div>
+      <div className="flex items-center justify-center gap-1">{icon}<p className="text-sm font-black text-app-text">{value}</p></div>
+      <p className="text-[10px] text-app-subtle font-medium mt-0.5">{label}</p>
+    </div>
   );
 }
 

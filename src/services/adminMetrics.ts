@@ -1,7 +1,7 @@
 import { apiGet } from '../config/api';
 import type {
   AiUsageResponse, MetricsSummary, FeatureHealth, AlertStatus,
-  FeatureCallsResponse, FeatureCallStatus,
+  FeatureCallsResponse, FeatureCallStatus, AICacheStats,
 } from '../types/metrics';
 
 function range(from?: string, to?: string): string {
@@ -31,6 +31,10 @@ export function fetchFeatureHealth(from?: string, to?: string): Promise<{ ok: bo
 
 export function fetchAlerts(): Promise<{ ok: boolean; alerts: AlertStatus[] }> {
   return apiGet<{ ok: boolean; alerts: AlertStatus[] }>('/api/admin/metrics/alerts');
+}
+
+export function fetchAICacheStats(): Promise<AICacheStats> {
+  return apiGet<AICacheStats>('/api/admin/metrics/cache');
 }
 
 export function fetchFeatureCalls(

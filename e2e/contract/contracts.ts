@@ -176,3 +176,22 @@ export const agentSearchConfigContract: Contract = {
   },
   describe: () => 'ok:true, config:object',
 };
+
+export const adminCacheContract: Contract = {
+  label: '/api/admin/metrics/cache',
+  validate: (body) => {
+    if (!isObject(body)) return false;
+    const b = body as Record<string, unknown>;
+    if (b.ok !== true) return false;
+    return hasShape(b, {
+      size: isNumber,
+      maxEntries: isNumber,
+      hits: isNumber,
+      misses: isNumber,
+      sets: isNumber,
+      evictions: isNumber,
+      hitRate: isNumber,
+    });
+  },
+  describe: () => 'ok:true, size,maxEntries,hits,misses,sets,evictions,hitRate (semua number)',
+};
