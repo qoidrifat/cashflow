@@ -9,6 +9,7 @@ import type {
   WalletAccount,
   SavingGoal,
 } from '../types';
+import { parseMetadata } from '../features/gmail/gmailLogMapper';
 
 export function toDate(value: unknown): Date {
   return value ? new Date(String(value)) : new Date();
@@ -85,25 +86,6 @@ export function mapRecurring(row: any): RecurringTransaction {
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
   };
-}
-
-/**
- * Parse kolom metadata (TEXT JSON di Turso/SQLite) menjadi object.
- * Server mengirim row mentah (SELECT *) sehingga metadata bisa berupa string JSON
- * ATAU object (dari path lain) — handle keduanya. BUG FIX: sebelumnya metadata
- * dibiarkan string, sehingga field seperti skipReason/candidate tidak pernah
- * terbaca dari data server (memicu approve "Perlu Review" gagal diam-diam).
- */
-function parseMetadata(raw: unknown): Record<string, unknown> {
-  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
-  if (typeof raw === 'string') {
-    try {
-      return JSON.parse(raw) || {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
 }
 
 export function mapGmailSyncLog(row: any): GmailSyncLog {

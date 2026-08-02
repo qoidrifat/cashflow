@@ -79,7 +79,8 @@ import {
 } from '../../lib/tiketDedupe';
 import { buildTransactionNote, sanitizeTransactionNote } from '../../lib/transactionNoteBuilder';
 import type { NoteContext } from '../../lib/transactionNoteBuilder';
-import type { ExtractedTransaction, GmailSyncLog, PaymentMethod, TransactionType, SyncEmailStatus, SyncEmailDebug, AutoDecision } from '../../types';
+import type { ExtractedTransaction, PaymentMethod, TransactionType, SyncEmailStatus, SyncEmailDebug, AutoDecision } from '../../types';
+import { mapLogToSyncEmail, type SyncEmail } from './gmailLogMapper';
 import {
   createInitialGmailSyncProgress,
   deriveGmailSyncProgress,
@@ -89,29 +90,8 @@ import {
 } from '../../lib/gmailSyncProgress';
 
 // ===================== Types =====================
-
-interface SyncEmail {
-  id: string;
-  subject: string;
-  from: string;
-  date: string;
-  body?: string;  // Email body untuk retry/mark-as-transaction
-  status: SyncEmailStatus;
-  amount?: number | null;
-  confidence?: number | null;
-  merchant?: string | null;
-  category?: string | null;
-  paymentMethod?: string | null;
-  transactionType?: TransactionType;
-  description?: string | null;
-  /** Catatan transaksi yang jelas — menjelaskan transaksi untuk apa */
-  note?: string | null;
-  extracted?: ExtractedTransaction | null;
-  reason?: string;
-  debug?: SyncEmailDebug;
-  /** ID transaksi yang berhasil dibuat saat user menyetujui (untuk persist) */
-  extractedTransactionId?: string;
-}
+// SyncEmail & mapLogToSyncEmail/parseMetadata dipindah ke gmailLogMapper.ts
+// (module murni, unit-testable tanpa React) — lihat import di atas.
 
 interface ProcessingStats {
   total: number;
@@ -224,38 +204,6 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
     logger.warn('[GmailSync] Gagal menyimpan log Gmail Sync secara bulk', error);
     throw error;
   }
-}
-
-// ===================== Log → SyncEmail mapping =====================
-// Bangun SyncEmail lengkap (termasuk amount/merchant/category/paymentMethod/
-// transactionType dari metadata candidate) dari log server, agar tombol
-// Setujui/Tolak di tab "Perlu Review" (yang datanya dari riwayat server)
-// selalu punya data transaksi yang cukup. (BUG FIX)
-function mapLogToSyncEmail(log: GmailSyncLog): SyncEmail {
-  const candidate = (log.metadata?.candidate as Record<string, unknown> | undefined) || {};
-  return {
-    id: log.messageId,
-    subject: log.subject,
-    from: log.sender,
-    date: log.emailDate || log.scannedAt.toISOString(),
-    status: log.status,
-    confidence:
-      log.confidenceScore ??
-      (typeof candidate.confidence === 'number' ? candidate.confidence : null),
-    note: log.extractedNote || (typeof candidate.note === 'string' ? candidate.note : null) || null,
-    reason:
-      log.errorMessage ||
-      (log.status === 'auto_skipped' || log.status === 'auto_rejected' || log.status === 'skipped' || log.status === 'rejected'
-        ? log.metadata?.skipReason as string | undefined
-        : undefined),
-    amount: typeof candidate.amount === 'number' ? candidate.amount : null,
-    merchant: typeof candidate.merchant === 'string' ? candidate.merchant : null,
-    category: typeof candidate.category === 'string' ? candidate.category : null,
-    paymentMethod: typeof candidate.paymentMethod === 'string' ? candidate.paymentMethod : null,
-    transactionType: typeof candidate.transactionType === 'string'
-      ? candidate.transactionType as TransactionType
-      : undefined,
-  };
 }
 
 // ===================== Status Config =====================
