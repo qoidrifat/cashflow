@@ -30,8 +30,7 @@ import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
-
-const TEST_MESSAGE_PREFIX = 'e2e-reject-';
+import { seedGmailReviewEmail, openReviewFilter } from './helpers/gmailReview';
 
 test.describe('Gmail Sync Perlu Review — reject flow (e2e)', () => {
   let session: { cookie: string; userId: string };
@@ -56,55 +55,34 @@ test.describe('Gmail Sync Perlu Review — reject flow (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    testMessageId = `${TEST_MESSAGE_PREFIX}${Date.now()}`;
-    const subject = `E2E Reject Test ${Date.now()}`;
-    const amount = 150000;
-    const merchant = 'E2E Reject Merchant';
-
-    const seedResp = await request.post('/api/gmail/logs', {
-      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
-      data: {
-        messageId: testMessageId,
-        subject,
-        sender: 'e2e-reject@example.com',
-        emailDate: '2026-08-01T00:00:00.000Z',
-        status: 'needs_review',
-        finalStatus: 'needs_review',
-        confidenceScore: 0.68,
-        metadata: {
-          candidate: {
-            amount,
-            merchant,
-            category: 'Transportasi',
-            paymentMethod: 'e-wallet',
-            transactionType: 'expense',
-            date: '2026-08-01',
-            confidence: 0.68,
-          },
-        },
+    testMessageId = await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-reject-',
+      subject: `E2E Reject Test ${Date.now()}`,
+      sender: 'e2e-reject@example.com',
+      confidenceScore: 0.68,
+      candidate: {
+        amount: 150000,
+        merchant: 'E2E Reject Merchant',
+        category: 'Transportasi',
+        paymentMethod: 'e-wallet',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.68,
       },
     });
-    expect(seedResp.ok(), 'seed email test via API').toBeTruthy();
 
-    // ===== 2. Buka halaman & filter Perlu Review =====
-    await page.goto('/gmail-sync');
-    await page.waitForLoadState('domcontentloaded');
-
-    await page.getByRole('button', { name: 'Perlu Review', exact: true }).click();
-
-    // ===== 3. Email test tampil dengan amount & tombol Tolak =====
-    const card = page.getByTestId(`email-card-${testMessageId}`);
-    await expect(card).toBeVisible({ timeout: 20_000 });
+    // ===== 2. Buka halaman & filter Perlu Review → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
     // Amount harus tampil (candidate dari metadata server) — bukti bug fix #1
     await expect(card.getByText(/Rp/).first()).toBeVisible();
 
-    // ===== 4. Klik Tolak =====
+    // ===== 3. Klik Tolak =====
     await card.getByTitle('Tolak').click();
 
-    // ===== 5. Toast info =====
+    // ===== 4. Toast info =====
     await expect(page.getByText('Transaksi ditolak').first()).toBeVisible({ timeout: 20_000 });
 
-    // ===== 6. Notifikasi in-app dibuat (dedupe per email) =====
+    // ===== 5. Notifikasi in-app dibuat (dedupe per email) =====
     await expect.poll(async () => {
       const resp = await request.get('/api/notifications?limit=100', {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -116,7 +94,7 @@ test.describe('Gmail Sync Perlu Review — reject flow (e2e)', () => {
       );
     }, { timeout: 15_000 }).toBe(true);
 
-    // ===== 7. Status log di server berubah menjadi rejected =====
+    // ===== 6. Status log di server berubah menjadi rejected =====
     await expect.poll(async () => {
       const resp = await request.get(`/api/gmail/logs?limit=5000&includeSummary=1`, {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -130,7 +108,7 @@ test.describe('Gmail Sync Perlu Review — reject flow (e2e)', () => {
       return found ? (found.status || found.final_status) : null;
     }, { timeout: 15_000 }).toBe('rejected');
 
-    // ===== 8. TIDAK ada transaksi dibuat (kontras dengan approve) =====
+    // ===== 7. TIDAK ada transaksi dibuat (kontras dengan approve) =====
     // API !ok → false (poll retry → timeout = test gagal) — pola sama dengan
     // spec approve; jangan masking kegagalan API dengan menganggap "tidak ada".
     await expect.poll(async () => {

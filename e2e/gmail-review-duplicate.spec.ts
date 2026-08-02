@@ -31,8 +31,7 @@ import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
-
-const TEST_MESSAGE_PREFIX = 'e2e-dup-';
+import { seedGmailReviewEmail, openReviewFilter } from './helpers/gmailReview';
 
 test.describe('Gmail Sync Perlu Review — duplicate flow (e2e)', () => {
   let session: { cookie: string; userId: string };
@@ -57,35 +56,23 @@ test.describe('Gmail Sync Perlu Review — duplicate flow (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    testMessageId = `${TEST_MESSAGE_PREFIX}${Date.now()}`;
-    const subject = `E2E Duplicate Test ${Date.now()}`;
     const amount = 90000;
     const merchant = 'E2E Duplicate Merchant';
-
-    const seedResp = await request.post('/api/gmail/logs', {
-      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
-      data: {
-        messageId: testMessageId,
-        subject,
-        sender: 'e2e-dup@example.com',
-        emailDate: '2026-08-01T00:00:00.000Z',
-        status: 'needs_review',
-        finalStatus: 'needs_review',
-        confidenceScore: 0.71,
-        metadata: {
-          candidate: {
-            amount,
-            merchant,
-            category: 'Belanja',
-            paymentMethod: 'transfer-bank',
-            transactionType: 'expense',
-            date: '2026-08-01',
-            confidence: 0.71,
-          },
-        },
+    testMessageId = await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-dup-',
+      subject: `E2E Duplicate Test ${Date.now()}`,
+      sender: 'e2e-dup@example.com',
+      confidenceScore: 0.71,
+      candidate: {
+        amount,
+        merchant,
+        category: 'Belanja',
+        paymentMethod: 'transfer-bank',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.71,
       },
     });
-    expect(seedResp.ok(), 'seed email test via API').toBeTruthy();
 
     // ===== 2. Seed transaksi duplikat (gmail_message_id SAMA dengan email) =====
     // Menyimulasikan bahwa transaksi email ini SUDAH pernah disimpan sebelumnya
@@ -109,24 +96,17 @@ test.describe('Gmail Sync Perlu Review — duplicate flow (e2e)', () => {
     });
     expect(txResp.ok(), 'seed transaksi duplikat via API').toBeTruthy();
 
-    // ===== 3. Buka halaman & filter Perlu Review =====
-    await page.goto('/gmail-sync');
-    await page.waitForLoadState('domcontentloaded');
-
-    await page.getByRole('button', { name: 'Perlu Review', exact: true }).click();
-
-    // ===== 4. Email test tampil dengan amount & tombol Setujui =====
-    const card = page.getByTestId(`email-card-${testMessageId}`);
-    await expect(card).toBeVisible({ timeout: 20_000 });
+    // ===== 3. Buka halaman & filter Perlu Review → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
     await expect(card.getByText(/Rp/).first()).toBeVisible();
 
-    // ===== 5. Klik Setujui → addTransaction mendeteksi duplikat =====
+    // ===== 4. Klik Setujui → addTransaction mendeteksi duplikat =====
     await card.getByTitle('Setujui').click();
 
-    // ===== 6. Toast warning duplikat =====
+    // ===== 5. Toast warning duplikat =====
     await expect(page.getByText('Transaksi duplikat').first()).toBeVisible({ timeout: 20_000 });
 
-    // ===== 7. Notifikasi warning dibuat (type warning, title 'Transaksi Gmail duplikat') =====
+    // ===== 6. Notifikasi warning dibuat (type warning, title 'Transaksi Gmail duplikat') =====
     await expect.poll(async () => {
       const resp = await request.get('/api/notifications?limit=100', {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -141,7 +121,7 @@ test.describe('Gmail Sync Perlu Review — duplicate flow (e2e)', () => {
       );
     }, { timeout: 15_000 }).toBe(true);
 
-    // ===== 8. Status log di server berubah menjadi duplicate =====
+    // ===== 7. Status log di server berubah menjadi duplicate =====
     await expect.poll(async () => {
       const resp = await request.get(`/api/gmail/logs?limit=5000&includeSummary=1`, {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -155,7 +135,7 @@ test.describe('Gmail Sync Perlu Review — duplicate flow (e2e)', () => {
       return found ? (found.status || found.final_status) : null;
     }, { timeout: 15_000 }).toBe('duplicate');
 
-    // ===== 9. Transaksi dengan gmail_message_id ini TETAP 1 (tidak dobel) =====
+    // ===== 8. Transaksi dengan gmail_message_id ini TETAP 1 (tidak dobel) =====
     await expect.poll(async () => {
       const resp = await request.get('/api/transactions?limit=5000', {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },

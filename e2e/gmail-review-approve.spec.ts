@@ -30,8 +30,7 @@ import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
-
-const TEST_MESSAGE_PREFIX = 'e2e-review-';
+import { seedGmailReviewEmail, openReviewFilter } from './helpers/gmailReview';
 
 test.describe('Gmail Sync Perlu Review — approve flow (e2e)', () => {
   let session: { cookie: string; userId: string };
@@ -58,56 +57,34 @@ test.describe('Gmail Sync Perlu Review — approve flow (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    testMessageId = `${TEST_MESSAGE_PREFIX}${Date.now()}`;
-    const subject = `E2E Review Test ${Date.now()}`;
-    const amount = 125000;
-    const merchant = 'E2E Test Merchant';
-
-    const seedResp = await request.post('/api/gmail/logs', {
-      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
-      data: {
-        messageId: testMessageId,
-        subject,
-        sender: 'e2e-test@example.com',
-        emailDate: '2026-08-01T00:00:00.000Z',
-        status: 'needs_review',
-        finalStatus: 'needs_review',
-        confidenceScore: 0.72,
-        metadata: {
-          candidate: {
-            amount,
-            merchant,
-            category: 'Makanan',
-            paymentMethod: 'qris',
-            transactionType: 'expense',
-            date: '2026-08-01',
-            confidence: 0.72,
-          },
-        },
+    testMessageId = await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-review-',
+      subject: `E2E Review Test ${Date.now()}`,
+      sender: 'e2e-test@example.com',
+      confidenceScore: 0.72,
+      candidate: {
+        amount: 125000,
+        merchant: 'E2E Test Merchant',
+        category: 'Makanan',
+        paymentMethod: 'qris',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.72,
       },
     });
-    expect(seedResp.ok(), 'seed email test via API').toBeTruthy();
 
-    // ===== 2. Buka halaman & filter Perlu Review =====
-    await page.goto('/gmail-sync');
-    await page.waitForLoadState('domcontentloaded');
-
-    // Tunggu list data tampil dulu (ground truth dari server)
-    await page.getByRole('button', { name: 'Perlu Review', exact: true }).click();
-
-    // ===== 3. Email test tampil dengan amount & tombol Setujui =====
-    const card = page.getByTestId(`email-card-${testMessageId}`);
-    await expect(card).toBeVisible({ timeout: 20_000 });
+    // ===== 2. Buka halaman & filter Perlu Review → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
     // Amount harus tampil (candidate dari metadata server) — bukti bug fix #1
     await expect(card.getByText(/Rp/).first()).toBeVisible();
 
-    // ===== 4. Klik Setujui =====
+    // ===== 3. Klik Setujui =====
     await card.getByTitle('Setujui').click();
 
-    // ===== 5. Toast sukses =====
+    // ===== 4. Toast sukses =====
     await expect(page.getByText('Transaksi Gmail berhasil disimpan')).toBeVisible({ timeout: 20_000 });
 
-    // ===== 6. Notifikasi in-app dibuat (dedupe per email) =====
+    // ===== 5. Notifikasi in-app dibuat (dedupe per email) =====
     await expect.poll(async () => {
       const resp = await request.get('/api/notifications?limit=100', {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -117,7 +94,7 @@ test.describe('Gmail Sync Perlu Review — approve flow (e2e)', () => {
       return notifications.some((n) => n.dedupe_key === `gmail-review-${testMessageId}`);
     }, { timeout: 15_000 }).toBe(true);
 
-    // ===== 7. Status log di server berubah menjadi approved =====
+    // ===== 6. Status log di server berubah menjadi approved =====
     await expect.poll(async () => {
       const resp = await request.get(`/api/gmail/logs?limit=5000&includeSummary=1`, {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },
@@ -131,7 +108,7 @@ test.describe('Gmail Sync Perlu Review — approve flow (e2e)', () => {
       return found ? (found.status || found.final_status) : null;
     }, { timeout: 15_000 }).toBe('approved');
 
-    // ===== 8. Transaksi tersimpan dengan gmail_message_id = testMessageId =====
+    // ===== 7. Transaksi tersimpan dengan gmail_message_id = testMessageId =====
     await expect.poll(async () => {
       const resp = await request.get('/api/transactions?limit=5000', {
         headers: { Cookie: `better-auth.session_token=${session.cookie}` },

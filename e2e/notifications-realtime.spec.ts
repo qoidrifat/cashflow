@@ -19,36 +19,18 @@
  * Menjalankan:
  *   npx playwright test e2e/notifications-realtime.spec.ts
  */
-import { test, expect, type Locator } from 'playwright/test';
+import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
-
-const TEST_MESSAGE_PREFIX = 'e2e-bell-';
-
-/** Parse jumlah unread dari aria-label bell: "Buka notifikasi, X belum dibaca". */
-function unreadCountFromLabel(label: string | null): number {
-  if (!label) return 0;
-  const m = label.match(/(\d+)\s+belum dibaca/);
-  return m ? Number(m[1]) : 0;
-}
-
-/**
- * Deterministik: tunggu koneksi SSE terbuka SEBELUM aksi approve/reject.
- *
- * Indikator: ikon WifiOff (anak elemen bell, class `text-amber-500`) HILANG
- * saat `realtimeConnected === true` (App.tsx: `onStatus: setRealtimeConnected`
- * dipanggil saat EventSource onopen). Dengan menunggu ikon hilang, test tidak
- * pernah mengeksekusi aksi sebelum jalur push `notification:new` siap —
- * SSE yang lambat connect tidak lagi membuat test flaky (item tidak muncul
- * karena push terlewat, bukan karena logika salah).
- *
- * Fallback aman: bila SSE tidak pernah connect dalam timeout, test gagal
- * di sini dengan pesan jelas (bukan timeout 20s misterius di menuitem).
- */
-async function waitRealtimeConnected(bell: Locator, timeout = 20_000) {
-  await expect(bell.locator('.text-amber-500')).toHaveCount(0, { timeout });
-}
+import {
+  seedGmailReviewEmail,
+  openReviewFilter,
+  bellButton,
+  unreadCountFromLabel,
+  waitRealtimeConnected,
+  assertBellNotification,
+} from './helpers/gmailReview';
 
 test.describe('Notification bell — review result realtime (e2e)', () => {
   let session: { cookie: string; userId: string };
@@ -78,54 +60,37 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    testMessageId = `${TEST_MESSAGE_PREFIX}${Date.now()}`;
+    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup
+    // di afterAll (bukan meninggalkan data orfanas).
+    testMessageId = `${'e2e-bell-'}${Date.now()}`;
     testMessageIds.push(testMessageId);
-    const amount = 75000;
-    const merchant = 'E2E Bell Merchant';
-
-    const seedResp = await request.post('/api/gmail/logs', {
-      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
-      data: {
-        messageId: testMessageId,
-        subject: `E2E Bell Test ${Date.now()}`,
-        sender: 'e2e-bell@example.com',
-        emailDate: '2026-08-01T00:00:00.000Z',
-        status: 'needs_review',
-        finalStatus: 'needs_review',
-        confidenceScore: 0.7,
-        metadata: {
-          candidate: {
-            amount,
-            merchant,
-            category: 'Transportasi',
-            paymentMethod: 'e-wallet',
-            transactionType: 'expense',
-            date: '2026-08-01',
-            confidence: 0.7,
-          },
-        },
+    await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-bell-',
+      subject: `E2E Bell Test ${Date.now()}`,
+      sender: 'e2e-bell@example.com',
+      confidenceScore: 0.7,
+      candidate: {
+        amount: 75000,
+        merchant: 'E2E Bell Merchant',
+        category: 'Transportasi',
+        paymentMethod: 'e-wallet',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.7,
       },
     });
-    expect(seedResp.ok(), 'seed email test via API').toBeTruthy();
 
-    // ===== 2. Buka halaman & filter Perlu Review =====
-    await page.goto('/gmail-sync');
-    await page.waitForLoadState('domcontentloaded');
+    // ===== 2. Buka halaman & filter Perlu Review → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
 
-    await page.getByRole('button', { name: 'Perlu Review', exact: true }).click();
-
-    // ===== 3. Email test tampil =====
-    const card = page.getByTestId(`email-card-${testMessageId}`);
-    await expect(card).toBeVisible({ timeout: 20_000 });
-
-    // ===== 4. Baseline unread count dari bell =====
+    // ===== 3. Baseline unread count dari bell =====
     // Selector spesifik: hanya bell yang punya "belum dibaca" di aria-label
     // (nama /notifikasi/i ambigu — ada tombol "Tutup notifikasi" lain di halaman).
-    const bell = page.getByRole('button', { name: /belum dibaca/ });
+    const bell = bellButton(page);
     await expect(bell).toBeVisible();
     const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
 
-    // ===== 4b. Deterministik: SSE harus terhubung sebelum aksi =====
+    // ===== 4. Deterministik: SSE harus terhubung sebelum aksi =====
     // WifiOff hilang = realtimeConnected true → push `notification:new`
     // dijamin sampai (SSE lambat connect tidak bikin flaky).
     await waitRealtimeConnected(bell);
@@ -134,19 +99,11 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     await card.getByTitle('Setujui').click();
     await expect(page.getByText('Transaksi Gmail berhasil disimpan')).toBeVisible({ timeout: 20_000 });
 
-    // ===== 6. Buka dropdown bell — TANPA reload halaman =====
-    await bell.click();
-    await expect(page.getByRole('menu')).toBeVisible({ timeout: 10_000 });
-
-    // Notifikasi hasil review muncul realtime (SSE push)
-    const reviewItem = page.getByRole('menuitem', { name: /Transaksi Gmail diterima/ }).first();
-    await expect(reviewItem).toBeVisible({ timeout: 20_000 });
-
-    // ===== 7. Badge unread bertambah (jumlah belum dibaca naik) =====
-    await expect.poll(async () => {
-      const current = unreadCountFromLabel(await bell.getAttribute('aria-label'));
-      return current > baseline;
-    }, { timeout: 15_000 }).toBe(true);
+    // ===== 6. Buka dropdown bell TANPA reload → notifikasi realtime + badge naik =====
+    await assertBellNotification(page, bell, {
+      itemName: /Transaksi Gmail diterima/,
+      baselineUnread: baseline,
+    });
 
     pageErrors.expectClean();
   });
@@ -155,70 +112,46 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test (unik per test) =====
-    testMessageId = `${TEST_MESSAGE_PREFIX}${Date.now()}`;
+    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup
+    // di afterAll (bukan meninggalkan data orfanas).
+    testMessageId = `${'e2e-bell-'}${Date.now()}`;
     testMessageIds.push(testMessageId);
-    const amount = 65000;
-    const merchant = 'E2E Bell Reject Merchant';
-
-    const seedResp = await request.post('/api/gmail/logs', {
-      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
-      data: {
-        messageId: testMessageId,
-        subject: `E2E Bell Reject ${Date.now()}`,
-        sender: 'e2e-bell@example.com',
-        emailDate: '2026-08-01T00:00:00.000Z',
-        status: 'needs_review',
-        finalStatus: 'needs_review',
-        confidenceScore: 0.66,
-        metadata: {
-          candidate: {
-            amount,
-            merchant,
-            category: 'Belanja',
-            paymentMethod: 'qris',
-            transactionType: 'expense',
-            date: '2026-08-01',
-            confidence: 0.66,
-          },
-        },
+    await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-bell-',
+      subject: `E2E Bell Reject ${Date.now()}`,
+      sender: 'e2e-bell@example.com',
+      confidenceScore: 0.66,
+      candidate: {
+        amount: 65000,
+        merchant: 'E2E Bell Reject Merchant',
+        category: 'Belanja',
+        paymentMethod: 'qris',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.66,
       },
     });
-    expect(seedResp.ok(), 'seed email test via API').toBeTruthy();
 
-    // ===== 2. Buka halaman & filter =====
-    await page.goto('/gmail-sync');
-    await page.waitForLoadState('domcontentloaded');
-
-    await page.getByRole('button', { name: 'Perlu Review', exact: true }).click();
-
-    const card = page.getByTestId(`email-card-${testMessageId}`);
-    await expect(card).toBeVisible({ timeout: 20_000 });
+    // ===== 2. Buka halaman & filter → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
 
     // ===== 3. Baseline unread =====
     // Selector spesifik: hanya bell yang punya "belum dibaca" di aria-label.
-    const bell = page.getByRole('button', { name: /belum dibaca/ });
+    const bell = bellButton(page);
     const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
 
-    // ===== 3b. Deterministik: SSE harus terhubung sebelum aksi =====
+    // ===== 4. Deterministik: SSE harus terhubung sebelum aksi =====
     await waitRealtimeConnected(bell);
 
-    // ===== 4. Klik Tolak =====
+    // ===== 5. Klik Tolak =====
     await card.getByTitle('Tolak').click();
     await expect(page.getByText('Transaksi ditolak').first()).toBeVisible({ timeout: 20_000 });
 
-    // ===== 5. Buka dropdown bell — TANPA reload =====
-    await bell.click();
-    await expect(page.getByRole('menu')).toBeVisible({ timeout: 10_000 });
-
-    // Notifikasi hasil reject muncul realtime (SSE push)
-    const rejectItem = page.getByRole('menuitem', { name: /Transaksi ditolak/ }).first();
-    await expect(rejectItem).toBeVisible({ timeout: 20_000 });
-
-    // ===== 6. Badge unread bertambah =====
-    await expect.poll(async () => {
-      const current = unreadCountFromLabel(await bell.getAttribute('aria-label'));
-      return current > baseline;
-    }, { timeout: 15_000 }).toBe(true);
+    // ===== 6. Buka dropdown bell TANPA reload → notifikasi realtime + badge naik =====
+    await assertBellNotification(page, bell, {
+      itemName: /Transaksi ditolak/,
+      baselineUnread: baseline,
+    });
 
     pageErrors.expectClean();
   });
