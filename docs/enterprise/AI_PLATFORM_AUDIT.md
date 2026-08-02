@@ -20,10 +20,10 @@
 | **Safety Layer** | `answerGenerationSpec.ignoreAdversarialQuery`, `Llama Guard` **disebut di roadmap tapi belum diimplementasi** di kode | ❌ |
 | **Token Usage** | `usageMetadata` → `metricsService.recordAIUsage` (chokepoint di `generateVertexContent`) | ✅ |
 | **Cost** | `AI_PRICING` (USD/1M token) + `USD_TO_IDR` → estimasi cost per call + agregasi | ✅ |
-| **Retry Logic** | Loop 2 model + timeout race; retryable classification → **tidak ada backoff/retry eksponensial** | ⚠️ |
+| **Retry Logic** | ✅ **Retry exponential backoff (Sprint 3)**: `VERTEX_QUOTA_EXCEEDED`/`VERTEX_TIMEOUT`/`VERTEX_NETWORK_ERROR` → retry model yang sama (default 3 attempt, delay `base 500ms * 2^(n-1)` + jitter 80–120%, budget `max(timeout*2, 60s)`), baru fallback model | ✅ |
 | **Fallback Logic** | Model fallback (flash→flash-lite); **tidak ada fallback ke API key/Gemini non-Vertex** | ⚠️ |
 | **Prompt Compression** | `buildMonthlyReportPrompt` truncate 12.000 char; `cleanText` slice 500–2000 | ⚠️ Parsial |
-| **Caching** | ❌ Tidak ada (no response cache, no prompt cache, no semantic cache) | ❌ |
+| **Caching** | ✅ **In-process LRU response cache (Sprint 3)**: `server/lib/aiCache.js` (max 100 entri, TTL per feature — gmail_sync 7 hari, ocr_receipt 1 jam; key sha256(feature+models+contents+config)); hit → tanpa panggil Vertex + tanpa token dipakai; observability `ai_cache_hit/miss` di system_metrics. Terverifikasi: miss 6.4s → hit 0.21s | ✅ |
 | **AI Gateway** | Fungsional (vertexContext = gateway logic), tapi **bukan service terpisah** — terkait lifecycle server | ⚠️ |
 
 ---
@@ -66,10 +66,10 @@ contents + config
 - `sanitizeMetadata` menghapus key sensitif (token/secret/base64/body/raw/email) sebelum simpan.
 - `sanitizeErrorMessage` redact JWT/api-key/path di admin UI.
 
-**Kelemahan:**
-1. **Single-provider**: hanya Vertex AI. Bila project GCP down, seluruh AI mati (tidak ada fallback provider/cache).
-2. **Tidak ada retry/backoff** untuk `VERTEX_QUOTA_EXCEEDED`/`VERTEX_TIMEOUT` (retryable=true tapi tidak dieksekusi — hanya model-fallback).
-3. **Tidak ada caching**: prompt identik (mis. sync gmail log yang sama) diproses ulang → biaya + latency.
+**Kelemahan (pasca-Sprint 3):**
+1. **Single-provider**: hanya Vertex AI. Bila project GCP down, seluruh AI mati (tidak ada fallback provider). Cache LRU adalah buffer biaya/latency, bukan high-availability.
+2. ✅ **Sudah ditutup (Sprint 3)**: retry/backoff exponential untuk quota/timeout/network + fallback model tetap ada.
+3. ✅ **Sudah ditutup (Sprint 3)**: LRU response cache (TTL per feature) — prompt identik (email yang sama di-scan ulang) langsung di-serve dari cache (0.21s vs 6.4s).
 4. **Tidak ada streaming**: seluruh response menunggu selesai (SSE hanya untuk events, bukan token).
 5. **Tidak ada semantic cache / embedding reuse**: Discovery Engine mengelola sendiri; tidak ada model embedding eksplisit untuk fitur lain.
 6. **Safety layer parsial**: `ignoreAdversarialQuery` di `:answer` saja; tidak ada guard server-side untuk prompt injection pada input email/subject sebelum masuk prompt (hanya `cleanText`).
@@ -112,19 +112,19 @@ query → assertValidTab (help/transactions/insight/gmail/receipts)
 | Pipeline & parsing | 4 | 3-tier parsing, normalizer, error taxonomy |
 | Observability AI | 3.5 | Token+cost+latency+status recorded; no tracing |
 | Cost control | 3 | Estimasi per-call; no budget cap/alert channel |
-| Resilience | 2.5 | Model fallback + timeout; no retry-backoff, no provider fallback, no cache |
+| Resilience | 2.5 → **4.0** | ✅ **Retry exponential backoff (quota/timeout/network) + LRU response cache + model fallback + timeout race** (Sprint 3); minus: provider fallback non-Vertex, cache belum terdistribusi |
 | Safety | 2.5 | Ignore adversarial di answer; no server prompt-injection guard, no model-level safety tuning terdokumentasi |
 | RAG/Search | 3.5 | Discovery Engine solid; reranking & embedding opaque |
-| **AI Platform Maturity** | **3.2 / 5** | "Competent single-provider AI proxy" → perlu cache, resilience, safety untuk naik level |
+| **AI Platform Maturity** | **3.2 / 5** | "Competent single-provider AI proxy" → **3.4/5 pasca-Sprint 3** (cache + resilience P1 selesai); berikutnya: safety, provider fallback, streaming |
 
 ---
 
 ## 5. Enterprise Gaps & Bottlenecks
 
-| # | Gap | Dampak | Prioritas |
-|---|---|---|---|
-| 1 | No cache (response/semantic) | Biaya + latency berulang | P1 |
-| 2 | No retry-backoff utk quota/timeout | UX jelek saat Vertex throttle | P1 |
+| # | Gap | Dampak | Prioritas | Status |
+|---|---|---|---|---|
+| 1 | No cache (response/semantic) | Biaya + latency berulang | P1 | ✅ **Ditutup (Sprint 3)** — LRU response cache, TTL per feature |
+| 2 | No retry-backoff utk quota/timeout | UX jelek saat Vertex throttle | P1 | ✅ **Ditutup (Sprint 3)** — exponential backoff + budget waktu |
 | 3 | No provider fallback | Single point of failure GCP | P2 |
 | 4 | No streaming | Latency perceived tinggi | P2 |
 | 5 | Prompt injection guard server-side | Risk di email sync | P2 |
@@ -136,8 +136,8 @@ query → assertValidTab (help/transactions/insight/gmail/receipts)
 
 ## 6. Rekomendasi
 
-1. **P1**: tambah in-process LRU response cache (TTL per feature, hash prompt+model) — hemat biaya Gmail sync berulang.
-2. **P1**: retry dengan exponential backoff (2–3 attempt) untuk `VERTEX_QUOTA_EXCEEDED`/`VERTEX_TIMEOUT` (retryable=true sudah ada di taxonomy).
+1. ✅ **SELESAI (Sprint 3)**: in-process LRU response cache — `server/lib/aiCache.js`, TTL per feature (gmail_sync 7 hari, ocr_receipt 1 jam), key sha256, statistik + `ai_cache_hit/miss` metric. Terverifikasi end-to-end (6.4s → 0.21s). Evolusi: cache terdistribusi (Redis) bila multi-instance.
+2. ✅ **SELESAI (Sprint 3)**: retry exponential backoff (default 3 attempt, `AI_RETRY_MAX_ATTEMPTS`/`AI_RETRY_BASE_MS`, jitter, budget waktu) untuk `VERTEX_QUOTA_EXCEEDED`/`VERTEX_TIMEOUT`/`VERTEX_NETWORK_ERROR` sebelum fallback model.
 3. **P2**: ekstrak AI gateway ke service mandiri (dependency injection) agar bisa di-deploy/scale terpisah + unit-testable.
 4. **P2**: streaming via SSE untuk insight/agent-search answer.
 5. **P2**: lapisan sanitasi input sebelum prompt (blocklist + instruction separator) untuk prompt injection.

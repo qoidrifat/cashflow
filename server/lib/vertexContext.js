@@ -14,6 +14,37 @@ import { GoogleGenAI } from '@google/genai';
 import metricsService from '../services/metricsService.js';
 import { FEATURE_PROVIDER } from '../config/metricsConfig.js';
 import { logger } from './logger.js';
+import {
+  buildAICacheKey,
+  getCachedAICache,
+  setCachedAICache,
+} from './aiCache.js';
+
+// ===================== Retry & Cache Tuning (Sprint 3) =====================
+// Retry exponential backoff hanya untuk error retryable (quota/timeout/network).
+// Env:
+//   AI_RETRY_MAX_ATTEMPTS (default 3 — 1 eksekusi + 2 retry)
+//   AI_RETRY_BASE_MS      (default 500ms — delay = base * 2^(attempt-1) * jitter 80-120%)
+function envInt(key, fallback) {
+  const v = parseInt(process.env[key], 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+const AI_RETRY_MAX_ATTEMPTS = envInt('AI_RETRY_MAX_ATTEMPTS', 3);
+const AI_RETRY_BASE_MS = envInt('AI_RETRY_BASE_MS', 500);
+
+const RETRYABLE_CODES = new Set([
+  'VERTEX_QUOTA_EXCEEDED',
+  'VERTEX_TIMEOUT',
+  'VERTEX_NETWORK_ERROR',
+]);
+
+function retryDelayMs(attempt) {
+  const exponent = Math.min(attempt - 1, 4); // cap 2^4 = 16x base
+  const jitter = 0.8 + Math.random() * 0.4; // 80-120%
+  return Math.round(AI_RETRY_BASE_MS * 2 ** exponent * jitter);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ===================== State (mutable, di-set index.js) =====================
 
@@ -345,7 +376,7 @@ export function extractTextFromGenAIResponse(response) {
 // ===================== Normalizers =====================
 
 export function normalizeReceiptPaymentMethod(value) {
-  const normalized = String(value || '').toLowerCase().replace(/[_\s]/g, '-');
+  const normalized = String(value || '').toLowerCase().replace(/[_\\s]/g, '-');
 
   if (normalized === 'cash' || normalized === 'tunai') return 'cash';
   if (normalized === 'qris' || normalized === 'qr') return 'qris';
@@ -378,7 +409,7 @@ export function normalizeReceiptResult(payload) {
     transaction_type: isTransaction ? transactionType : null,
     amount: Number.isFinite(amount) && amount > 0 ? amount : null,
     currency: payload?.currency || 'IDR',
-    date: typeof payload?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload.date)
+    date: typeof payload?.date === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(payload.date)
       ? payload.date
       : null,
     merchant: payload?.merchant ? String(payload.merchant).slice(0, 120) : null,
@@ -556,6 +587,16 @@ export function sendGeminiError(res, httpStatus, {
 
 // ===================== Vertex AI Generate Helpers =====================
 
+/**
+ * generateVertexContent — pipeline AI dengan resilience (Sprint 3):
+ *   1. LRU response cache (opt-in via cacheTtlMs > 0): key sha256(feature +
+ *      models + contents + config). Hit → return tanpa panggil Vertex (hemat
+ *      biaya/latency; AI usage TIDAK dicatat — tidak ada token terpakai).
+ *   2. Retry exponential backoff untuk VERTEX_QUOTA_EXCEEDED / VERTEX_TIMEOUT /
+ *      VERTEX_NETWORK_ERROR (max AI_RETRY_MAX_ATTEMPTS, delay base*2^n*jitter,
+ *      budget waktu keseluruhan = max(timeoutMs*2, 60s)).
+ *   3. Fallback model (perilaku lama) setelah retry habis.
+ */
 export async function generateVertexContent({
   contents,
   config = {},
@@ -564,6 +605,7 @@ export async function generateVertexContent({
   feature = null,
   userId = null,
   metricMeta = {},
+  cacheTtlMs = 0,
 }) {
   if (!state.geminiReady || !state.vertexAI) {
     const error = new Error('Vertex AI Gemini belum dikonfigurasi di server.');
@@ -571,75 +613,134 @@ export async function generateVertexContent({
     throw error;
   }
 
+  const mergedConfig = { temperature: 0.1, ...config };
+
+  // ── LRU response cache (Sprint 3) — hanya bila caller opt-in ──
+  let cacheKey = null;
+  if (Number.isFinite(cacheTtlMs) && cacheTtlMs > 0) {
+    cacheKey = buildAICacheKey({
+      feature,
+      models: state.models,
+      contents,
+      config: mergedConfig,
+    });
+    const hit = getCachedAICache(cacheKey);
+    if (hit) {
+      metricsService.recordSystemMetric({
+        metricName: 'ai_cache_hit',
+        metricValue: 1,
+        feature,
+        userId,
+        metadata: { label, ...metricMeta },
+      }).catch(() => {});
+      logger.debug({ label, feature, cache: 'hit' }, 'AI response cache HIT');
+      // KONTAK: pada cache hit, `response` = null — caller HANYA boleh memakai
+      // `text` dan `modelUsed` (raw response + usageMetadata tidak disimpan).
+      return { text: hit.text, modelUsed: hit.modelUsed, cached: true, response: null };
+    }
+    metricsService.recordSystemMetric({
+      metricName: 'ai_cache_miss',
+      metricValue: 1,
+      feature,
+      userId,
+      metadata: { label, ...metricMeta },
+    }).catch(() => {});
+  }
+
   let lastError = null;
   const startedAt = Date.now();
+  const overallBudgetMs = Math.max(timeoutMs * 2, 60_000);
 
   for (const currentModel of state.models) {
-    try {
-      const resultPromise = state.vertexAI.models.generateContent({
-        model: currentModel,
-        contents,
-        config: {
-          temperature: 0.1,
-          ...config,
-        },
-      });
-
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`VERTEX_TIMEOUT: ${label} exceeded ${timeoutMs}ms`));
-        }, timeoutMs);
-      });
-
-      const response = await Promise.race([resultPromise, timeoutPromise]);
-      const text = extractTextFromGenAIResponse(response);
-
-      // CF-053: non-blocking AI usage recording (token capture chokepoint)
-      if (feature) {
-        const usage = response?.usageMetadata || {};
-        metricsService.recordAIUsage({
-          feature,
-          provider: FEATURE_PROVIDER[feature] || 'gemini_flash',
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      attempt++;
+      try {
+        const resultPromise = state.vertexAI.models.generateContent({
           model: currentModel,
-          promptTokens: usage.promptTokenCount ?? 0,
-          completionTokens: usage.candidatesTokenCount ?? 0,
-          executionTimeMs: Date.now() - startedAt,
-          status: 'success',
-          userId,
-          metadata: metricMeta,
-        }).catch(() => {});
-      }
+          contents,
+          config: mergedConfig,
+        });
 
-      return {
-        text,
-        modelUsed: currentModel,
-        response,
-      };
-    } catch (error) {
-      lastError = error;
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`VERTEX_TIMEOUT: ${label} exceeded ${timeoutMs}ms`));
+          }, timeoutMs);
+        });
 
-      const classified = classifyVertexError(error);
+        const response = await Promise.race([resultPromise, timeoutPromise]);
+        const text = extractTextFromGenAIResponse(response);
 
-      const canTryFallback = [
-        'VERTEX_MODEL_UNAVAILABLE',
-        'VERTEX_QUOTA_EXCEEDED',
-        'VERTEX_TIMEOUT',
-        'VERTEX_UNKNOWN_ERROR',
-      ].includes(classified.code);
+        // CF-053: non-blocking AI usage recording (token capture chokepoint)
+        if (feature) {
+          const usage = response?.usageMetadata || {};
+          metricsService.recordAIUsage({
+            feature,
+            provider: FEATURE_PROVIDER[feature] || 'gemini_flash',
+            model: currentModel,
+            promptTokens: usage.promptTokenCount ?? 0,
+            completionTokens: usage.candidatesTokenCount ?? 0,
+            executionTimeMs: Date.now() - startedAt,
+            status: 'success',
+            userId,
+            metadata: metricMeta,
+          }).catch(() => {});
+        }
 
-      const isLastModel = currentModel === state.models[state.models.length - 1];
+        if (cacheKey) {
+          // Simpan HANYA hasil sukses (text + model), bukan raw response.
+          setCachedAICache(cacheKey, { text, modelUsed: currentModel }, cacheTtlMs);
+        }
 
-      logger.warn({
-        label,
-        model: currentModel,
-        code: classified.code,
-        message: error.message,
-        canTryFallback,
-        isLastModel,
-      }, 'generateContent failed');
+        return {
+          text,
+          modelUsed: currentModel,
+          response,
+          cached: false,
+        };
+      } catch (error) {
+        lastError = error;
 
-      if (!canTryFallback || isLastModel) {
-        // CF-053: record failure (non-blocking)
+        const classified = classifyVertexError(error);
+
+        const canTryFallback = [
+          'VERTEX_MODEL_UNAVAILABLE',
+          'VERTEX_QUOTA_EXCEEDED',
+          'VERTEX_TIMEOUT',
+          'VERTEX_UNKNOWN_ERROR',
+        ].includes(classified.code);
+
+        const isLastModel = currentModel === state.models[state.models.length - 1];
+        const retryable = RETRYABLE_CODES.has(classified.code);
+
+        logger.warn({
+          label,
+          model: currentModel,
+          attempt,
+          code: classified.code,
+          message: error.message,
+        }, 'generateContent failed');
+
+        // Retry exponential backoff (Sprint 3) — hanya error retryable, selama
+        // masih ada attempt tersisa dan belum melewati budget waktu keseluruhan.
+        if (retryable && attempt < AI_RETRY_MAX_ATTEMPTS) {
+          const elapsed = Date.now() - startedAt;
+          const delay = retryDelayMs(attempt);
+          if (elapsed + delay < overallBudgetMs) {
+            logger.info({
+              label,
+              model: currentModel,
+              attempt,
+              delayMs: delay,
+              code: classified.code,
+            }, 'AI retry exponential backoff');
+            await sleep(delay);
+            continue;
+          }
+        }
+
+        // CF-053: record failure (non-blocking), dengan jumlah retry
         if (feature) {
           const status = classified.code === 'VERTEX_QUOTA_EXCEEDED' ? 'rate_limited'
             : classified.code === 'VERTEX_TIMEOUT' ? 'timeout' : 'error';
@@ -651,10 +752,14 @@ export async function generateVertexContent({
             status,
             errorMessage: classified.code,
             userId,
-            metadata: metricMeta,
+            metadata: { ...metricMeta, retries: attempt - 1 },
           }).catch(() => {});
         }
-        throw error;
+
+        if (!canTryFallback || isLastModel) {
+          throw error;
+        }
+        break; // lanjut ke fallback model
       }
     }
   }
@@ -662,7 +767,7 @@ export async function generateVertexContent({
   throw lastError || new Error('Vertex AI generateContent gagal tanpa detail error.');
 }
 
-export async function generateGeminiText(prompt, { feature = null, userId = null, metricMeta = {} } = {}) {
+export async function generateGeminiText(prompt, { feature = null, userId = null, metricMeta = {}, cacheTtlMs = 0 } = {}) {
   const result = await generateVertexContent({
     contents: [
       {
@@ -678,12 +783,13 @@ export async function generateGeminiText(prompt, { feature = null, userId = null
     feature,
     userId,
     metricMeta,
+    cacheTtlMs,
   });
 
   return result;
 }
 
-export async function generateGeminiVision(prompt, imageData, { feature = 'ocr_receipt', userId = null, metricMeta = {} } = {}) {
+export async function generateGeminiVision(prompt, imageData, { feature = 'ocr_receipt', userId = null, metricMeta = {}, cacheTtlMs = 0 } = {}) {
   const result = await generateVertexContent({
     contents: [
       {
@@ -707,6 +813,7 @@ export async function generateGeminiVision(prompt, imageData, { feature = 'ocr_r
     feature,
     userId,
     metricMeta,
+    cacheTtlMs,
   });
 
   return result;

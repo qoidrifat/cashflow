@@ -135,6 +135,9 @@ export function registerGeminiRoutes(app) {
         feature: 'ocr_receipt',
         userId: req.user?.id || null,
         metricMeta: { mimeType: safeMimeType, sizeBytes: estimatedBytes, requestId: req.id || requestId },
+        // Sprint 3: cache LRU — gambar yang sama di-upload ulang (mis. retry
+        // setelah parse gagal) dalam 1 jam langsung pakai hasil sebelumnya.
+        cacheTtlMs: 60 * 60 * 1000,
       });
 
       const rawResponse = generated.text;
@@ -232,6 +235,10 @@ export function registerGeminiRoutes(app) {
         feature: 'gmail_sync',
         userId: req.user?.id || null,
         metricMeta: { requestId: req.id || requestId },
+        // Sprint 3: cache LRU 7 hari — email yang sama di-scan ulang (sync
+        // berulang/retry) hemat biaya & latency (rekomendasi AI_PLATFORM_AUDIT
+        // P1: "hemat biaya Gmail sync berulang").
+        cacheTtlMs: 7 * 24 * 60 * 60 * 1000,
       });
       const rawResponse = generated.text;
 
