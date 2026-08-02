@@ -27,14 +27,13 @@ import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
+import { seedGmailReviewEmail, openReviewFilter } from './helpers/gmailReview';
 import {
-  seedGmailReviewEmail,
-  openReviewFilter,
   bellButton,
   unreadCountFromLabel,
   waitRealtimeConnected,
   assertBellNotification,
-} from './helpers/gmailReview';
+} from './helpers/realtime';
 
 test.describe('Notification bell — review result realtime (e2e)', () => {
   let session: { cookie: string; userId: string };
