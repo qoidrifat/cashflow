@@ -19,7 +19,7 @@
  * Menjalankan:
  *   npx playwright test e2e/notifications-realtime.spec.ts
  */
-import { test, expect } from 'playwright/test';
+import { test, expect, type Locator } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, cleanupGmailReviewTestData } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
@@ -31,6 +31,23 @@ function unreadCountFromLabel(label: string | null): number {
   if (!label) return 0;
   const m = label.match(/(\d+)\s+belum dibaca/);
   return m ? Number(m[1]) : 0;
+}
+
+/**
+ * Deterministik: tunggu koneksi SSE terbuka SEBELUM aksi approve/reject.
+ *
+ * Indikator: ikon WifiOff (anak elemen bell, class `text-amber-500`) HILANG
+ * saat `realtimeConnected === true` (App.tsx: `onStatus: setRealtimeConnected`
+ * dipanggil saat EventSource onopen). Dengan menunggu ikon hilang, test tidak
+ * pernah mengeksekusi aksi sebelum jalur push `notification:new` siap —
+ * SSE yang lambat connect tidak lagi membuat test flaky (item tidak muncul
+ * karena push terlewat, bukan karena logika salah).
+ *
+ * Fallback aman: bila SSE tidak pernah connect dalam timeout, test gagal
+ * di sini dengan pesan jelas (bukan timeout 20s misterius di menuitem).
+ */
+async function waitRealtimeConnected(bell: Locator, timeout = 20_000) {
+  await expect(bell.locator('.text-amber-500')).toHaveCount(0, { timeout });
 }
 
 test.describe('Notification bell — review result realtime (e2e)', () => {
@@ -108,6 +125,11 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     await expect(bell).toBeVisible();
     const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
 
+    // ===== 4b. Deterministik: SSE harus terhubung sebelum aksi =====
+    // WifiOff hilang = realtimeConnected true → push `notification:new`
+    // dijamin sampai (SSE lambat connect tidak bikin flaky).
+    await waitRealtimeConnected(bell);
+
     // ===== 5. Klik Setujui =====
     await card.getByTitle('Setujui').click();
     await expect(page.getByText('Transaksi Gmail berhasil disimpan')).toBeVisible({ timeout: 20_000 });
@@ -176,6 +198,9 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     // Selector spesifik: hanya bell yang punya "belum dibaca" di aria-label.
     const bell = page.getByRole('button', { name: /belum dibaca/ });
     const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
+
+    // ===== 3b. Deterministik: SSE harus terhubung sebelum aksi =====
+    await waitRealtimeConnected(bell);
 
     // ===== 4. Klik Tolak =====
     await card.getByTitle('Tolak').click();
