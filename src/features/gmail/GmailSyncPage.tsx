@@ -35,7 +35,7 @@ import { extractWithGemini, checkGeminiHealth, isConfigErrorCode } from '../../s
 import { buildFallbackTransactionFromEmail } from '../../lib/geminiFallbackParser';
 import { GEMINI_ERROR_CODES, isQuotaOrCreditsError } from '../../lib/geminiErrors';
 import { addTransaction, DuplicateTransactionError } from '../../services/transactionService';
-import { triggerGmailSyncNotification } from '../../services/notificationTriggers';
+import { triggerGmailSyncNotification, triggerGmailReviewResultNotification } from '../../services/notificationTriggers';
 import { classifyEmail, extractDomain } from '../../lib/gmailClassifier';
 import { evaluateLocalGmailParser, shouldSendToAi, type LocalParserResult } from '../../lib/gmailLocalParser';
 import { logger } from '../../lib/logger';
@@ -79,7 +79,7 @@ import {
 } from '../../lib/tiketDedupe';
 import { buildTransactionNote, sanitizeTransactionNote } from '../../lib/transactionNoteBuilder';
 import type { NoteContext } from '../../lib/transactionNoteBuilder';
-import type { ExtractedTransaction, PaymentMethod, TransactionType, SyncEmailStatus, SyncEmailDebug, AutoDecision } from '../../types';
+import type { ExtractedTransaction, GmailSyncLog, PaymentMethod, TransactionType, SyncEmailStatus, SyncEmailDebug, AutoDecision } from '../../types';
 import {
   createInitialGmailSyncProgress,
   deriveGmailSyncProgress,
@@ -109,6 +109,8 @@ interface SyncEmail {
   extracted?: ExtractedTransaction | null;
   reason?: string;
   debug?: SyncEmailDebug;
+  /** ID transaksi yang berhasil dibuat saat user menyetujui (untuk persist) */
+  extractedTransactionId?: string;
 }
 
 interface ProcessingStats {
@@ -176,6 +178,7 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
       aiParsed: email.debug?.aiParsedSuccessful ?? false,
       finalStatus: email.status,
       status: email.status,
+      extractedTransactionId: email.extractedTransactionId ?? undefined,
       confidenceScore: email.confidence ?? undefined,
       errorMessage: shouldStoreErrorMessage
         ? fallbackRecovered
@@ -195,6 +198,20 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
         parserVersion: email.debug?.aiCalled ? 'ai-proxy' : 'rules-first-2026-06-21',
         extractedNote: email.note || null,
         noteSource: email.note ? (email.status === 'auto_accepted' ? 'ai_builder' : 'builder') : null,
+        // Kandidat transaksi — disimpan agar email yang dimuat dari riwayat server
+        // tetap bisa di-approve (BUG FIX: sebelumnya amount/merchant/category tidak
+        // pernah disimpan, sehingga tombol Setujui di tab "Perlu Review" gagal
+        // diam-diam saat data berasal dari server).
+        candidate: {
+          amount: email.amount ?? null,
+          merchant: email.merchant ?? null,
+          category: email.category ?? null,
+          paymentMethod: email.paymentMethod ?? null,
+          transactionType: email.transactionType ?? null,
+          note: email.note ?? null,
+          date: email.date ?? null,
+          confidence: email.confidence ?? null,
+        },
       },
       extractedNote: email.note || undefined,
       scannedAt: new Date(),
@@ -207,6 +224,38 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
     logger.warn('[GmailSync] Gagal menyimpan log Gmail Sync secara bulk', error);
     throw error;
   }
+}
+
+// ===================== Log → SyncEmail mapping =====================
+// Bangun SyncEmail lengkap (termasuk amount/merchant/category/paymentMethod/
+// transactionType dari metadata candidate) dari log server, agar tombol
+// Setujui/Tolak di tab "Perlu Review" (yang datanya dari riwayat server)
+// selalu punya data transaksi yang cukup. (BUG FIX)
+function mapLogToSyncEmail(log: GmailSyncLog): SyncEmail {
+  const candidate = (log.metadata?.candidate as Record<string, unknown> | undefined) || {};
+  return {
+    id: log.messageId,
+    subject: log.subject,
+    from: log.sender,
+    date: log.emailDate || log.scannedAt.toISOString(),
+    status: log.status,
+    confidence:
+      log.confidenceScore ??
+      (typeof candidate.confidence === 'number' ? candidate.confidence : null),
+    note: log.extractedNote || (typeof candidate.note === 'string' ? candidate.note : null) || null,
+    reason:
+      log.errorMessage ||
+      (log.status === 'auto_skipped' || log.status === 'auto_rejected' || log.status === 'skipped' || log.status === 'rejected'
+        ? log.metadata?.skipReason as string | undefined
+        : undefined),
+    amount: typeof candidate.amount === 'number' ? candidate.amount : null,
+    merchant: typeof candidate.merchant === 'string' ? candidate.merchant : null,
+    category: typeof candidate.category === 'string' ? candidate.category : null,
+    paymentMethod: typeof candidate.paymentMethod === 'string' ? candidate.paymentMethod : null,
+    transactionType: typeof candidate.transactionType === 'string'
+      ? candidate.transactionType as TransactionType
+      : undefined,
+  };
 }
 
 // ===================== Status Config =====================
@@ -1115,16 +1164,44 @@ export default function GmailSyncPage() {
     }
   };
 
-  const handleApproveEmail = async (emailId: string) => {
-    const email = emails.find((item) => item.id === emailId);
-    if (!email || !firebaseUser || !email.amount) return;
+  /**
+   * BUG FIX (tab "Perlu Review"):
+   * - Sebelumnya: `if (!email || !firebaseUser || !email.amount) return;` — return
+   *   diam-diam saat amount kosong (email dari server TIDAK pernah punya amount
+   *   karena tidak disimpan di metadata). User klik Setujui → tidak terjadi apa-apa.
+   * - Sekarang: menerima SyncEmail lengkap dari render (mapLogToSyncEmail), validasi
+   *   dengan feedback yang jelas, persist status approved ke server, dan kirim
+   *   notifikasi sukses/gagal (toast + in-app notification + SSE).
+   */
+  const handleApproveEmail = async (email: SyncEmail) => {
+    if (!firebaseUser?.uid) {
+      addToast({ type: 'error', title: 'Gagal menyetujui', message: 'Sesi tidak ditemukan. Silakan login ulang.' });
+      return;
+    }
+    const emailId = email.id;
+
+    // Validasi data transaksi — jangan return diam-diam, beri feedback yang jelas
+    if (!email.amount || email.amount <= 0) {
+      addToast({
+        type: 'error',
+        title: 'Tidak dapat menyetujui',
+        message: 'Nominal transaksi tidak ditemukan pada email ini. Coba "Ekstrak Ulang" atau "Parse Fallback" terlebih dahulu.',
+      });
+      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        result: 'failed',
+        emailId,
+        merchant: email.merchant || email.from,
+        message: 'Nominal transaksi tidak ditemukan pada email ini.',
+      });
+      return;
+    }
 
     try {
-      await addTransaction(
+      const txId = await addTransaction(
         firebaseUser.uid,
         {
           type: email.transactionType || 'expense',
-          amount: email.amount!,
+          amount: email.amount,
           categoryId: slugify(email.category || 'Lainnya'),
           categoryName: email.category || 'Lainnya',
           merchant: email.merchant || email.from,
@@ -1144,35 +1221,102 @@ export default function GmailSyncPage() {
         return next;
       });
 
+      // Update state lokal + PERSIST status 'approved' ke server (sebelumnya tidak
+      // di-persist → setelah refresh email muncul lagi di "Perlu Review")
       setEmails((prev) =>
         prev.map((e) => (e.id === emailId ? { ...e, status: 'approved' as SyncEmailStatus } : e))
       );
-      addToast({ type: 'success', title: 'Transaksi Gmail berhasil disimpan' });
+      await persistGmailSyncResults(firebaseUser.uid, [
+        { ...email, status: 'approved' as SyncEmailStatus, extractedTransactionId: txId },
+      ]);
+
+      addToast({
+        type: 'success',
+        title: 'Transaksi Gmail berhasil disimpan',
+        message: `${email.merchant || email.from} • Rp ${email.amount.toLocaleString('id-ID')}`,
+      });
+      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        result: 'approved',
+        emailId,
+        merchant: email.merchant || email.from,
+        amount: email.amount,
+      });
+
+      // Reload list agar summary cards & filter bar ikut ter-update
+      void loadPaginatedResults(selectedSyncRunId, logsCurrentPage);
     } catch (approveError) {
       if (approveError instanceof DuplicateTransactionError) {
         setEmails((prev) =>
           prev.map((e) => (e.id === emailId ? { ...e, status: 'duplicate' as SyncEmailStatus, reason: 'Transaksi serupa sudah pernah disimpan' } : e))
         );
+        await persistGmailSyncResults(firebaseUser.uid, [
+          { ...email, status: 'duplicate' as SyncEmailStatus, reason: 'Transaksi serupa sudah pernah disimpan' },
+        ]);
         addToast({
           type: 'warning',
           title: 'Transaksi duplikat',
           message: 'Email ini tidak disimpan karena transaksi serupa sudah ada.',
         });
+        void triggerGmailReviewResultNotification(firebaseUser.uid, {
+          result: 'duplicate',
+          emailId,
+          merchant: email.merchant || email.from,
+          message: 'Transaksi serupa sudah pernah disimpan.',
+        });
+        void loadPaginatedResults(selectedSyncRunId, logsCurrentPage);
         return;
       }
 
+      // Gagal sistem — tandai status + kirim notifikasi error yang jelas
+      const errorMessage = approveError instanceof Error ? approveError.message : 'Terjadi kegagalan sistem saat menyimpan transaksi.';
+      await persistGmailSyncResults(firebaseUser.uid, [
+        { ...email, status: 'needs_review' as SyncEmailStatus, reason: errorMessage },
+      ]);
       addToast({
         type: 'error',
         title: 'Gagal menyimpan transaksi',
-        message: approveError instanceof Error ? approveError.message : undefined,
+        message: errorMessage,
+      });
+      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        result: 'failed',
+        emailId,
+        merchant: email.merchant || email.from,
+        amount: email.amount,
+        message: errorMessage,
       });
     }
   };
 
-  const handleRejectEmail = (emailId: string) => {
+  const handleRejectEmail = async (email: SyncEmail) => {
+    if (!firebaseUser?.uid) return;
+    const emailId = email.id;
+    // Update state lokal dulu (optimistic) agar UI langsung merespons
     setEmails((prev) =>
       prev.map((e) => (e.id === emailId ? { ...e, status: 'rejected' as SyncEmailStatus, reason: 'Ditolak oleh user' } : e))
     );
+    addToast({ type: 'info', title: 'Transaksi ditolak' });
+    try {
+      await persistGmailSyncResults(firebaseUser.uid, [
+        { ...email, status: 'rejected' as SyncEmailStatus, reason: 'Ditolak oleh user' },
+      ]);
+      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        result: 'rejected',
+        emailId,
+        merchant: email.merchant || email.from,
+      });
+    } catch (rejectError) {
+      // Gagal persist ke server — beri feedback jelas, jangan unhandled rejection
+      const errorMessage = rejectError instanceof Error ? rejectError.message : 'Gagal menyimpan status tolak.';
+      logger.warn('[GmailSync] Gagal persist status rejected:', rejectError);
+      addToast({ type: 'error', title: 'Gagal menyimpan status', message: errorMessage });
+      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        result: 'failed',
+        emailId,
+        merchant: email.merchant || email.from,
+        message: errorMessage,
+      });
+    }
+    void loadPaginatedResults(selectedSyncRunId, logsCurrentPage);
   };
 
   /**
@@ -1625,16 +1769,7 @@ export default function GmailSyncPage() {
       if (result.data.length > 0) {
         setEmails((prev) => {
           if (prev.length > 0) return prev;
-          return result.data.map((log) => ({
-            id: log.messageId,
-            subject: log.subject,
-            from: log.sender,
-            date: log.emailDate || log.scannedAt.toISOString(),
-            status: log.status,
-            confidence: log.confidenceScore ?? null,
-            note: log.extractedNote || null,
-            reason: log.errorMessage || undefined,
-          }));
+          return result.data.map(mapLogToSyncEmail);
         });
       }
     } catch (err) {
@@ -1949,19 +2084,10 @@ export default function GmailSyncPage() {
             </div>
             {paginatedLogs.data.map((log, i) => {
               // Map dari GmailSyncLog ke SyncEmail untuk EmailCard
-              // Gunakan log.messageId (Gmail message ID) sebagai id agar cocok dengan in-memory emails state
-              const email: SyncEmail = {
-                id: log.messageId,
-                subject: log.subject,
-                from: log.sender,
-                date: log.emailDate || log.scannedAt.toISOString(),
-                status: log.status,
-                confidence: log.confidenceScore ?? null,
-                note: log.extractedNote || null,
-                reason: log.errorMessage || (log.status === 'auto_skipped' || log.status === 'auto_rejected' || log.status === 'skipped' || log.status === 'rejected'
-                  ? log.metadata?.skipReason as string | undefined
-                  : undefined),
-              };
+              // Gunakan log.messageId (Gmail message ID) sebagai id agar cocok dengan in-memory emails state.
+              // mapLogToSyncEmail mengisi amount/merchant/category dari metadata candidate
+              // sehingga tombol Setujui di tab "Perlu Review" punya data yang cukup. (BUG FIX)
+              const email: SyncEmail = mapLogToSyncEmail(log);
               return (
                 <EmailCard
                   key={`${log.messageId}-${log.status}`}
@@ -1972,8 +2098,8 @@ export default function GmailSyncPage() {
                   noteEditState={noteEditState}
                   onNoteChange={(emailId, value) => setNoteEditState((prev) => ({ ...prev, [emailId]: value }))}
                   onToggleExpand={() => toggleExpandEmail(log.messageId)}
-                  onApprove={() => handleApproveEmail(log.messageId)}
-                  onReject={() => handleRejectEmail(log.messageId)}
+                  onApprove={() => handleApproveEmail(email)}
+                  onReject={() => handleRejectEmail(email)}
                   onRetry={() => handleRetrySingle(log.messageId)}
                   onMarkAsTransaction={() => handleMarkAsTransaction(log.messageId)}
                   onParseWithFallback={() => handleParseWithFallback(log.messageId)}
@@ -2408,6 +2534,7 @@ function EmailCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.02 }}
+      data-testid={`email-card-${email.id}`}
     >
       <Card>
         <div className="flex items-start justify-between">

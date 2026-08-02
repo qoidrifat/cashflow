@@ -87,8 +87,27 @@ export function mapRecurring(row: any): RecurringTransaction {
   };
 }
 
+/**
+ * Parse kolom metadata (TEXT JSON di Turso/SQLite) menjadi object.
+ * Server mengirim row mentah (SELECT *) sehingga metadata bisa berupa string JSON
+ * ATAU object (dari path lain) — handle keduanya. BUG FIX: sebelumnya metadata
+ * dibiarkan string, sehingga field seperti skipReason/candidate tidak pernah
+ * terbaca dari data server (memicu approve "Perlu Review" gagal diam-diam).
+ */
+function parseMetadata(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 export function mapGmailSyncLog(row: any): GmailSyncLog {
-  const metadata = row.metadata || {};
+  const metadata = parseMetadata(row.metadata);
   return {
     id: row.id,
     userId: row.user_id,

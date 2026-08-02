@@ -222,3 +222,105 @@ export async function triggerTransactionReviewNotification(
     },
   });
 }
+
+/**
+ * Notifikasi hasil aksi review per-email (approve/reject/duplicate/failed).
+ * BUG FIX (tab "Perlu Review"): sebelumnya tidak ada notifikasi sama sekali saat
+ * user menyetujui/menolak email — hanya toast lokal yang hilang setelah pindah
+ * halaman. Sekarang dibuat notifikasi in-app (terlihat di bell icon) dengan
+ * dedupe per email agar tidak menumpuk.
+ */
+export async function triggerGmailReviewResultNotification(
+  userId: string,
+  input: {
+    result: 'approved' | 'rejected' | 'duplicate' | 'failed';
+    emailId: string;
+    merchant?: string | null;
+    amount?: number | null;
+    message?: string;
+  },
+): Promise<void> {
+  const { result, emailId, merchant, amount, message } = input;
+  const merchantLabel = merchant || 'Transaksi';
+  const amountLabel = typeof amount === 'number' ? ` Rp ${formatCurrency(amount)}` : '';
+  const dedupeKey = `gmail-review-${emailId}`;
+
+  if (result === 'approved') {
+    await upsertNotificationByDedupeKey(userId, {
+      type: 'success',
+      priority: 'low',
+      title: 'Transaksi Gmail diterima',
+      message: `${merchantLabel}${amountLabel} berhasil disimpan ke daftar transaksi.`,
+      actionHref: '/transactions',
+      actionLabel: 'Lihat Transaksi',
+      dedupeKey,
+      metadata: {
+        emailId,
+        result: 'approved',
+        merchant,
+        amount,
+        source: 'gmail_review',
+      },
+    });
+    return;
+  }
+
+  if (result === 'rejected') {
+    await upsertNotificationByDedupeKey(userId, {
+      type: 'info',
+      priority: 'low',
+      title: 'Transaksi ditolak',
+      message: `${merchantLabel}${amountLabel} ditandai ditolak dan tidak disimpan.`,
+      actionHref: '/gmail-sync',
+      actionLabel: 'Lihat Gmail Sync',
+      dedupeKey,
+      metadata: {
+        emailId,
+        result: 'rejected',
+        merchant,
+        amount,
+        source: 'gmail_review',
+      },
+    });
+    return;
+  }
+
+  if (result === 'duplicate') {
+    await upsertNotificationByDedupeKey(userId, {
+      type: 'warning',
+      priority: 'normal',
+      title: 'Transaksi Gmail duplikat',
+      message: `${merchantLabel}${amountLabel} tidak disimpan karena transaksi serupa sudah ada.`,
+      actionHref: '/transactions',
+      actionLabel: 'Lihat Transaksi',
+      dedupeKey,
+      metadata: {
+        emailId,
+        result: 'duplicate',
+        merchant,
+        amount,
+        source: 'gmail_review',
+      },
+    });
+    return;
+  }
+
+  // failed — kegagalan sistem atau data tidak lengkap
+  await upsertNotificationByDedupeKey(userId, {
+    type: 'error',
+    priority: 'high',
+    title: 'Gagal menerima transaksi Gmail',
+    message: `${merchantLabel}${amountLabel} gagal disimpan. ${message || 'Terjadi kegagalan sistem.'}`,
+    actionHref: '/gmail-sync',
+    actionLabel: 'Coba Lagi',
+    dedupeKey,
+    metadata: {
+      emailId,
+      result: 'failed',
+      merchant,
+      amount,
+      errorMessage: message || null,
+      source: 'gmail_review',
+    },
+  });
+}

@@ -120,6 +120,39 @@ export async function mintSessionCookieForEmail(email: string): Promise<MintedSe
   }
 }
 
+/**
+ * Hapus data test approve Gmail review (transaksi + log + notifikasi) dari Turso.
+ * Dipakai spec e2e/gmail-review-approve.spec.ts — data test ditandai messageId
+ * unik (prefiks 'e2e-review-') agar tidak mengganggu dataset asli user.
+ */
+export async function cleanupGmailReviewTestData(testMessageId: string): Promise<void> {
+  if (!testMessageId) return;
+  loadEnv();
+  const turso = createClient({
+    url: process.env.TURSO_DATABASE_URL as string,
+    authToken: process.env.TURSO_AUTH_TOKEN as string,
+  });
+  try {
+    // Transaksi yang dibuat oleh alur approve (gmail_message_id = testMessageId)
+    await turso.execute({
+      sql: `DELETE FROM transactions WHERE gmail_message_id = ?`,
+      args: [testMessageId],
+    });
+    // Log Gmail Sync test
+    await turso.execute({
+      sql: `DELETE FROM gmail_sync_logs WHERE message_id = ?`,
+      args: [testMessageId],
+    });
+    // Notifikasi hasil review (dedupeKey gmail-review-<messageId>)
+    await turso.execute({
+      sql: `DELETE FROM notifications WHERE dedupe_key = ?`,
+      args: [`gmail-review-${testMessageId}`],
+    });
+  } finally {
+    turso.close();
+  }
+}
+
 /** Hapus sesi E2E (userAgent='e2e-test') + user test (email 'e2e-*') dari Turso. */
 export async function cleanupTestSessions(): Promise<void> {
   loadEnv();
