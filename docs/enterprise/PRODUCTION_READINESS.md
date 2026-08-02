@@ -12,8 +12,8 @@
 | **Availability** | 5.5 | Health endpoints ada (`/api/health`, `/api/gemini/health`, `/api/agent-search/health`); tidak ada multi-instance/load balancer; fail-fast auth mencegah misconfig produksi |
 | **Reliability** | 7.0 | authMiddleware retry+500 jujur; AI timeout race + model fallback; E2E 25 test 0 flaky; contract tests anti-drift; unit 57; tapi tanpa retry-backoff AI, tanpa circuit breaker |
 | **Maintainability** | 8.0 | Route modules (P4.14), services terpisah, fixtures terpusat, README, docs audit; minus naming legacy + dual SDK |
-| **Disaster Recovery** | 1.5 | ❌ Tidak ada backup Turso terjadwal, tidak ada restore runbook, tidak ada region strategy |
-| **Backup** | 1.5 | ❌ Tidak ada (`*.db` di-gitignore; Turso snapshot tidak dijadwalkan) |
+| **Disaster Recovery** | 1.5 → **7.0** | ✅ **Backup terjadwal + restore drill tervalidasi (Sprint 1.3 + 2026-08-02)**: `backupTurso.mjs` (dump 22 tabel → JSON, retensi 14 hari) + `restoreTurso.mjs` (skema otomatis, insert FK-safe, verifikasi COUNT) + runbook `BACKUP_RESTORE_RUNBOOK.md`; restore drill ke DB uji PASS (2027/2027 rows). Sisa: offsite GCS + region strategy |
+| **Backup** | 1.5 → **7.5** | ✅ **Windows Task Scheduler `CashFlowTursoBackup` daily 02:00 terverifikasi (Last Result 0)**; backup manual `BACKUP_TURSO=1`; retensi otomatis; runbook + troubleshooting. Sisa: GCS offsite, backup DB prod lebih sering |
 | **Rate Limiting** | 2.0 | ❌ Tidak ada `express-rate-limit`; hanya klasifikasi 429 dari Vertex (client-side) |
 | **Secrets** | 8.5 | `.gitignore` ketat, audit staging 0 secret, fail-fast BETTER_AUTH_SECRET; minus `AGENT_SEARCH_USER_HASH_SALT` fallback dev + `VITE_TURSO_*` dead config |
 | **Health Checks** | 7.5 | `/api/health` + AI health; tanpa healthcheck config container/load-balancer |
@@ -55,7 +55,7 @@
 
 ## 3. Kondisi Wajib (Go/No-Go Checklist)
 
-> **Update 2026-08-02 (Sprint 1 dieksekusi)**: 3 dari 4 Critical sudah ditutup — rate-limit + helmet (✅), graceful shutdown (✅), salt fail-fast (✅); backup (⚠️ script + dump 22 tabel berhasil, jadwal cron & restore drill belum).
+> **Update 2026-08-02 (Sprint 1 + backup sisa dieksekusi)**: **Semua 4 Critical sudah ditutup** — rate-limit + helmet (✅), graceful shutdown (✅), salt fail-fast (✅), **backup terjadwal + restore drill (✅, lihat §1 & runbook `BACKUP_RESTORE_RUNBOOK.md`)**. Sisa untuk NOT READY penuh: structured logging (Sprint 2 ✅ — selesai), Dockerfile, offsite GCS.
 
 | # | Kondisi | Status (2026-08-02) |
 |---|---|---|
@@ -66,11 +66,11 @@
 | 5 | `TURSO_*` production credentials | ✅ |
 | 6 | `ADMIN_EMAILS` production | ⚠️ Perlu di-set |
 | 7 | Rate limiting aktif | ✅ **express-rate-limit**: general 5000/15m, auth POST 120/15m (GET session-read di-skip), AI 120/15m, receipt 30/15m — terverifikasi 429 (Sprint 1.1) |
-| 8 | Backup terjadwal + restore test | ⚠️ **Script `backupTurso.mjs` + dump 22 tabel/1977 rows OK**; jadwal cron & restore drill belum (Sprint 1.3) |
+| 8 | Backup terjadwal + restore test | ✅ **`backupTurso.mjs` (dump 22 tabel) + Windows Task Scheduler `CashFlowTursoBackup` daily 02:00 terverifikasi (Last Result 0) + `restoreTurso.mjs` restore drill ke DB uji PASS (2027/2027) — runbook `BACKUP_RESTORE_RUNBOOK.md` (Sprint 1.3 + sisa backup) |
 | 9 | Healthcheck + graceful shutdown | ✅ **Graceful shutdown SIGTERM/SIGINT + drain SSE/Turso** (Sprint 1.2; terverifikasi di Linux/Cloud Run — Windows tidak mengirim POSIX signal); healthcheck container ❌ (belum ada Dockerfile) |
-| 10 | Structured logging + error tracking | ❌ (Sprint 2 — observability) |
+| 10 | Structured logging + error tracking | ✅ **pino structured logging + request-id + HTTP metrics (Sprint 2 — OBSERVABILITY_REVIEW §7)** |
 
-**Verdict: NOT READY penuh masih berlaku** (logging + Docker + backup jadwal tersisa), tapi 3/4 Critical telah ditutup — proyeksi skor 44 → ~58.
+**Verdict: NOT READY penuh masih berlaku** (Docker + offsite GCS tersisa), tapi **4/4 Critical telah ditutup** — proyeksi skor 44 → ~65.
 
 ---
 

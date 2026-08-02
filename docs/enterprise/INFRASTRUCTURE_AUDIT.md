@@ -101,10 +101,12 @@
 
 ---
 
-## 6. Backup & Disaster Recovery — ❌ Belum Ada
+## 6. Backup & Disaster Recovery — ✅ Sudah Ada (Sprint 1.3 + sisa backup, 2026-08-02)
 
-- ❌ Tidak ada backup Turso terjadwal (Turso punya fitur snapshot/`turso db dump`, tidak diimplementasikan).
-- ❌ Tidak ada DR runbook, tidak ada region replication strategy.
+- ✅ **Backup terjadwal**: `scripts/backupTurso.mjs` (dump 22 tabel → JSON di `backups/`, retensi `BACKUP_RETENTION_DAYS` default 14) + Windows Task Scheduler `CashFlowTursoBackup` **daily 02:00 terverifikasi** (Last Result 0). Guard `BACKUP_TURSO=1`.
+- ✅ **Restore**: `scripts/restoreTurso.mjs` — skema otomatis dari `turso-schema.sql` (seed di-skip), INSERT FK-safe, generated column di-skip, verifikasi COUNT, guard `RESTORE_TURSO=1` + tolak target=source kecuali `--force`. Restore drill ke DB uji **PASS (2027/2027 rows, 22 tabel)**.
+- ✅ **Runbook DR**: `docs/enterprise/BACKUP_RESTORE_RUNBOOK.md` — penjadwalan (Windows ✅ / cron / Cloud Scheduler→Cloud Run Job), prosedur restore + cut-over, drill kuartalan, troubleshooting, bukti verifikasi.
+- ⚠️ **Sisa**: offsite copy ke GCS belum otomatis (lihat runbook §3.4), tidak ada region replication strategy (Turso multi-region opsional), restore drill belum di-CI.
 - ⚠️ DB lokal `cashflow.db` (SQLite legacy) di-gitignore — bukan bagian runtime.
 
 ---
@@ -118,7 +120,7 @@
 | Containerization | **1.0** (tidak ada Dockerfile sama sekali) |
 | Logging | 2.0 (console-only, no structured, no sink) |
 | Deployment | 3.0 (bare node, no graceful shutdown, no healthcheck config) |
-| Backup/DR | 1.0 (tidak ada) |
+| Backup/DR | 1.0 → **8.0** (backup terjadwal + restore script + runbook + drill tervalidasi; minus offsite GCS & region replication) |
 | Security headers/rate limit | 2.0 (tidak ada) |
 | **Infrastructure** | **3.5 / 10** |
 
