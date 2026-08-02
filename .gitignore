@@ -31,5 +31,8 @@ public/recordings/
 *.db
 *.db-journal
 
+# Turso backup dump (scripts/backupTurso.mjs) — berisi PII, jangan di-commit
+backups/
+
 # Agent runtime state (scratch/session internal — bukan produk)
 .bob/

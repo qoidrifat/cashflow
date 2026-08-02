@@ -1,15 +1,16 @@
 /**
  * Environment variables configuration.
  * All environment variables are accessed through this file.
+ *
+ * Sprint 1.4 (SECURITY_AUDIT M-1): blok `turso` (VITE_TURSO_DATABASE_URL /
+ * VITE_TURSO_AUTH_TOKEN) DIHAPUS — dead config dengan 0 consumer; bila di-set,
+ * token DB akan masuk bundle client (Vite statically replaces import.meta.env.*).
+ * Turso hanya diakses server-side via server/.env.
  */
 
 export const env = {
   api: {
     baseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5181',
-  },
-  turso: {
-    url: import.meta.env.VITE_TURSO_DATABASE_URL as string,
-    authToken: import.meta.env.VITE_TURSO_AUTH_TOKEN as string,
   },
   agentSearch: {
     enabled: import.meta.env.VITE_AGENT_SEARCH_ENABLED === 'true',

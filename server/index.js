@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 import { toNodeHandler } from 'better-auth/node';
 import { getAuth } from './lib/auth.js';
 import { authMiddleware, requireAuth } from './middleware/authMiddleware.js';
-import { registerSSERoute } from './lib/sse.js';
+import { registerSSERoute, closeSSEClients } from './lib/sse.js';
 import { registerTransactionRoutes } from './routes/transactionRoutes.js';
 import { registerCategoryRoutes } from './routes/categoryRoutes.js';
 import { registerBudgetRoutes } from './routes/budgetRoutes.js';
@@ -66,7 +66,9 @@ import { registerGeminiRoutes } from './routes/geminiRoutes.js';
 import { registerAgentSearchRoutes } from './routes/agentSearchRoutes.js';
 import { registerAdminMetricsRoutes } from './routes/adminMetricsRoutes.js';
 import { registerHealthRoutes } from './routes/healthRoutes.js';
-import { getTurso } from './lib/turso.js';
+import { getTurso, closeTurso } from './lib/turso.js';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 import {
   configureVertexAI,
   initGemini,
@@ -197,14 +199,113 @@ configureVertexAI({
 
 initGemini();
 
+// ===================== Security Hardening (Sprint 1.1) =====================
+// Helmet + rate limiting (express-rate-limit v7, kompatibel Express 4).
+// Default longgar utk dev; overridable via env:
+//   RATE_LIMIT_ENABLED=false            → matikan total (dev/CI)
+//   RATE_LIMIT_GENERAL_MAX / _AUTH_MAX / _AI_MAX / _RECEIPT_MAX (per 15 menit)
+const RATE_LIMIT_ENABLED = process.env.RATE_LIMIT_ENABLED !== 'false';
+
+function envInt(key, fallback) {
+  const v = parseInt(process.env[key], 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+// Key per-user bila terautentikasi, fallback ke IP — anti-sharing abuse.
+const rateKeyGen = (req) => (req.user?.id ? `u:${req.user.id}` : `ip:${req.ip || 'unknown'}`);
+
+const rlMessage = (msg) => ({ ok: false, code: 'RATE_LIMITED', message: msg });
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: envInt('RATE_LIMIT_GENERAL_MAX', 5000),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: rateKeyGen,
+  message: rlMessage('Terlalu banyak request. Coba lagi nanti.'),
+  skip: (req) => req.path === '/api/health',
+});
+
+// Auth limiter: HANYA request mutasi (POST). GET session-check adalah read-only
+// yang dipanggil SPA setiap page-load — jika dihitung, 25 test E2E (tiap load =
+// 1+ panggilan /api/auth/*) langsung menguras budget dan memblokir IP sendiri.
+// Brute-force protection tetap efektif karena serangan memakai POST (sign-in/callback).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: envInt('RATE_LIMIT_AUTH_MAX', 120),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: rateKeyGen,
+  message: rlMessage('Terlalu banyak percobaan auth. Coba lagi nanti.'),
+  skip: (req) => req.method === 'GET' || req.path === '/api/health',
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: envInt('RATE_LIMIT_AI_MAX', 120),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: rateKeyGen,
+  message: rlMessage('Terlalu banyak panggilan AI. Coba lagi nanti.'),
+});
+
+const receiptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: envInt('RATE_LIMIT_RECEIPT_MAX', 30),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: rateKeyGen,
+  message: rlMessage('Terlalu banyak scan struk. Coba lagi nanti.'),
+});
+
+// Pasang limiter hanya bila aktif (no-op middleware bila dimatikan).
+const security = (limiter) => (RATE_LIMIT_ENABLED ? limiter : (req, _res, next) => next());
+
 // ===================== Express App =====================
 
 const app = express();
 
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https://*.googleusercontent.com', 'https://www.gstatic.com'],
+      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      // connect-src dibangun dari ALLOWED_ORIGINS + trusted origins env (bukan
+      // hardcode localhost saja) agar siap untuk static serving di domain produksi.
+      connectSrc: Array.from(new Set([
+        "'self'",
+        ...ALLOWED_ORIGINS,
+        'http://localhost:5181',
+        'http://127.0.0.1:5181',
+        ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean),
+        'https://*.googleapis.com',
+        'https://accounts.google.com',
+      ])),
+      frameSrc: ["'self'", 'https://accounts.google.com'],
+      formAction: ["'self'", 'https://accounts.google.com'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      // Helm default menambah upgrade-insecure-requests — nonaktifkan agar http
+      // lokal (dev 5180/5181) & static serving nanti tidak dipaksa https.
+      upgradeInsecureRequests: null,
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  hsts: NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+}
 
 // ===================== Better Auth Handler & Middleware =====================
 app.use('/api/auth', (req, _res, next) => {
@@ -216,8 +317,15 @@ app.use('/api/auth', (req, _res, next) => {
   }
   next();
 });
+app.use('/api/auth', security(authLimiter));
 app.all('/api/auth/*', toNodeHandler(getAuth()));
 app.use(authMiddleware);
+
+// Rate limiting umum API + jalur AI (setelah auth → key per-user tersedia).
+app.use(security(generalLimiter));
+app.use('/api/gemini', security(aiLimiter));
+app.use('/api/agent-search', security(aiLimiter));
+app.use('/api/ai/extract-receipt-image', security(receiptLimiter));
 
 // ===================== Register API Routes =====================
 registerSSERoute(app, requireAuth);
@@ -276,7 +384,7 @@ app.use((err, _req, res, next) => {
 
 // ===================== Start Server =====================
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   const {
     geminiReady,
     vertexAI,
@@ -323,3 +431,35 @@ app.listen(PORT, '0.0.0.0', () => {
       });
   }
 });
+
+// ===================== Graceful Shutdown (Sprint 1.2) =====================
+// SIGTERM/SIGINT: hentikan terima request baru → tutup koneksi SSE + Turso →
+// exit 0. Force exit setelah 10s (hindari hang saat drain macet).
+function shutdown(signal) {
+  console.log(`[Server] ${signal} diterima — graceful shutdown dimulai...`);
+  // PENTING: tutup SSE SEBELUM menunggu server.close(). server.close() menunggu
+  // seluruh koneksi existing selesai; koneksi SSE (keep-alive) tidak pernah selesai
+  // sendiri → tanpa ini callback close tidak akan pernah dipanggil (bug review).
+  try {
+    closeSSEClients();
+  } catch (error) {
+    console.error('[Server] closeSSEClients error:', error.message);
+  }
+  server.close(() => {
+    console.log('[Server] HTTP ditutup. Membersihkan Turso...');
+    try {
+      closeTurso();
+    } catch (error) {
+      console.error('[Server] closeTurso error:', error.message);
+    }
+    console.log('[Server] Shutdown bersih selesai.');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('[Server] Graceful shutdown timeout (10s) — force exit.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

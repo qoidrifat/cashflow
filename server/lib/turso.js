@@ -34,6 +34,21 @@ export function isTursoReady() {
   return !!client || !!process.env.TURSO_DATABASE_URL;
 }
 
+/**
+ * Tutup koneksi Turso (graceful shutdown). Reset singleton agar bisa
+ * direinitialisasi (mis. setelah reconnect/test).
+ */
+export function closeTurso() {
+  if (client) {
+    try {
+      client.close();
+    } catch (err) {
+      console.warn('[Turso] close error:', err.message);
+    }
+    client = null;
+  }
+}
+
 export async function initTursoSchema(tursoClient) {
   try {
     const schemaPath = path.resolve(process.cwd(), '..', 'turso-schema.sql');

@@ -10,6 +10,7 @@
  * - Never logs PII/raw email body/base64/financial values to metadata.
  */
 
+import crypto from 'node:crypto';
 import { getTurso } from '../lib/turso.js';
 import { AI_PRICING, USD_TO_IDR } from '../config/metricsConfig.js';
 
@@ -77,10 +78,11 @@ export async function recordAIUsage({
     const { costUsd, costIdr } = calculateCost(provider, model, promptTokens, completionTokens);
     await client.execute({
       sql: `INSERT INTO ai_usage_metrics
-            (user_id, feature, provider, model, prompt_tokens, completion_tokens,
+            (id, user_id, feature, provider, model, prompt_tokens, completion_tokens,
              estimated_cost_usd, estimated_cost_idr, execution_time_ms, status, error_message, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
+        crypto.randomUUID(),
         userId ?? null,
         feature,
         provider,
@@ -114,9 +116,10 @@ export async function recordSystemMetric({
     const client = getMetricsClient();
     if (!client) return;
     await client.execute({
-      sql: `INSERT INTO system_metrics (metric_name, metric_value, feature, user_id, metadata)
-            VALUES (?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO system_metrics (id, metric_name, metric_value, feature, user_id, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)`,
       args: [
+        crypto.randomUUID(),
         metricName,
         Number(metricValue) || 0,
         feature,

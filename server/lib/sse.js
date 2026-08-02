@@ -66,6 +66,23 @@ export function broadcastAll(event, data = {}) {
 }
 
 /**
+ * Close ALL SSE client connections (graceful shutdown / restart).
+ * Ends setiap response dan kosongkan registry.
+ */
+export function closeSSEClients() {
+  for (const [, set] of clients) {
+    for (const res of set) {
+      try {
+        res.end();
+      } catch {
+        // client sudah putus
+      }
+    }
+  }
+  clients.clear();
+}
+
+/**
  * Register the SSE endpoint on Express app.
  * Frontend connects to GET /api/events to receive real-time updates.
  */

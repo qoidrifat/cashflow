@@ -55,20 +55,22 @@
 
 ## 3. Kondisi Wajib (Go/No-Go Checklist)
 
-| # | Kondisi | Status |
+> **Update 2026-08-02 (Sprint 1 dieksekusi)**: 3 dari 4 Critical sudah ditutup — rate-limit + helmet (✅), graceful shutdown (✅), salt fail-fast (✅); backup (⚠️ script + dump 22 tabel berhasil, jadwal cron & restore drill belum).
+
+| # | Kondisi | Status (2026-08-02) |
 |---|---|---|
 | 1 | `BETTER_AUTH_SECRET` kuat di produksi (fail-fast) | ✅ Terverifikasi (TEST A/B) |
 | 2 | `useSecureCookies` true + HTTPS | ✅ Otomatis saat `NODE_ENV=production` |
 | 3 | `trustedOrigins` berisi domain produksi | ⚠️ Ada env, perlu di-set |
-| 4 | `AGENT_SEARCH_USER_HASH_SALT` di-set | ⚠️ Fallback dev aktif |
+| 4 | `AGENT_SEARCH_USER_HASH_SALT` di-set | ✅ **Fail-fast produksi + warning dev** (Sprint 1.4) |
 | 5 | `TURSO_*` production credentials | ✅ |
 | 6 | `ADMIN_EMAILS` production | ⚠️ Perlu di-set |
-| 7 | Rate limiting aktif | ❌ |
-| 8 | Backup terjadwal + restore test | ❌ |
-| 9 | Healthcheck + graceful shutdown | ❌ |
-| 10 | Structured logging + error tracking | ❌ |
+| 7 | Rate limiting aktif | ✅ **express-rate-limit**: general 5000/15m, auth POST 120/15m (GET session-read di-skip), AI 120/15m, receipt 30/15m — terverifikasi 429 (Sprint 1.1) |
+| 8 | Backup terjadwal + restore test | ⚠️ **Script `backupTurso.mjs` + dump 22 tabel/1977 rows OK**; jadwal cron & restore drill belum (Sprint 1.3) |
+| 9 | Healthcheck + graceful shutdown | ✅ **Graceful shutdown SIGTERM/SIGINT + drain SSE/Turso** (Sprint 1.2; terverifikasi di Linux/Cloud Run — Windows tidak mengirim POSIX signal); healthcheck container ❌ (belum ada Dockerfile) |
+| 10 | Structured logging + error tracking | ❌ (Sprint 2 — observability) |
 
-**Verdict: NOT READY untuk production launch penuh** — perlu 4 fix Critical (rate-limit, backup, graceful shutdown, salt) + logging.
+**Verdict: NOT READY penuh masih berlaku** (logging + Docker + backup jadwal tersisa), tapi 3/4 Critical telah ditutup — proyeksi skor 44 → ~58.
 
 ---
 

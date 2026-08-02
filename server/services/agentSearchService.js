@@ -218,8 +218,36 @@ export function sanitizeAgentSearchPayload(input) {
   return output;
 }
 
+let saltWarned = false;
+
+/**
+ * Fail-fast AGENT_SEARCH_USER_HASH_SALT (Sprint 1.4 — SECURITY_AUDIT H-2).
+ * Fallback dev menghasilkan hash yang dapat direkonstruksi (pola sha256(userId:salt)
+ * diketahui) dan berubah bila salt di-set setelah data ter-upload → data store jadi
+ * tidak match. Produksi WAJIB set salt kuat (fail-fast, pola BETTER_AUTH_SECRET).
+ */
+function assertProductionSalt() {
+  const salt = process.env.AGENT_SEARCH_USER_HASH_SALT;
+  const isFallback = !salt || salt === 'cashflow-dev-agent-search-salt-change-in-production';
+  if (!isFallback) return;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[AgentSearch] PRODUCTION: AGENT_SEARCH_USER_HASH_SALT wajib di-set ke nilai kuat yang unik. ' +
+        'Fallback dev menghasilkan hash yang dapat direkonstruksi. Set env lalu re-sync data store.',
+    );
+  }
+  if (!saltWarned) {
+    saltWarned = true;
+    console.warn(
+      '[AgentSearch] PERINGATAN: memakai fallback dev AGENT_SEARCH_USER_HASH_SALT. ' +
+        'Set env di produksi sebelum launch.',
+    );
+  }
+}
+
 export function hashUserId(userId) {
   if (!userId) return '';
+  assertProductionSalt();
   const salt = process.env.AGENT_SEARCH_USER_HASH_SALT || 'cashflow-dev-agent-search-salt-change-in-production';
   return `hash_${crypto.createHash('sha256').update(`${userId}:${salt}`).digest('hex')}`;
 }

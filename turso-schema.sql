@@ -345,13 +345,14 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 
 CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules(is_active) WHERE is_active = 1;
 
--- Seed default alert rules (idempotent via UNIQUE name)
-INSERT OR IGNORE INTO alert_rules (name, metric_name, condition, threshold, window_minutes)
+-- Seed default alert rules (idempotent via UNIQUE name). PK id di-set eksplisit
+-- (SQLite TEXT PRIMARY KEY memperbolehkan NULL — baris seed tanpa id tak ter-address).
+INSERT OR IGNORE INTO alert_rules (id, name, metric_name, condition, threshold, window_minutes)
 VALUES
-  ('ai_cost_daily', 'estimated_cost_idr', 'gt', 50000, 1440),
-  ('gmail_sync_failures', 'gmail_sync_failed', 'gt', 10, 10),
-  ('agent_search_error_rate', 'agent_search_error_rate', 'gt', 0.10, 60),
-  ('ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60);
+  ('alert_ai_cost_daily', 'ai_cost_daily', 'estimated_cost_idr', 'gt', 50000, 1440),
+  ('alert_gmail_sync_failures', 'gmail_sync_failures', 'gmail_sync_failed', 'gt', 10, 10),
+  ('alert_agent_search_error_rate', 'agent_search_error_rate', 'agent_search_error_rate', 'gt', 0.10, 60),
+  ('alert_ocr_failure_rate', 'ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60);
 
 -- =============================================
 -- INDEXES
