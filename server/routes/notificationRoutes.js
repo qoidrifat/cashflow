@@ -4,6 +4,7 @@
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import { notifyGmailReviewResult } from '../services/gmailNotifier.js';
 import crypto from 'node:crypto';
 
 export function registerNotificationRoutes(app) {
@@ -38,10 +39,11 @@ export function registerNotificationRoutes(app) {
         read = false,
         actionLabel,
         actionHref,
-        dedupeKey,
+        dedupeKey: dedupeKeyRaw,
         metadata = {},
       } = req.body;
       const now = new Date().toISOString();
+      const dedupeKey = String(dedupeKeyRaw || '');
 
       if (dedupeKey) {
         // Upsert by dedupeKey
@@ -90,6 +92,33 @@ export function registerNotificationRoutes(app) {
       }
 
       notifyUser(userId, 'notification:new', { id, title });
+
+      // Channel eksternal untuk hasil review Gmail (webhook + email) — agar user
+      // tahu walau app tidak terbuka. Fire-and-forget, non-blocking (gmailNotifier
+      // tidak pernah melempar).
+      //
+      // GATE: hanya `metadata.source === 'gmail_review'` DAN `metadata.emailId` ada.
+      // JANGAN pakai prefix dedupeKey `gmail-review-` — itu juga dipakai notifikasi
+      // RINGKASAN HARIAN "menunggu review" (buildGmailReviewKey(date) →
+      // `gmail-review-<tanggal>`), yang bukan aksi approve/reject per-email dan
+      // tidak boleh memicu webhook/email.
+      const isGmailReview = metadata?.source === 'gmail_review' && !!metadata?.emailId;
+      if (isGmailReview) {
+        notifyGmailReviewResult({
+          userId,
+          userEmail: req.user?.email || null,
+          result: {
+            status: metadata?.result || 'failed',
+            emailId: metadata.emailId,
+            merchant: metadata?.merchant || null,
+            amount: typeof metadata?.amount === 'number' ? metadata.amount : null,
+            message: metadata?.errorMessage || metadata?.message || null,
+          },
+        }).catch(() => {
+          // never throw — channel eksternal tidak boleh mengganggu respons
+        });
+      }
+
       res.json({ id });
     } catch (err) {
       res.status(500).json({ error: err.message });
