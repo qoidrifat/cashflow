@@ -123,6 +123,19 @@ export function unreadCountFromLabel(label: string | null): number {
  *
  * Fallback aman: bila SSE tidak pernah connect dalam timeout, test gagal
  * di sini dengan pesan jelas (bukan timeout 20s misterius di menuitem).
+ *
+ * KAPAN GATE INI DIPERLUKAN (hasil audit 2026-08-03):
+ *   HANYA spec yang meng-assert UI yang di-update oleh SSE PUSH tanpa reload
+ *   (contoh: notifications-realtime.spec.ts — menuitem bell muncul dari event
+ *   `notification:new`). Gate memastikan EventSource sudah connect SEBELUM
+ *   aksi, jadi push tidak terlewat saat SSE lambat connect.
+ *
+ * KAPAN TIDAK PERLU (spec gmail-review-approve/reject/duplicate/amount-missing):
+ *   Spec itu meng-assert state SERVER via `expect.poll` pada `request.get(...)`
+ *   (API /api/notifications, /api/gmail/logs, /api/transactions). Poll ke server
+ *   TIDAK bergantung pada SSE — ia retry sampai end-state tercapai, jadi sudah
+ *   deterministik tanpa gate ini. Memakai gate di sana hanya menambah 1 dep
+ *   SSE ekstra yang tidak relevan dengan yang di-assert.
  */
 export async function waitRealtimeConnected(bell: Locator, timeout = 20_000): Promise<void> {
   await expect(bell.locator('.text-amber-500')).toHaveCount(0, { timeout });
