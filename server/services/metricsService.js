@@ -18,12 +18,44 @@ function getMetricsClient() {
   return getTurso();
 }
 
+/**
+ * Normalisasi bound waktu (ISO '2026-08-02T09:22:43.123Z' atau 'YYYY-MM-DD
+ * HH:MM:SS') ke format kolom created_at DB: datetime('now') → 'YYYY-MM-DD
+ * HH:MM:SS'. LATEN BUG (ditemukan Sprint 4): created_at disimpan space-format,
+ * tapi route mengirim from/to ISO — string-comparison `created_at >= '...T...'`
+ * selalu FALSE ('T' > ' ') → bucket "today" admin metrics 0 rows.
+ */
+function toDbTime(value) {
+  if (!value) return value;
+  const s = String(value);
+  if (!s.includes('T')) return s;
+  return s.replace('T', ' ').replace(/\.\d{1,3}Z?$/, '').replace(/Z$/, '');
+}
+
+/** Clamp rentang query ke maksimal MAX_RANGE_DAYS (H-1 — cegah scan tak terbatas). */
+const MAX_RANGE_DAYS = 90;
+function clampRange({ from, to, maxDays = MAX_RANGE_DAYS } = {}) {
+  const maxMs = maxDays * 86400_000;
+  let f = from || null;
+  const t = to || null;
+  if (f && !t && new Date(f).getTime() < Date.now() - maxMs) {
+    f = new Date(Date.now() - maxMs).toISOString();
+  }
+  if (f && t) {
+    const diffMs = new Date(t).getTime() - new Date(f).getTime();
+    if (diffMs > maxMs) {
+      f = new Date(new Date(t).getTime() - maxMs).toISOString();
+    }
+  }
+  return { from: f, to: t };
+}
+
 /** Bangun WHERE + args untuk filter usage umum. */
 function buildUsageWhere({ from, to, feature = null, status = 'all' } = {}) {
   const clauses = [];
   const args = [];
-  if (from) { clauses.push('created_at >= ?'); args.push(from); }
-  if (to) { clauses.push('created_at <= ?'); args.push(to); }
+  if (from) { clauses.push('created_at >= ?'); args.push(toDbTime(from)); }
+  if (to) { clauses.push('created_at <= ?'); args.push(toDbTime(to)); }
   if (feature) { clauses.push('feature = ?'); args.push(feature); }
   if (status === 'success') {
     clauses.push(`status = 'success'`);
@@ -166,68 +198,67 @@ function parseMetadata(value) {
 // ===================== Query Functions =====================
 
 /**
- * Aggregate AI usage over a date range.
+ * Aggregate AI usage over a date range (H-1: SQL aggregate — tidak lagi
+ * SELECT * lalu agregat di JS; transfer hanya baris ringkas).
+ * Bentuk output PERSIS sama (contract-safe):
+ *   { costIdr, costUsd, tokens, calls, avgTimeMs, features: { f: { costIdr, costUsd, tokens, calls, successRate } } }
  */
 export async function getAIUsageSummary({ from, to, feature = null } = {}) {
   const client = getMetricsClient();
   if (!client) return emptyUsageSummary();
 
-  const { where, args } = buildUsageWhere({ from, to, feature });
+  const clamped = clampRange({ from, to });
+  const { where, args } = buildUsageWhere({ from: clamped.from, to: clamped.to, feature });
   try {
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM ai_usage_metrics${where}`,
+    const overall = await client.execute({
+      sql: `SELECT
+              COALESCE(SUM(estimated_cost_idr), 0) AS cost_idr,
+              COALESCE(SUM(estimated_cost_usd), 0) AS cost_usd,
+              COALESCE(SUM(total_tokens), 0) AS tokens,
+              COUNT(*) AS calls,
+              AVG(CASE WHEN execution_time_ms > 0 THEN execution_time_ms END) AS avg_ms
+            FROM ai_usage_metrics${where}`,
       args,
     });
-    return aggregateUsage(rows);
+    const row = overall.rows[0] || {};
+
+    const byFeature = await client.execute({
+      sql: `SELECT feature,
+              COALESCE(SUM(estimated_cost_idr), 0) AS cost_idr,
+              COALESCE(SUM(estimated_cost_usd), 0) AS cost_usd,
+              COALESCE(SUM(total_tokens), 0) AS tokens,
+              COUNT(*) AS calls,
+              COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success
+            FROM ai_usage_metrics${where}
+            GROUP BY feature
+            ORDER BY calls DESC`,
+      args,
+    });
+
+    const featureSummary = {};
+    for (const r of byFeature.rows) {
+      const calls = Number(r.calls) || 0;
+      featureSummary[r.feature || 'unknown'] = {
+        costIdr: Math.round((Number(r.cost_idr) || 0) * 100) / 100,
+        costUsd: Math.round((Number(r.cost_usd) || 0) * 1_000_000) / 1_000_000,
+        tokens: Number(r.tokens) || 0,
+        calls,
+        successRate: calls > 0 ? Math.round((Number(r.success) / calls) * 1000) / 1000 : 0,
+      };
+    }
+
+    const calls = Number(row.calls) || 0;
+    return {
+      costIdr: Math.round((Number(row.cost_idr) || 0) * 100) / 100,
+      costUsd: Math.round((Number(row.cost_usd) || 0) * 1_000_000) / 1_000_000,
+      tokens: Number(row.tokens) || 0,
+      calls,
+      avgTimeMs: row.avg_ms == null ? 0 : Math.round(Number(row.avg_ms)),
+      features: featureSummary,
+    };
   } catch {
     return emptyUsageSummary();
   }
-}
-
-function aggregateUsage(rows) {
-  let costIdr = 0;
-  let costUsd = 0;
-  let tokens = 0;
-  let timeSum = 0;
-  let timeCount = 0;
-  const features = {};
-
-  for (const r of rows) {
-    costIdr += Number(r.estimated_cost_idr) || 0;
-    costUsd += Number(r.estimated_cost_usd) || 0;
-    tokens += Number(r.total_tokens) || 0;
-    if (r.execution_time_ms != null) {
-      timeSum += Number(r.execution_time_ms) || 0;
-      timeCount += 1;
-    }
-    const f = r.feature || 'unknown';
-    if (!features[f]) features[f] = { costIdr: 0, costUsd: 0, tokens: 0, calls: 0, success: 0 };
-    features[f].costIdr += Number(r.estimated_cost_idr) || 0;
-    features[f].costUsd += Number(r.estimated_cost_usd) || 0;
-    features[f].tokens += Number(r.total_tokens) || 0;
-    features[f].calls += 1;
-    if (r.status === 'success') features[f].success += 1;
-  }
-
-  const featureSummary = {};
-  for (const [f, v] of Object.entries(features)) {
-    featureSummary[f] = {
-      costIdr: Math.round(v.costIdr * 100) / 100,
-      costUsd: Math.round(v.costUsd * 1_000_000) / 1_000_000,
-      tokens: v.tokens,
-      calls: v.calls,
-      successRate: v.calls > 0 ? Math.round((v.success / v.calls) * 1000) / 1000 : 0,
-    };
-  }
-
-  return {
-    costIdr: Math.round(costIdr * 100) / 100,
-    costUsd: Math.round(costUsd * 1_000_000) / 1_000_000,
-    tokens,
-    calls: rows.length,
-    avgTimeMs: timeCount > 0 ? Math.round(timeSum / timeCount) : 0,
-    features: featureSummary,
-  };
 }
 
 function emptyUsageSummary() {
@@ -235,30 +266,32 @@ function emptyUsageSummary() {
 }
 
 /**
- * Daily cost trend over a date range.
+ * Daily cost trend over a date range (H-1: SQL GROUP BY hari — bukan agregat JS).
+ * Output: [{ date, costIdr, tokens, calls }] diurutkan naik.
  */
 export async function getCostTrend({ from, to } = {}) {
   const client = getMetricsClient();
   if (!client) return [];
 
-  const { where, args } = buildUsageWhere({ from, to });
+  const clamped = clampRange({ from, to });
+  const { where, args } = buildUsageWhere({ from: clamped.from, to: clamped.to });
   try {
     const { rows } = await client.execute({
-      sql: `SELECT created_at, estimated_cost_idr, total_tokens FROM ai_usage_metrics${where}`,
+      sql: `SELECT substr(created_at, 1, 10) AS day,
+              COALESCE(SUM(estimated_cost_idr), 0) AS cost_idr,
+              COALESCE(SUM(total_tokens), 0) AS tokens,
+              COUNT(*) AS calls
+            FROM ai_usage_metrics${where}
+            GROUP BY day
+            ORDER BY day ASC`,
       args,
     });
-
-    const byDay = {};
-    for (const r of rows) {
-      const day = String(r.created_at).slice(0, 10);
-      if (!byDay[day]) byDay[day] = { date: day, costIdr: 0, tokens: 0, calls: 0 };
-      byDay[day].costIdr += Number(r.estimated_cost_idr) || 0;
-      byDay[day].tokens += Number(r.total_tokens) || 0;
-      byDay[day].calls += 1;
-    }
-    return Object.values(byDay)
-      .map((d) => ({ ...d, costIdr: Math.round(d.costIdr * 100) / 100 }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    return rows.map((r) => ({
+      date: String(r.day),
+      costIdr: Math.round((Number(r.cost_idr) || 0) * 100) / 100,
+      tokens: Number(r.tokens) || 0,
+      calls: Number(r.calls) || 0,
+    }));
   } catch {
     return [];
   }
@@ -275,8 +308,9 @@ export async function getSystemMetrics({ metricName, from, to, feature = null } 
   const args = [];
   if (metricName) { clauses.push('metric_name = ?'); args.push(metricName); }
   if (feature) { clauses.push('feature = ?'); args.push(feature); }
-  if (from) { clauses.push('created_at >= ?'); args.push(from); }
-  if (to) { clauses.push('created_at <= ?'); args.push(to); }
+  // Sprint 4 (review): normalize ISO bounds ke format kolom space-format (bug laten yang sama).
+  if (from) { clauses.push('created_at >= ?'); args.push(toDbTime(from)); }
+  if (to) { clauses.push('created_at <= ?'); args.push(toDbTime(to)); }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
 
   try {
@@ -303,31 +337,32 @@ export async function getSystemMetrics({ metricName, from, to, feature = null } 
 }
 
 /**
- * Feature health: success rate, failure count, avg time, total calls.
+ * Feature health: success rate, failure count, avg time, total calls (H-1: SQL
+ * aggregate — tidak transfer semua rows). Output shape tidak berubah.
  */
 export async function getFeatureHealth({ feature, from, to } = {}) {
   const client = getMetricsClient();
   if (!client) return { feature, totalCalls: 0, successRate: 0, failureCount: 0, avgTimeMs: 0 };
 
-  const { where, args } = buildUsageWhere({ feature, from, to });
+  const clamped = clampRange({ from, to });
+  const { where, args } = buildUsageWhere({ feature, from: clamped.from, to: clamped.to });
   try {
     const { rows } = await client.execute({
-      sql: `SELECT status, execution_time_ms FROM ai_usage_metrics${where}`,
+      sql: `SELECT COUNT(*) AS total,
+              COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success,
+              AVG(CASE WHEN execution_time_ms > 0 THEN execution_time_ms END) AS avg_ms
+            FROM ai_usage_metrics${where}`,
       args,
     });
-
-    const total = rows.length;
-    const success = rows.filter((r) => r.status === 'success').length;
-    const failureCount = total - success;
-    const times = rows.map((r) => Number(r.execution_time_ms) || 0).filter((t) => t > 0);
-    const avgTimeMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
-
+    const row = rows[0] || {};
+    const total = Number(row.total) || 0;
+    const success = Number(row.success) || 0;
     return {
       feature,
       totalCalls: total,
       successRate: total > 0 ? Math.round((success / total) * 1000) / 1000 : 0,
-      failureCount,
-      avgTimeMs,
+      failureCount: total - success,
+      avgTimeMs: row.avg_ms == null ? 0 : Math.round(Number(row.avg_ms)),
     };
   } catch {
     return { feature, totalCalls: 0, successRate: 0, failureCount: 0, avgTimeMs: 0 };
@@ -374,14 +409,15 @@ export async function getFeatureCalls({
 } = {}) {
   const safePage = Math.max(1, Math.round(Number(page) || 1));
   const safeSize = Math.min(100, Math.max(1, Math.round(Number(pageSize) || 20)));
-  const summary = await getFeatureHealth({ feature, from, to });
+  const clamped = clampRange({ from, to });
+  const summary = await getFeatureHealth({ feature, from: clamped.from, to: clamped.to });
 
   const client = getMetricsClient();
   if (!client) {
     return { feature, summary, page: safePage, pageSize: safeSize, total: 0, items: [] };
   }
 
-  const { where, args } = buildUsageWhere({ feature, from, to, status });
+  const { where, args } = buildUsageWhere({ feature, from: clamped.from, to: clamped.to, status });
   try {
     const { rows: countRows } = await client.execute({
       sql: `SELECT COUNT(*) AS cnt FROM ai_usage_metrics${where}`,
@@ -429,8 +465,23 @@ export async function getFeatureCalls({
 
 /**
  * Evaluate alert rules against recent data.
+ * H-3 (Sprint 4): hasil di-cache 60 detik (checkAlerts berjalan di request path
+ * admin; loop windowed per rule mahal bila tiap buka halaman).
  */
+const ALERTS_CACHE_MS = 60_000;
+let alertsCache = { value: null, expiresAt: 0 };
+
 export async function checkAlerts() {
+  const now = Date.now();
+  if (alertsCache.value !== null && now < alertsCache.expiresAt) {
+    return alertsCache.value;
+  }
+  const value = await computeAlerts();
+  alertsCache = { value, expiresAt: now + ALERTS_CACHE_MS };
+  return value;
+}
+
+async function computeAlerts() {
   const client = getMetricsClient();
   if (!client) return [];
 
@@ -447,7 +498,8 @@ export async function checkAlerts() {
 
   const results = [];
   for (const rule of rules) {
-    const windowStart = new Date(Date.now() - rule.window_minutes * 60_000).toISOString();
+    // Sprint 4 (review): windowStart harus space-format agar cocok dengan created_at (bug laten).
+    const windowStart = toDbTime(new Date(Date.now() - rule.window_minutes * 60_000).toISOString());
     let currentValue = 0;
 
     try {

@@ -6,18 +6,49 @@ import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
 import crypto from 'node:crypto';
 
+// H-2 (Sprint 4): cache in-memory GET /api/categories per-user (30s TTL) +
+// invalidasi pada mutasi (POST/PUT/DELETE/init-defaults) — menghindari query
+// berulang per page-load tanpa risiko stale (SSE tetap meng-invalidasi store).
+const CATEGORIES_CACHE_TTL_MS = 30_000;
+const categoriesCache = new Map(); // userId -> { rows, expiresAt }
+
+function pruneCategoriesCache() {
+  const now = Date.now();
+  for (const [userId, entry] of categoriesCache) {
+    if (entry.expiresAt <= now) categoriesCache.delete(userId);
+  }
+}
+
+function getCategoriesCached(userId) {
+  const entry = categoriesCache.get(userId);
+  if (entry && entry.expiresAt > Date.now()) return entry.rows;
+  return null;
+}
+
+function setCategoriesCache(userId, rows) {
+  if (categoriesCache.size > 200) pruneCategoriesCache();
+  categoriesCache.set(userId, { rows, expiresAt: Date.now() + CATEGORIES_CACHE_TTL_MS });
+}
+
+function invalidateCategoriesCache(userId) {
+  categoriesCache.delete(userId);
+}
+
 export function registerCategoryRoutes(app) {
   // GET /api/categories
   app.get('/api/categories', requireAuth, async (req, res) => {
     try {
-      const turso = getTurso();
       const userId = req.user.id;
+      const cached = getCategoriesCached(userId);
+      if (cached) return res.json(cached);
 
+      const turso = getTurso();
       const result = await turso.execute({
         sql: `SELECT * FROM categories WHERE user_id = ? ORDER BY name ASC`,
         args: [userId],
       });
 
+      setCategoriesCache(userId, result.rows);
       res.json(result.rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -38,6 +69,7 @@ export function registerCategoryRoutes(app) {
         args: [id, userId, name, type, icon, color],
       });
 
+      invalidateCategoriesCache(userId);
       notifyUser(userId, 'category:changed', { id, action: 'create' });
       res.json({ id });
     } catch (err) {
@@ -63,6 +95,7 @@ export function registerCategoryRoutes(app) {
         }
       }
 
+      invalidateCategoriesCache(userId);
       notifyUser(userId, 'category:changed', { action: 'init' });
       res.json({ success: true });
     } catch (err) {
@@ -92,6 +125,7 @@ export function registerCategoryRoutes(app) {
         });
       }
 
+      invalidateCategoriesCache(userId);
       notifyUser(userId, 'category:changed', { id, action: 'update' });
       res.json({ success: true });
     } catch (err) {
@@ -111,6 +145,7 @@ export function registerCategoryRoutes(app) {
         args: [id, userId],
       });
 
+      invalidateCategoriesCache(userId);
       notifyUser(userId, 'category:changed', { id, action: 'delete' });
       res.json({ success: true });
     } catch (err) {
