@@ -30,6 +30,18 @@ const maxEntries = (() => {
 /** Map<key, { value, expiresAt }> — urutan insertion = urutan LRU. */
 const store = new Map();
 
+/**
+ * Single-flight (anti thundering herd, dari code review Sprint 3):
+ * Map<key, Promise> — request AI identik (cache key sama) yang datang KONKUREN
+ * saat belum ada hasil di cache, berbagi SATU pemanggilan upstream (Vertex).
+ * Pemenang me-resolve promise; yang join tinggal menunggu hasil yang sama.
+ *
+ * Hidup dalam siklus singkat: di-set sebelum panggilan upstream, auto-cleanup
+ * saat promise settle (then/finally). Tidak dihitung dalam stats LRU karena
+ * bukan entri cache — hanya window konkurensi.
+ */
+const inflight = new Map();
+
 const stats = { hits: 0, misses: 0, sets: 0, evictions: 0 };
 
 /** Hash deterministik dari payload request AI (feature + model + contents + config). */
@@ -76,16 +88,43 @@ export function setCachedAICache(key, value, ttlMs) {
   }
 }
 
+/**
+ * Ambil promise single-flight untuk key (undefined bila tidak ada request
+ * identik yang sedang berjalan).
+ */
+export function getInflightAICache(key) {
+  return inflight.get(key);
+}
+
+/**
+ * Daftarkan promise single-flight untuk key. Auto-cleanup saat promise settle
+ * (sukses ATAU gagal) — pemenang yang menyimpan hasil ke LRU cache, joiner
+ * hanya berbagi hasil yang sama.
+ */
+export function setInflightAICache(key, promise) {
+  inflight.set(key, promise);
+  promise.then(
+    () => { if (inflight.get(key) === promise) inflight.delete(key); },
+    () => { if (inflight.get(key) === promise) inflight.delete(key); },
+  );
+}
+
+/** Jumlah request single-flight yang sedang berjalan (observability). */
+export function getInflightAICacheSize() {
+  return inflight.size;
+}
+
 /** Kosongkan cache + reset statistik (dipakai unit test & ops admin). */
 export function clearAICache() {
   store.clear();
+  inflight.clear();
   stats.hits = 0;
   stats.misses = 0;
   stats.sets = 0;
   stats.evictions = 0;
 }
 
-/** Statistik observasi (ukuran, max, hit/miss/set/evict). */
+/** Statistik observasi (ukuran, max, hit/miss/set/evict + inflight). */
 export function getAICacheStats() {
-  return { size: store.size, maxEntries, ...stats };
+  return { size: store.size, maxEntries, inflight: inflight.size, ...stats };
 }

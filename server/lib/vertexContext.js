@@ -18,6 +18,8 @@ import {
   buildAICacheKey,
   getCachedAICache,
   setCachedAICache,
+  getInflightAICache,
+  setInflightAICache,
 } from './aiCache.js';
 
 // ===================== Retry & Cache Tuning (Sprint 3) =====================
@@ -588,14 +590,19 @@ export function sendGeminiError(res, httpStatus, {
 // ===================== Vertex AI Generate Helpers =====================
 
 /**
- * generateVertexContent — pipeline AI dengan resilience (Sprint 3):
+ * generateVertexContent — pipeline AI dengan resilience (Sprint 3 + dedup):
  *   1. LRU response cache (opt-in via cacheTtlMs > 0): key sha256(feature +
  *      models + contents + config). Hit → return tanpa panggil Vertex (hemat
  *      biaya/latency; AI usage TIDAK dicatat — tidak ada token terpakai).
- *   2. Retry exponential backoff untuk VERTEX_QUOTA_EXCEEDED / VERTEX_TIMEOUT /
+ *   2. SINGLE-FLIGHT dedup (anti thundering herd — dari code review Sprint 3):
+ *      bila request IDENTIK (cache key sama) sedang diproses oleh request lain
+ *      yang konkuren, JOIN — tunggu hasil pemenang, JANGAN panggil Vertex lagi.
+ *      Memutus double-call saat 2+ request sama masuk bersamaan (mis. webhook
+ *      gmail sync ganda, retry client).
+ *   3. Retry exponential backoff untuk VERTEX_QUOTA_EXCEEDED / VERTEX_TIMEOUT /
  *      VERTEX_NETWORK_ERROR (max AI_RETRY_MAX_ATTEMPTS, delay base*2^n*jitter,
  *      budget waktu keseluruhan = max(timeoutMs*2, 60s)).
- *   3. Fallback model (perilaku lama) setelah retry habis.
+ *   4. Fallback model (perilaku lama) setelah retry habis.
  */
 export async function generateVertexContent({
   contents,
@@ -645,8 +652,68 @@ export async function generateVertexContent({
       userId,
       metadata: { label, ...metricMeta },
     }).catch(() => {});
+
+    // ── Single-flight JOIN (Sprint 3 review: anti thundering herd) ──
+    // Ada request identik yang sedang diproses konkuren? Jangan panggil Vertex
+    // dua kali — tunggu hasil pemenang (pemenang yang akan menulis LRU cache).
+    // Catatan semantik metric: joiner TETAP mencatat `ai_cache_miss` (lookup-nya
+    // memang miss) + `ai_single_flight_join` — jadi hit-rate dashboard mengukur
+    // "keberhasilan lookup cache", bukan "penghematan panggilan Vertex".
+    const inflight = getInflightAICache(cacheKey);
+    if (inflight) {
+      metricsService.recordSystemMetric({
+        metricName: 'ai_single_flight_join',
+        metricValue: 1,
+        feature,
+        userId,
+        metadata: { label, ...metricMeta },
+      }).catch(() => {});
+      logger.debug({ label, feature, cache: 'single-flight join' }, 'AI request identik konkuren — join pemenang');
+      const joined = await inflight;
+      // KONTAK: `response` = null (raw response hanya ada di pemenang);
+      // pemenang sudah mencatat AI usage & menulis cache LRU.
+      return { text: joined.text, modelUsed: joined.modelUsed, cached: true, joined: true, response: null };
+    }
   }
 
+  // Pipeline Vertex asli (retry + fallback). Dibungkus promise agar bisa
+  // didaftarkan sebagai single-flight; pemenang menulis cache LRU sendiri.
+  const pipelinePromise = runVertexPipeline({
+    contents,
+    config: mergedConfig,
+    timeoutMs,
+    label,
+    feature,
+    userId,
+    metricMeta,
+    cacheKey,
+    cacheTtlMs,
+  });
+
+  if (cacheKey) {
+    setInflightAICache(cacheKey, pipelinePromise);
+  }
+
+  return pipelinePromise;
+}
+
+/**
+ * Pipeline pemanggilan Vertex dengan retry exponential backoff + fallback model.
+ * Mengembalikan { text, modelUsed, response } pada sukses; throw error klasifikasi
+ * terakhir bila semua model gagal. (Diekstrak dari generateVertexContent agar
+ * bisa dibungkus single-flight — anti thundering herd.)
+ */
+async function runVertexPipeline({
+  contents,
+  config: mergedConfig,
+  timeoutMs,
+  label,
+  feature,
+  userId,
+  metricMeta,
+  cacheKey,
+  cacheTtlMs,
+}) {
   let lastError = null;
   const startedAt = Date.now();
   const overallBudgetMs = Math.max(timeoutMs * 2, 60_000);

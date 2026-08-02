@@ -23,7 +23,7 @@
 | **Retry Logic** | ✅ **Retry exponential backoff (Sprint 3)**: `VERTEX_QUOTA_EXCEEDED`/`VERTEX_TIMEOUT`/`VERTEX_NETWORK_ERROR` → retry model yang sama (default 3 attempt, delay `base 500ms * 2^(n-1)` + jitter 80–120%, budget `max(timeout*2, 60s)`), baru fallback model | ✅ |
 | **Fallback Logic** | Model fallback (flash→flash-lite); **tidak ada fallback ke API key/Gemini non-Vertex** | ⚠️ |
 | **Prompt Compression** | `buildMonthlyReportPrompt` truncate 12.000 char; `cleanText` slice 500–2000 | ⚠️ Parsial |
-| **Caching** | ✅ **In-process LRU response cache (Sprint 3)**: `server/lib/aiCache.js` (max 100 entri, TTL per feature — gmail_sync 7 hari, ocr_receipt 1 jam; key sha256(feature+models+contents+config)); hit → tanpa panggil Vertex + tanpa token dipakai; observability `ai_cache_hit/miss` di system_metrics. Terverifikasi: miss 6.4s → hit 0.21s | ✅ |
+| **Caching** | ✅ **In-process LRU response cache (Sprint 3) + single-flight dedup**: `server/lib/aiCache.js` (max 100 entri, TTL per feature — gmail_sync 7 hari, ocr_receipt 1 jam; key sha256(feature+models+contents+config)); hit → tanpa panggil Vertex + tanpa token dipakai; observability `ai_cache_hit/miss` di system_metrics. Terverifikasi: miss 6.4s → hit 0.21s. **Single-flight (anti thundering herd)**: request identik konkuren berbagi SATU pemanggilan Vertex (`ai_single_flight_join` metric; di-cover unit test 10 kasus) | ✅ |
 | **AI Gateway** | Fungsional (vertexContext = gateway logic), tapi **bukan service terpisah** — terkait lifecycle server | ⚠️ |
 
 ---

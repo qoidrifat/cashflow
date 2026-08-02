@@ -100,4 +100,6 @@ export interface AICacheStats {
   evictions: number;
   /** Rasio hit/(hit+miss) — 0 bila belum ada request cacheable. */
   hitRate: number;
+  /** Jumlah request single-flight yang sedang berjalan (dedup konkuren). */
+  inflight: number;
 }
