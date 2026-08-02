@@ -14,6 +14,7 @@
     "test:e2e": "playwright test --grep-invert \"@visual|@perf\"",
     "test:e2e:gmail": "playwright test e2e/gmail-sync.spec.ts",
     "test:e2e:gmail-review": "playwright test e2e/gmail-review-approve.spec.ts e2e/gmail-review-reject.spec.ts e2e/gmail-review-duplicate.spec.ts e2e/gmail-review-amount-missing.spec.ts",
+    "test:e2e:notifications-realtime": "playwright test e2e/notifications-realtime.spec.ts",
     "test:e2e:transactions": "playwright test e2e/transactions.spec.ts",
     "test:e2e:dashboard": "playwright test e2e/dashboard.spec.ts",
     "test:e2e:agent-search": "playwright test e2e/agent-search-auth.spec.ts",
