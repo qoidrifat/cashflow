@@ -17,6 +17,7 @@
     "test:e2e:dashboard": "playwright test e2e/dashboard.spec.ts",
     "test:e2e:agent-search": "playwright test e2e/agent-search-auth.spec.ts",
     "test:e2e:admin": "playwright test e2e/admin-metrics-auth.spec.ts",
+    "test:e2e:ratelimit": "playwright test e2e/rate-limit.spec.ts",
     "test:e2e:core-pages": "playwright test e2e/core-pages.spec.ts",
     "test:e2e:typecheck": "tsc -p tsconfig.e2e.json --noEmit",
     "test:e2e:contract": "playwright test e2e/contract/contract-check.spec.ts",

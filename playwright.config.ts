@@ -47,5 +47,23 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 60_000,
     },
+    // Server uji KHUSUS untuk rate-limit spec (e2e/rate-limit.spec.ts).
+    // RATE_LIMIT_AUTH_MAX=25 → test cepat (≤26 request, bukan 121) & deterministik.
+    // Terpisah dari 5181 karena authLimiter di-key per-IP: tanpa isolasi, spec ini
+    // menguras budget IP bersama yang dipakai seluruh suite (dan sebaliknya).
+    // RATE_LIMIT_ENABLED=true dipaksa eksplisit (anti inherited 'false' dari CI).
+    {
+      command: 'node server/index.js',
+      url: 'http://localhost:5182/api/health',
+      reuseExistingServer: true,
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PORT: '5182',
+        RATE_LIMIT_ENABLED: 'true',
+        RATE_LIMIT_AUTH_MAX: '25',
+        RATE_LIMIT_GENERAL_MAX: '1000',
+      },
+    },
   ],
 });
