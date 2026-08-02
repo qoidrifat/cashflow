@@ -5,7 +5,11 @@
  *   1. Seed email test (needs_review + candidate) via POST /api/gmail/logs.
  *   2. Buka /gmail-sync, filter "Perlu Review", klik Setujui / Tolak.
  *   3. TANPA reload halaman: buka dropdown bell → notifikasi hasil review
- *      muncul di daftar (title "Transaksi Gmail diterima" / "Transaksi ditolak").
+ *      muncul di daftar — SEMUA 4 hasil aksi review:
+ *        - approve  → title "Transaksi Gmail diterima"
+ *        - reject   → title "Transaksi ditolak"
+ *        - duplikat → title "Transaksi Gmail duplikat" (warning)
+ *        - amount kosong → title "Gagal menerima transaksi Gmail" (error)
  *      Ini membuktikan jalur REALTIME: POST /api/notifications → notifyUser
  *      (SSE event `notification:new`) → prependNotification → store → dropdown.
  *   4. Badge unread count di bell bertambah setelah aksi.
@@ -150,6 +154,118 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     // ===== 6. Buka dropdown bell TANPA reload → notifikasi realtime + badge naik =====
     await assertBellNotification(page, bell, {
       itemName: /Transaksi ditolak/,
+      baselineUnread: baseline,
+    });
+
+    pageErrors.expectClean();
+  });
+
+  test('duplicate: notifikasi warning "Transaksi Gmail duplikat" muncul di bell TANPA reload', async ({ page, request }) => {
+    const pageErrors = collectPageErrors(page);
+
+    // ===== 1. Seed email test =====
+    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup.
+    testMessageId = `${'e2e-bell-'}${Date.now()}`;
+    testMessageIds.push(testMessageId);
+    const amount = 88000;
+    const merchant = 'E2E Bell Duplicate Merchant';
+    await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-bell-',
+      subject: `E2E Bell Duplicate ${Date.now()}`,
+      sender: 'e2e-bell@example.com',
+      confidenceScore: 0.7,
+      candidate: {
+        amount,
+        merchant,
+        category: 'Belanja',
+        paymentMethod: 'qris',
+        transactionType: 'expense',
+        date: '2026-08-01',
+        confidence: 0.7,
+      },
+    });
+
+    // ===== 2. Seed transaksi duplikat (gmail_message_id SAMA dengan email) =====
+    // Menyimulasikan bahwa transaksi email ini SUDAH pernah disimpan —
+    // klik Setujui akan memicu addTransaction → findDuplicateTransaction →
+    // DuplicateTransactionError → status duplicate + notifikasi warning.
+    const txResp = await request.post('/api/transactions', {
+      headers: { Cookie: `better-auth.session_token=${session.cookie}` },
+      data: {
+        type: 'expense',
+        amount,
+        categoryId: 'belanja',
+        categoryName: 'Belanja',
+        merchant,
+        paymentMethod: 'qris',
+        note: 'Seed transaksi duplikat E2E bell',
+        date: '2026-08-01',
+        source: 'gmail',
+        gmailMessageId: testMessageId,
+        confidenceScore: 0.7,
+      },
+    });
+    expect(txResp.ok(), 'seed transaksi duplikat via API').toBeTruthy();
+
+    // ===== 3. Buka halaman & filter → email test tampil =====
+    const card = await openReviewFilter(page, testMessageId);
+
+    // ===== 4. Baseline unread + gate SSE deterministik =====
+    const bell = bellButton(page);
+    await expect(bell).toBeVisible();
+    const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
+    await waitRealtimeConnected(bell);
+
+    // ===== 5. Klik Setujui → deteksi duplikat =====
+    await card.getByTitle('Setujui').click();
+    await expect(page.getByText('Transaksi duplikat').first()).toBeVisible({ timeout: 20_000 });
+
+    // ===== 6. Notifikasi warning tampil realtime di bell TANPA reload =====
+    await assertBellNotification(page, bell, {
+      itemName: /Transaksi Gmail duplikat/,
+      baselineUnread: baseline,
+    });
+
+    pageErrors.expectClean();
+  });
+
+  test('amount-missing: notifikasi error "Gagal menerima transaksi Gmail" muncul di bell TANPA reload', async ({ page, request }) => {
+    const pageErrors = collectPageErrors(page);
+
+    // ===== 1. Seed email test — candidate TANPA amount (nominal tidak ditemukan) =====
+    testMessageId = `${'e2e-bell-'}${Date.now()}`;
+    testMessageIds.push(testMessageId);
+    await seedGmailReviewEmail(request, session, {
+      prefix: 'e2e-bell-',
+      subject: `E2E Bell No Amount ${Date.now()}`,
+      sender: 'e2e-bell@example.com',
+      confidenceScore: 0.6,
+      candidate: {
+        // amount TIDAK di-set — menyimulasikan nominal tidak ditemukan
+        merchant: 'E2E Bell No Amount Merchant',
+        category: 'Lainnya',
+        date: '2026-08-01',
+        confidence: 0.6,
+      },
+    });
+
+    // ===== 2. Buka halaman & filter → email test tampil (tanpa nominal) =====
+    const card = await openReviewFilter(page, testMessageId);
+    await expect(card.getByText(/Rp/)).toHaveCount(0);
+
+    // ===== 3. Baseline unread + gate SSE deterministik =====
+    const bell = bellButton(page);
+    await expect(bell).toBeVisible();
+    const baseline = unreadCountFromLabel(await bell.getAttribute('aria-label'));
+    await waitRealtimeConnected(bell);
+
+    // ===== 4. Klik Setujui → feedback error (bukan silent return) =====
+    await card.getByTitle('Setujui').click();
+    await expect(page.getByText('Nominal transaksi tidak ditemukan').first()).toBeVisible({ timeout: 20_000 });
+
+    // ===== 5. Notifikasi error tampil realtime di bell TANPA reload =====
+    await assertBellNotification(page, bell, {
+      itemName: /Gagal menerima transaksi Gmail/,
       baselineUnread: baseline,
     });
 
