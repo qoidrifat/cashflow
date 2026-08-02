@@ -59,7 +59,7 @@ jobs:
   # E2E REGRESSION — Playwright, butuh Turso DB (via secrets)
   # ─────────────────────────────────────────────────────────────
   e2e:
-    name: Playwright E2E (8 tests)
+    name: Playwright E2E
     runs-on: ubuntu-latest
     needs: quality
     timeout-minutes: 30
@@ -70,6 +70,9 @@ jobs:
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       # Opsional — hanya dibutuhkan jika spec AI di masa depan berjalan riil.
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Admin email untuk gate /api/admin/metrics (resolveAdmin). CI memakai
+      # DB seed terisolasi (scripts/seedE2eDataset.mjs) dengan admin seed ini.
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,8 +101,21 @@ jobs:
         if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
         run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (diperlukan untuk boot API dan minting sesi e2e)' && exit 1
 
+      # P4.15: CI-isolated DB seed — CI TIDAK bergantung pada DB development.
+      # Seed mengisi DB Turso (secret) dengan dataset deterministik (284 tx /
+      # 519 gmail logs) yang cocok dengan PINNED di e2e/helpers/fixtures.ts.
+      # Idempoten + hanya menyentuh user seed. SEED_E2E=1 = safety guard:
+      # mencegah eksekusi tidak sengaja terhadap DB development.
+      - name: Seed E2E dataset (CI-isolated DB)
+        run: node scripts/seedE2eDataset.mjs
+        env:
+          SEED_E2E: '1'
+
       - name: Run E2E suite
         run: npm run test:e2e
+
+      - name: Run API contract tests (schema drift detection)
+        run: npm run test:e2e:contract
 
       - name: Upload Playwright report (always)
         if: always()

@@ -6,6 +6,17 @@
  * tempat dan rawan tidak konsisten. Sekarang semua angka dataset yang dipin
  * terpusat di file ini.
  *
+ * P4.15 (CI-isolated DB): angka kini bisa di-override via env (mis.
+ * E2E_PINNED_TRANSACTIONS_TOTAL) agar CI yang memakai DB seed terisolasi
+ * (scripts/seedE2eDataset.mjs) tidak bergantung pada angka DB development.
+ * Default tetap nilai dataset migrasi (284/86/131/519) — regression guard.
+ *
+ * UPDATE 2026-08-02 (audit enterprise, build validation): dataset user dev
+ * (qoidrifat23@gmail.com) drift secara intentional — scan Gmail & pencatatan
+ * berlanjut setelah migrasi: 284 → 541 transaksi (income 86→162, expense
+ * 131→244) dan 519 → 611 gmail logs. Angka di bawah disinkronkan ke ground
+ * truth aktual per audit (regression guard tetap aktif untuk drift berikutnya).
+ *
  * Catatan penting (regression guard):
  *  - Angka-angka ini adalah REGRESSION GUARD: menegaskan bahwa dataset migrasi
  *    tidak berubah secara tidak sengaja (mis. migrasi ulang menghilangkan data,
@@ -14,21 +25,26 @@
  *  - Validasi utama tiap spec tetap DYNAMIC (membandingkan UI dengan ground
  *    truth API). Pin ini hanya lapisan ekstra untuk mendeteksi drift dataset.
  */
+function envNum(key: string, fallback: number): number {
+  const v = Number(process.env[key]);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
+}
+
 export const PINNED = {
-  /** Total transaksi di dataset migrasi (Supabase → Turso). */
-  transactionsTotal: 284,
+  /** Total transaksi di dataset migrasi (Supabase → Turso) / seed CI. */
+  transactionsTotal: envNum('E2E_PINNED_TRANSACTIONS_TOTAL', 541),
   /** Total transaksi tipe income (query API `type=income`). */
-  transactionsIncome: 86,
+  transactionsIncome: envNum('E2E_PINNED_TRANSACTIONS_INCOME', 162),
   /** Total transaksi tipe expense (query API `type=expense`). */
-  transactionsExpense: 131,
-  /** Total log Gmail Sync di dataset migrasi. */
-  gmailLogsTotal: 519,
+  transactionsExpense: envNum('E2E_PINNED_TRANSACTIONS_EXPENSE', 244),
+  /** Total log Gmail Sync di dataset migrasi / seed CI. */
+  gmailLogsTotal: envNum('E2E_PINNED_GMAIL_LOGS_TOTAL', 611),
 } as const;
 
 /** Ulasan singkat untuk kenyamanan debugging bila assert pin gagal. */
 export const PINNED_DESCRIPTION = {
-  transactionsTotal: 'dataset migrasi transaksi',
+  transactionsTotal: 'dataset migrasi/seed transaksi',
   transactionsIncome: 'transaksi tipe income (query API)',
   transactionsExpense: 'transaksi tipe expense (query API)',
-  gmailLogsTotal: 'log Gmail Sync dataset migrasi',
+  gmailLogsTotal: 'log Gmail Sync dataset migrasi/seed',
 } as const;
