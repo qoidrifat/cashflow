@@ -352,7 +352,14 @@ VALUES
   ('alert_ai_cost_daily', 'ai_cost_daily', 'estimated_cost_idr', 'gt', 50000, 1440),
   ('alert_gmail_sync_failures', 'gmail_sync_failures', 'gmail_sync_failed', 'gt', 10, 10),
   ('alert_agent_search_error_rate', 'agent_search_error_rate', 'agent_search_error_rate', 'gt', 0.10, 60),
-  ('alert_ocr_failure_rate', 'ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60);
+  ('alert_ocr_failure_rate', 'ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60),
+  -- Deteksi degradasi cache: alert bila hit rate LRU < 50% dalam 60 menit
+  -- (tanpa aktivitas cache di window = sehat, tidak trigger — lihat computeCacheHitRate).
+  -- Catatan semantik: hit rate = SUM(ai_cache_hit)/(SUM(ai_cache_hit)+SUM(ai_cache_miss)).
+  -- JOIN single-flight ikut mencatat miss, dan window dengan mayoritas email BARU
+  -- (first-scan pasca restart) wajar rendah — alert paling bermakna saat steady-state
+  -- pemrosesan berulang (gmail sync / OCR berulang), bukan saat cold-cache.
+  ('alert_cache_hit_rate', 'cache_hit_rate', 'cache_hit_rate', 'lt', 0.5, 60);
 
 -- =============================================
 -- INDEXES

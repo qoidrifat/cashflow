@@ -509,6 +509,11 @@ async function computeAlerts() {
           args: [windowStart],
         });
         currentValue = (rows || []).reduce((a, r) => a + (Number(r.estimated_cost_idr) || 0), 0);
+      } else if (rule.metric_name === 'cache_hit_rate') {
+        // Hit rate LRU cache: SUM(ai_cache_hit) / (SUM(ai_cache_hit) + SUM(ai_cache_miss))
+        // dalam window. Wajib branch SEBELUM `endsWith('_rate')` — cache_hit_rate
+        // juga berakhiran '_rate' tapi bukan error-rate (computeRate tidak paham).
+        currentValue = await computeCacheHitRate(client, windowStart);
       } else if (rule.metric_name.endsWith('_rate')) {
         currentValue = await computeRate(client, rule.metric_name, windowStart);
       } else {
@@ -540,6 +545,43 @@ async function computeAlerts() {
     });
   }
   return results;
+}
+
+/**
+ * Hit rate AI response cache dalam window (alert rule `cache_hit_rate`):
+ * SUM(ai_cache_hit) / (SUM(ai_cache_hit) + SUM(ai_cache_miss)) — dihitung dari
+ * system_metrics yang dicatat generateVertexContent (Sprint 3).
+ *
+ * Bila TIDAK ada aktivitas cache di window (total = 0) → return 1.0 (sehat):
+ * tanpa data, tidak ada degradasi yang bisa diukur — jangan trigger alert.
+ */
+/**
+ * Hit rate murni dari dua counter (diekstrak agar bisa di-unit-test tanpa DB).
+ * total = 0 (tanpa aktivitas cache) → 1.0 (sehat — tidak ada degradasi terukur).
+ */
+export function computeHitRateFromCounts(hit, miss) {
+  const total = Number(hit) + Number(miss);
+  return total > 0 ? Math.round((Number(hit) / total) * 1000) / 1000 : 1;
+}
+
+async function computeCacheHitRate(client, windowStart) {
+  try {
+    const [hits, misses] = await Promise.all([
+      client.execute({
+        sql: `SELECT COALESCE(SUM(metric_value), 0) AS v FROM system_metrics WHERE metric_name = 'ai_cache_hit' AND created_at >= ?`,
+        args: [windowStart],
+      }),
+      client.execute({
+        sql: `SELECT COALESCE(SUM(metric_value), 0) AS v FROM system_metrics WHERE metric_name = 'ai_cache_miss' AND created_at >= ?`,
+        args: [windowStart],
+      }),
+    ]);
+    const hit = Number(hits.rows[0]?.v) || 0;
+    const miss = Number(misses.rows[0]?.v) || 0;
+    return computeHitRateFromCounts(hit, miss);
+  } catch {
+    return 1; // kegagalan query ≠ degradasi cache — jangan false-positive alert
+  }
 }
 
 async function computeRate(client, metricName, windowStart) {
@@ -578,4 +620,5 @@ export default {
   getFeatureCalls,
   sanitizeErrorMessage,
   checkAlerts,
+  computeHitRateFromCounts,
 };

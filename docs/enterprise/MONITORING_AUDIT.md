@@ -54,7 +54,7 @@ Admin Dashboard (/admin/monitoring) ← /api/admin/metrics/* (resolveAdmin: ADMI
 - **Non-blocking recording**: `.catch(() => {})` — metrics tidak pernah merusak fitur (prinsip utama di header service).
 - **Privacy-first**: `sanitizeMetadata` (drop key sensitif + nested object + cap 200 char), `sanitizeErrorMessage` (redact JWT/key/path, cap 400), "Never logs PII/raw email body/base64/financial values".
 - **Raw SQL Turso** dengan prepared statements (migrasi dari Supabase query builder yang tidak kompatibel).
-- **Alert rules**: 4 seed default (ai_cost_daily, gmail_sync_failures, agent_search_error_rate, ocr_failure_rate), evaluasi windowed di `checkAlerts()`, idempotent seed.
+- **Alert rules**: 5 seed default (ai_cost_daily, gmail_sync_failures, agent_search_error_rate, ocr_failure_rate, cache_hit_rate — deteksi degradasi LRU cache: hit rate < 50% dalam 60 menit), evaluasi windowed di `checkAlerts()`, idempotent seed.
 - **Pagination** untuk riwayat per-feature (`getFeatureCalls`, limit pageSize ≤100).
 - **E2E guard**: contract test admin summary + auth gate spec.
 
