@@ -144,4 +144,4 @@ CashFlow is a production-shaped, AI-native personal finance platform. Authentica
 
 ## 12. Confidence Score
 
-**92 / 100** — based on: source-code verification of every layer, live CI evidence (run #7 fully green), verified schema/counts (22 tables, 113/9/41/10 tests), and a documented audit trail (`docs/audit/`, `docs/enterprise/`). Deductions for known debt items above (legacy deps/names, monolith server file, missing LICENSE).
+**92 / 100** — based on: source-code verification of every layer, live CI evidence (run #7 fully green), verified schema/counts (22 tables, 113/9/41/10 tests), and a documented audit trail (`docs/architecture/`, `docs/security/`, `docs/performance/`, `docs/enterprise/`). Deductions for known debt items above (legacy deps/names, monolith server file, missing LICENSE).

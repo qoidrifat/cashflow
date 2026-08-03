@@ -131,4 +131,4 @@
 - `server/index.js` still holds ~1650 lines; domain route modules exist and extraction continues.
 - ~~Unused `@supabase/supabase-js` dependency + `supabase/` archive~~ — ✅ removed 2026-08-03.
 - ~~`firebaseUser` naming remnant across ~15 files~~ — ✅ renamed to `authUser` 2026-08-03 (25 files, 0 remnants).
-- See `docs/audit/` and `docs/enterprise/` for the full debt inventory.
+- See `docs/architecture/`, `docs/security/`, `docs/performance/` and `docs/enterprise/` for the full debt inventory.

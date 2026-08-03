@@ -453,6 +453,21 @@ Observability        admin_metrics · ai_usage_metrics · system_metrics · aler
 
 ---
 
+## 📚 Documentation
+
+The repository maintains an enterprise documentation system — every folder has an index, decisions are recorded as ADRs, and legacy content is archived (never deleted).
+
+| Hub | Purpose |
+|---|---|
+| **[Documentation Map](docs/DOCUMENTATION_MAP.md)** | Single navigation hub — start here |
+| **[System docs](docs/system/INDEX.md)** | Current-state architecture, audit report, feature matrix |
+| **[ADRs](docs/adr/INDEX.md)** | Why-decisions (Better Auth, Turso, SSE, AI, monitoring…)
+| **[E2E docs](docs/e2e/INDEX.md)** | Testing strategy, coverage, stability, CI |
+| **[Enterprise docs](docs/enterprise/INDEX.md)** | Modernization audit + AI roadmap |
+| **[Architecture & audit](docs/architecture/INDEX.md)** | Architecture & implementation compliance (+ [security](docs/security/INDEX.md), [performance](docs/performance/INDEX.md)) |
+| **[Meta docs](docs/meta/INDEX.md)** | Documentation governance (style guide, naming) |
+| **[Archive](docs/archive/ARCHIVE.md)** | Historical/legacy documentation (read-only) |
+
 ## 🤝 Contributing
 
 1. Fork the repository and create a feature branch
@@ -479,5 +494,4 @@ You are free to use, modify, and distribute this software. Attribution is apprec
 
 - **Repository:** [github.com/qoidrifat/cashflow](https://github.com/qoidrifat/cashflow)
 - **Maintainer:** Qoid Rif'at
-- **Full system audit:** [docs/system/SYSTEM_AUDIT_REPORT.md](docs/system/SYSTEM_AUDIT_REPORT.md)
-- **Feature matrix:** [docs/system/FEATURE_MATRIX.md](docs/system/FEATURE_MATRIX.md)
+- **Documentation:** [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md)
