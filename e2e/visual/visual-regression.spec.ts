@@ -30,6 +30,7 @@ import { mintSessionCookie, cleanupTestSessions } from '../helpers/mintSession';
 import { setupAuthContext } from '../helpers/authContext';
 import { collectPageErrors } from '../helpers/errors';
 import { setTheme, waitForTheme, type VisualTheme } from '../helpers/theme';
+import { bellButton, waitRealtimeConnected } from '../helpers/realtime';
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -176,10 +177,19 @@ test.describe('Visual regression @visual', () => {
       await page.goto('/gmail-sync');
       await page.waitForLoadState('domcontentloaded');
       await expect(page.getByText('Diterima', { exact: true }).first()).toBeVisible();
+      // Deterministikkan state SSE sebelum snapshot: WifiOff (belum connect) vs
+      // terhubung mengubah header. Gate yang sama dipakai spec review realtime.
+      await waitRealtimeConnected(bellButton(page));
 
       // Mask: nilai summary (label → following-sibling value) + email cards + counter.
       // Label pakai anchored regex (bukan substring) agar tidak salah tangkap badge
       // 'Diterima Otomatis' / tombol filter 'Config Error' / riwayat 'Diterima:'.
+      //
+      // AutoSync card ([data-testid=autosync-status]) = region PURE DATA-DRIVEN:
+      // settings + riwayat sync (toggle ON/OFF mengubah struktur, tanggal, count
+      // "Riwayat Sinkronisasi (N)", "Hasil Terakhir") — baseline dev (DB riil) vs
+      // CI (DB seed tanpa gmail_sync_settings) berbeda total → dimask seluruhnya.
+      // notification-badge = jumlah unread (dinamis per env).
       const mask = [
         page.locator('text=/^Diterima$/').first().locator('xpath=following-sibling::*[1]'),
         page.locator('text=/^Perlu Review$/').first().locator('xpath=following-sibling::*[1]'),
@@ -187,6 +197,8 @@ test.describe('Visual regression @visual', () => {
         page.locator('text=/^Error$/').first().locator('xpath=following-sibling::*[1]'),
         page.locator('[data-testid^="email-card-"]'),
         page.getByText(/Menampilkan \d+-\d+ dari \d+ email/),
+        page.locator('[data-testid="autosync-status"]'),
+        page.locator('[data-testid="notification-badge"]'),
       ];
       await snapshotPage(page, { name: `gmail-sync-${theme}-desktop.png`, theme, mask });
       pageErrors.expectClean();

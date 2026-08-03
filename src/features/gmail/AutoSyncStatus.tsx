@@ -99,7 +99,9 @@ export default function AutoSyncStatus({
 
   return (
     <Card>
-      <div className="space-y-3">
+      {/* data-testid: region DINAMIS (settings + riwayat sync) — visual spec
+          gmail-sync meng-mask seluruh card ini (data-driven, bukan desain) */}
+      <div className="space-y-3" data-testid="autosync-status">
         {/* Header: Toggle + Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

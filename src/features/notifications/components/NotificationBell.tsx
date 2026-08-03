@@ -79,6 +79,7 @@ export default function NotificationBell() {
               exit={{ scale: 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 20 }}
               aria-live="polite"
+              data-testid="notification-badge"
               className={cn(
                 'absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full',
                 'bg-red-500 px-1 text-[9px] font-bold leading-none text-white shadow-sm shadow-red-500/30',
