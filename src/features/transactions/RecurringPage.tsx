@@ -56,7 +56,7 @@ function getIntervalDescription(rt: RecurringTransaction): string {
 }
 
 export default function RecurringPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast, addNotification } = useAppStore();
   const [recurringList, setRecurringList] = useState<RecurringTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +81,7 @@ export default function RecurringPage() {
   // Delete confirmation
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const userId = firebaseUser?.uid;
+  const userId = authUser?.uid;
 
   useEffect(() => {
     if (!userId) {

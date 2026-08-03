@@ -50,7 +50,7 @@ interface ScanReceiptModalProps {
 }
 
 export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanReceiptModalProps) {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
 
   const [step, setStep] = useState<ScanStep>('choose');
@@ -81,9 +81,9 @@ export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanRecei
   const extractingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!isOpen || !firebaseUser) return;
-    return listenToCategories(firebaseUser.uid, setCategories);
-  }, [isOpen, firebaseUser]);
+    if (!isOpen || !authUser) return;
+    return listenToCategories(authUser.uid, setCategories);
+  }, [isOpen, authUser]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -270,7 +270,7 @@ export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanRecei
 
   // Save
   const handleSave = useCallback(async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const amountNum = parseInt(formAmount.replace(/[^0-9]/g, ''), 10);
     if (!amountNum || amountNum <= 0) {
       setFormError('Isi nominal transaksi yang valid.');
@@ -294,14 +294,14 @@ export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanRecei
         date: formDate,
       };
       // Duplicate detection handled inside saveScanTransaction
-      await saveScanTransaction(firebaseUser.uid, data, extractResult!, scanSource);
+      await saveScanTransaction(authUser.uid, data, extractResult!, scanSource);
       setStep('success');
       setTimeout(() => { onSaved(); onClose(); resetState(); }, 1500);
     } catch (error: any) {
       addToast({ type: 'error', title: 'Gagal menyimpan transaksi', message: error.message || 'Coba lagi.' });
       setStep('review');
     }
-  }, [firebaseUser, formAmount, formType, formCategoryId, formCategoryName, formMerchant, formPaymentMethod, formNote, formDate, extractResult, scanSource, addToast, onSaved, onClose, resetState]);
+  }, [authUser, formAmount, formType, formCategoryId, formCategoryName, formMerchant, formPaymentMethod, formNote, formDate, extractResult, scanSource, addToast, onSaved, onClose, resetState]);
 
   // Confidence label helper
   const confLabel = (score: number | undefined): { label: string; color: string } => {
@@ -316,7 +316,7 @@ export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanRecei
   const displayCats = cats.length > 0 ? cats : (
     catType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
   ).map((c) => ({
-    id: c.id, userId: firebaseUser?.uid || '', name: c.name,
+    id: c.id, userId: authUser?.uid || '', name: c.name,
     type: catType as 'income' | 'expense', icon: c.icon, color: c.color, isDefault: true, createdAt: new Date(),
   }));
 

@@ -228,7 +228,7 @@ const STATUS_CONFIG: Record<SyncEmailStatus, { label: string; color: string; bg:
 // ===================== Component =====================
 
 export default function GmailSyncPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast, gmailSyncEnabled, setGmailSyncEnabled } = useAppStore();
 
   const [isConnected, setIsConnected] = useState(false);
@@ -345,8 +345,8 @@ export default function GmailSyncPage() {
   }), []);
 
   useEffect(() => {
-    setIsConnected(!!firebaseUser);
-  }, [firebaseUser]);
+    setIsConnected(!!authUser);
+  }, [authUser]);
 
   useEffect(() => {
     if (syncProgressTimerRef.current) {
@@ -390,13 +390,13 @@ export default function GmailSyncPage() {
   // Riwayat dimuat dari server setiap kali halaman dibuka
   // Setelah pindah halaman, refresh, atau logout-login, data tetap ada
   const loadSyncRuns = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     if (!options.silent) {
       setSyncRunsLoading(true);
       setHistoryError(null);
     }
     try {
-      const runs = await getSyncRuns(firebaseUser.uid, 20);
+      const runs = await getSyncRuns(authUser.uid, 20);
       setSyncRuns(runs);
       const runningRun = runs.find((run) => run.status === 'running' && isGmailSyncProgress(run.metadata?.progress));
       if (!isScanning && runningRun && isGmailSyncProgress(runningRun.metadata?.progress)) {
@@ -417,7 +417,7 @@ export default function GmailSyncPage() {
         setSyncRunsLoading(false);
       }
     }
-  }, [firebaseUser?.uid, isScanning]);
+  }, [authUser?.uid, isScanning]);
 
   useEffect(() => {
     const display = getGmailSyncDateRangeDisplay();
@@ -426,7 +426,7 @@ export default function GmailSyncPage() {
   }, [loadSyncRuns]);
 
   useEffect(() => {
-    if (!firebaseUser?.uid || isScanning) return;
+    if (!authUser?.uid || isScanning) return;
     const hasRunningRun = syncRuns.some((run) => run.status === 'running');
     if (!hasRunningRun) return;
 
@@ -435,13 +435,13 @@ export default function GmailSyncPage() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [firebaseUser?.uid, isScanning, loadSyncRuns, syncRuns]);
+  }, [authUser?.uid, isScanning, loadSyncRuns, syncRuns]);
 
   // ===================== Auto Sync: Load Settings =====================
   useEffect(() => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
 
-    getGmailSyncSettings(firebaseUser.uid).then((settings) => {
+    getGmailSyncSettings(authUser.uid).then((settings) => {
       if (settings) {
         setAutoSyncSettings({
           lastSyncedAt: settings.lastSyncedAt,
@@ -459,7 +459,7 @@ export default function GmailSyncPage() {
     });
     // Hanya jalankan sekali saat mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser?.uid]);
+  }, [authUser?.uid]);
 
   // ===================== Auto Sync: Checker Interval =====================
   useEffect(() => {
@@ -469,15 +469,15 @@ export default function GmailSyncPage() {
       autoSyncIntervalRef.current = null;
     }
 
-    if (!gmailSyncEnabled || !firebaseUser?.uid || isScanning) {
+    if (!gmailSyncEnabled || !authUser?.uid || isScanning) {
       return;
     }
 
     const runAutoScanIfDue = async () => {
       if (isAutoScanningRef.current || isScanning) return;
-      if (!firebaseUser?.uid) return;
+      if (!authUser?.uid) return;
 
-      const settings = await getGmailSyncSettings(firebaseUser.uid);
+      const settings = await getGmailSyncSettings(authUser.uid);
       if (!settings || !shouldRunAutoSync(settings)) return;
 
       isAutoScanningRef.current = true;
@@ -487,13 +487,13 @@ export default function GmailSyncPage() {
         // Update last/next sync setelah scan sukses
         const interval = settings.syncIntervalMinutes;
         await updateLastSyncResult(
-          firebaseUser.uid,
+          authUser.uid,
           { status: 'completed' },
           interval,
         );
 
         // Refresh settings
-        const updated = await getGmailSyncSettings(firebaseUser.uid);
+        const updated = await getGmailSyncSettings(authUser.uid);
         if (updated) {
           setAutoSyncSettings({
             lastSyncedAt: updated.lastSyncedAt,
@@ -525,7 +525,7 @@ export default function GmailSyncPage() {
       isAutoScanningRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gmailSyncEnabled, firebaseUser?.uid]);
+  }, [gmailSyncEnabled, authUser?.uid]);
 
   // ===================== Actions =====================
 
@@ -554,8 +554,8 @@ export default function GmailSyncPage() {
     // Buat sync run di server agar riwayat tercatat
     let syncRunId: string | null = null;
     const todayStr = new Date().toISOString().split('T')[0];
-    if (firebaseUser?.uid) {
-      const run = await createSyncRun(firebaseUser.uid, {
+    if (authUser?.uid) {
+      const run = await createSyncRun(authUser.uid, {
         syncType: 'manual',
         dateFrom: '2026-01-01',
         dateTo: todayStr,
@@ -630,9 +630,9 @@ export default function GmailSyncPage() {
       }
 
       setProgress(`Memfilter ${gmailEmails.length} email...`);
-      if (firebaseUser?.uid) {
+      if (authUser?.uid) {
         const existingFinalIds = await getExistingFinalGmailMessageIds(
-          firebaseUser.uid,
+          authUser.uid,
           gmailEmails.map((email) => email.id),
         );
         existingFinalIds.forEach((id) => processedIdsRef.current.add(id));
@@ -839,21 +839,21 @@ export default function GmailSyncPage() {
         currentStep: 'saving_results',
         totalProcessed: results.length,
       }, syncRunId, { forcePersist: true });
-      await persistGmailSyncResults(firebaseUser?.uid, results, syncRunId);
+      await persistGmailSyncResults(authUser?.uid, results, syncRunId);
 
       // ===== Auto-insert auto_accepted transactions =====
       const autoAcceptedItems = results.filter(
-        (r) => r.status === 'auto_accepted' && r.amount && r.amount >= 1000 && firebaseUser?.uid
+        (r) => r.status === 'auto_accepted' && r.amount && r.amount >= 1000 && authUser?.uid
       );
 
       let autoAcceptedCount = 0;
       let autoAcceptedFailedCount = 0;
 
       for (const item of autoAcceptedItems) {
-        if (!firebaseUser?.uid) break;
+        if (!authUser?.uid) break;
         try {
           await addTransaction(
-            firebaseUser.uid,
+            authUser.uid,
             {
               type: item.transactionType || 'expense',
               amount: item.amount!,
@@ -918,7 +918,7 @@ export default function GmailSyncPage() {
           message: `${gmailEmails.length} email diproses, ${stats.autoRejected + stats.skipped} dilewati, ${stats.failed} gagal, ${stats.retryLater} retry later.`,
         });
       }
-      if (firebaseUser?.uid) {
+      if (authUser?.uid) {
         // Finish sync run dengan summary
         if (syncRunId) {
           await finishSyncRun(syncRunId, {
@@ -944,7 +944,7 @@ export default function GmailSyncPage() {
           void loadPaginatedResults(syncRunId, 1);
         }
 
-        void triggerGmailSyncNotification(firebaseUser.uid, {
+        void triggerGmailSyncNotification(authUser.uid, {
           pendingCount: stats.pendingReview - stats.autoAcceptedCount,
           autoAcceptedCount: stats.autoAcceptedCount,
           autoSkippedCount: stats.skipped,
@@ -1029,9 +1029,9 @@ export default function GmailSyncPage() {
       const nextStats = calculateStats(nextEmails);
 
       setEmails(nextEmails);
-      await persistGmailSyncResults(firebaseUser?.uid, [resultWithBody]);
-      if (firebaseUser?.uid) {
-        void triggerGmailSyncNotification(firebaseUser.uid, {
+      await persistGmailSyncResults(authUser?.uid, [resultWithBody]);
+      if (authUser?.uid) {
+        void triggerGmailSyncNotification(authUser.uid, {
           pendingCount: nextStats.pendingReview - nextStats.autoAcceptedCount,
           autoAcceptedCount: nextStats.autoAcceptedCount,
           autoSkippedCount: nextStats.skipped,
@@ -1061,7 +1061,7 @@ export default function GmailSyncPage() {
             : e
         )
       );
-      await persistGmailSyncResults(firebaseUser?.uid, [failedResult]);
+      await persistGmailSyncResults(authUser?.uid, [failedResult]);
       addToast({ type: 'error', title: 'Gagal ekstraksi ulang', message: err instanceof Error ? err.message : undefined });
     }
   };
@@ -1114,7 +1114,7 @@ export default function GmailSyncPage() {
 
   /**
    * BUG FIX (tab "Perlu Review"):
-   * - Sebelumnya: `if (!email || !firebaseUser || !email.amount) return;` — return
+   * - Sebelumnya: `if (!email || !authUser || !email.amount) return;` — return
    *   diam-diam saat amount kosong (email dari server TIDAK pernah punya amount
    *   karena tidak disimpan di metadata). User klik Setujui → tidak terjadi apa-apa.
    * - Sekarang: menerima SyncEmail lengkap dari render (mapLogToSyncEmail), validasi
@@ -1122,7 +1122,7 @@ export default function GmailSyncPage() {
    *   notifikasi sukses/gagal (toast + in-app notification + SSE).
    */
   const handleApproveEmail = async (email: SyncEmail) => {
-    if (!firebaseUser?.uid) {
+    if (!authUser?.uid) {
       addToast({ type: 'error', title: 'Gagal menyetujui', message: 'Sesi tidak ditemukan. Silakan login ulang.' });
       return;
     }
@@ -1135,7 +1135,7 @@ export default function GmailSyncPage() {
         title: 'Tidak dapat menyetujui',
         message: 'Nominal transaksi tidak ditemukan pada email ini. Coba "Ekstrak Ulang" atau "Parse Fallback" terlebih dahulu.',
       });
-      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+      void triggerGmailReviewResultNotification(authUser.uid, {
         result: 'failed',
         emailId,
         merchant: email.merchant || email.from,
@@ -1146,7 +1146,7 @@ export default function GmailSyncPage() {
 
     try {
       const txId = await addTransaction(
-        firebaseUser.uid,
+        authUser.uid,
         {
           type: email.transactionType || 'expense',
           amount: email.amount,
@@ -1174,7 +1174,7 @@ export default function GmailSyncPage() {
       setEmails((prev) =>
         prev.map((e) => (e.id === emailId ? { ...e, status: 'approved' as SyncEmailStatus } : e))
       );
-      await persistGmailSyncResults(firebaseUser.uid, [
+      await persistGmailSyncResults(authUser.uid, [
         { ...email, status: 'approved' as SyncEmailStatus, extractedTransactionId: txId },
       ]);
 
@@ -1183,7 +1183,7 @@ export default function GmailSyncPage() {
         title: 'Transaksi Gmail berhasil disimpan',
         message: `${email.merchant || email.from} • Rp ${email.amount.toLocaleString('id-ID')}`,
       });
-      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+      void triggerGmailReviewResultNotification(authUser.uid, {
         result: 'approved',
         emailId,
         merchant: email.merchant || email.from,
@@ -1197,7 +1197,7 @@ export default function GmailSyncPage() {
         setEmails((prev) =>
           prev.map((e) => (e.id === emailId ? { ...e, status: 'duplicate' as SyncEmailStatus, reason: 'Transaksi serupa sudah pernah disimpan' } : e))
         );
-        await persistGmailSyncResults(firebaseUser.uid, [
+        await persistGmailSyncResults(authUser.uid, [
           { ...email, status: 'duplicate' as SyncEmailStatus, reason: 'Transaksi serupa sudah pernah disimpan' },
         ]);
         addToast({
@@ -1205,7 +1205,7 @@ export default function GmailSyncPage() {
           title: 'Transaksi duplikat',
           message: 'Email ini tidak disimpan karena transaksi serupa sudah ada.',
         });
-        void triggerGmailReviewResultNotification(firebaseUser.uid, {
+        void triggerGmailReviewResultNotification(authUser.uid, {
           result: 'duplicate',
           emailId,
           merchant: email.merchant || email.from,
@@ -1217,7 +1217,7 @@ export default function GmailSyncPage() {
 
       // Gagal sistem — tandai status + kirim notifikasi error yang jelas
       const errorMessage = approveError instanceof Error ? approveError.message : 'Terjadi kegagalan sistem saat menyimpan transaksi.';
-      await persistGmailSyncResults(firebaseUser.uid, [
+      await persistGmailSyncResults(authUser.uid, [
         { ...email, status: 'needs_review' as SyncEmailStatus, reason: errorMessage },
       ]);
       addToast({
@@ -1225,7 +1225,7 @@ export default function GmailSyncPage() {
         title: 'Gagal menyimpan transaksi',
         message: errorMessage,
       });
-      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+      void triggerGmailReviewResultNotification(authUser.uid, {
         result: 'failed',
         emailId,
         merchant: email.merchant || email.from,
@@ -1236,7 +1236,7 @@ export default function GmailSyncPage() {
   };
 
   const handleRejectEmail = async (email: SyncEmail) => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     const emailId = email.id;
     // Update state lokal dulu (optimistic) agar UI langsung merespons
     setEmails((prev) =>
@@ -1244,10 +1244,10 @@ export default function GmailSyncPage() {
     );
     addToast({ type: 'info', title: 'Transaksi ditolak' });
     try {
-      await persistGmailSyncResults(firebaseUser.uid, [
+      await persistGmailSyncResults(authUser.uid, [
         { ...email, status: 'rejected' as SyncEmailStatus, reason: 'Ditolak oleh user' },
       ]);
-      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+      void triggerGmailReviewResultNotification(authUser.uid, {
         result: 'rejected',
         emailId,
         merchant: email.merchant || email.from,
@@ -1257,7 +1257,7 @@ export default function GmailSyncPage() {
       const errorMessage = rejectError instanceof Error ? rejectError.message : 'Gagal menyimpan status tolak.';
       logger.warn('[GmailSync] Gagal persist status rejected:', rejectError);
       addToast({ type: 'error', title: 'Gagal menyimpan status', message: errorMessage });
-      void triggerGmailReviewResultNotification(firebaseUser.uid, {
+      void triggerGmailReviewResultNotification(authUser.uid, {
         result: 'failed',
         emailId,
         merchant: email.merchant || email.from,
@@ -1308,7 +1308,7 @@ export default function GmailSyncPage() {
       };
 
       setEmails((prev) => prev.map((e) => (e.id === emailId ? skippedEmail : e)));
-      await persistGmailSyncResults(firebaseUser?.uid, [skippedEmail]);
+      await persistGmailSyncResults(authUser?.uid, [skippedEmail]);
       addToast({ type: 'info', title: 'Email dilewati', message: 'Promo cashback, bukan transaksi aktual.' });
       return;
     }
@@ -1408,7 +1408,7 @@ export default function GmailSyncPage() {
    * Retry all previously failed emails from server + Gmail API
    */
   const handleRetryFailedEmails = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     setIsScanning(true);
     setProgress('Mengambil data email gagal dari database...');
@@ -1419,7 +1419,7 @@ export default function GmailSyncPage() {
     // Buat sync run untuk retry
     let retrySyncRunId: string | null = null;
     const todayStr = new Date().toISOString().split('T')[0];
-    const run = await createSyncRun(firebaseUser.uid, {
+    const run = await createSyncRun(authUser.uid, {
       syncType: 'retry_failed',
       dateFrom: '2026-01-01',
       dateTo: todayStr,
@@ -1433,7 +1433,7 @@ export default function GmailSyncPage() {
       });
 
       // Step 1: Query server untuk messageId yang failed
-      const failedEmails = await getFailedEmailIds(firebaseUser.uid, 200);
+      const failedEmails = await getFailedEmailIds(authUser.uid, 200);
 
       if (failedEmails.length === 0) {
         const completedProgress = applySyncProgress({
@@ -1572,7 +1572,7 @@ export default function GmailSyncPage() {
         currentStep: 'saving_results',
         totalProcessed: results.length,
       }, retrySyncRunId, { forcePersist: true });
-      await persistGmailSyncResults(firebaseUser.uid, results, retrySyncRunId);
+      await persistGmailSyncResults(authUser.uid, results, retrySyncRunId);
 
       // Update processedIds
       results.forEach((email) => {
@@ -1608,7 +1608,7 @@ export default function GmailSyncPage() {
         title: `Retry selesai: ${gmailEmails.length} email`,
         message: `${successCount} berhasil, ${skipCount} dilewati, ${failCount} gagal, ${retryStats.retryLater} retry later.`,
       });
-      void triggerGmailSyncNotification(firebaseUser.uid, {
+      void triggerGmailSyncNotification(authUser.uid, {
         pendingCount: nextStats.pendingReview - nextStats.autoAcceptedCount,
         autoAcceptedCount: nextStats.autoAcceptedCount,
         autoSkippedCount: nextStats.skipped,
@@ -1686,7 +1686,7 @@ export default function GmailSyncPage() {
   // meskipun user pindah halaman, refresh browser, atau logout-login.
   // Maksimal 100 email per halaman. Semua halaman bisa diakses via pagination.
   const loadPaginatedResults = useCallback(async (_syncRunId?: string | null, page?: number) => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     const targetPage = page || logsCurrentPage;
     // Tandai request ini sebagai yang terbaru; response stale (id != terbaru)
     // akan diabaikan agar tidak menimpa hasil request yang lebih baru.
@@ -1700,7 +1700,7 @@ export default function GmailSyncPage() {
       // status; list count selalu cocok dengan summary counter.
       const statusFilter = filterStatus === 'all' ? null : filterStatus;
 
-      const result = await getGmailSyncLogsPaginated(firebaseUser.uid, {
+      const result = await getGmailSyncLogsPaginated(authUser.uid, {
         page: targetPage,
         pageSize: LOGS_PAGE_SIZE,
         syncRunId: null,
@@ -1734,12 +1734,12 @@ export default function GmailSyncPage() {
         setLogsLoading(false);
       }
     }
-  }, [firebaseUser?.uid, logsCurrentPage, filterStatus]);
+  }, [authUser?.uid, logsCurrentPage, filterStatus]);
 
   // Muat hasil scan terbaru saat halaman pertama kali dibuka
   // Riwayat hasil scan tetap ada meskipun user pindah halaman/refresh/logout-login
   useEffect(() => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     // Muat hasil dari sync run terakhir yang selesai. Jika belum ada sync run,
     // tetap muat SEMUA log lintas run — loadPaginatedResults mengabaikan syncRunId
     // dan menampilkan seluruh hasil dari gmail_sync_logs (termasuk summary cards).
@@ -1748,11 +1748,11 @@ export default function GmailSyncPage() {
     setSelectedSyncRunId(targetRun?.id ?? null);
     void loadPaginatedResults(targetRun?.id ?? null, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncRuns, firebaseUser?.uid]);
+  }, [syncRuns, authUser?.uid]);
 
   // Reload paginated results when filter changes
   useEffect(() => {
-    if (paginatedLogs && firebaseUser?.uid) {
+    if (paginatedLogs && authUser?.uid) {
       void loadPaginatedResults(selectedSyncRunId, 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1761,10 +1761,10 @@ export default function GmailSyncPage() {
   const handlePageChange = useCallback(async (newPage: number) => {
     if (newPage < 1 || (paginatedLogs && newPage > paginatedLogs.totalPages)) return;
     setLogsCurrentPage(newPage);
-    if (firebaseUser?.uid) {
+    if (authUser?.uid) {
       await loadPaginatedResults(selectedSyncRunId, newPage);
     }
-  }, [firebaseUser?.uid, loadPaginatedResults, selectedSyncRunId, paginatedLogs]);
+  }, [authUser?.uid, loadPaginatedResults, selectedSyncRunId, paginatedLogs]);
 
   // ===================== Computed =====================
 
@@ -1941,9 +1941,9 @@ export default function GmailSyncPage() {
         )}
 
         {/* Auto Sync Status — integrated component */}
-        {isConnected && firebaseUser?.uid && (
+        {isConnected && authUser?.uid && (
           <AutoSyncStatus
-            userId={firebaseUser.uid}
+            userId={authUser.uid}
             gmailSyncEnabled={gmailSyncEnabled}
             onToggle={(enabled) => {
               setGmailSyncEnabled(enabled);

@@ -7,8 +7,8 @@ import {
 } from '../services/authService';
 
 interface AuthState {
-  /** Authenticated user mapped to legacy app shape */
-  firebaseUser: AppUser | null;
+  /** Authenticated user (Better Auth session) */
+  authUser: AppUser | null;
   /** Whether auth is still loading */
   isLoading: boolean;
   /** Error message if any */
@@ -31,7 +31,7 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  firebaseUser: null,
+  authUser: null,
   isLoading: true,
   error: null,
   isAuthenticated: false,
@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     // Subscribe to auth state changes
     const unsubscribe = onAuthStateChanged((user) => {
       set({
-        firebaseUser: user,
+        authUser: user,
         isAuthenticated: !!user,
         isLoading: false,
         error: null,
@@ -67,7 +67,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await signOutUser();
       set({
-        firebaseUser: null,
+        authUser: null,
         isAuthenticated: false,
         isLoading: false,
         error: null,

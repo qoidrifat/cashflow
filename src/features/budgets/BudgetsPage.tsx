@@ -28,7 +28,7 @@ import {
 } from '../../lib/utils';
 
 export default function BudgetsPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -51,10 +51,10 @@ export default function BudgetsPage() {
 
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     const unsubscribeBudgets = listenToBudgets(
-      firebaseUser.uid,
+      authUser.uid,
       (data) => {
         setBudgets(data);
         setLoading(false);
@@ -62,11 +62,11 @@ export default function BudgetsPage() {
       () => setLoading(false)
     );
 
-    const unsubscribeTransactions = listenToTransactions(firebaseUser.uid, (data) => {
+    const unsubscribeTransactions = listenToTransactions(authUser.uid, (data) => {
       setTransactions(data);
     });
 
-    getAllTransactions(firebaseUser.uid)
+    getAllTransactions(authUser.uid)
       .then(setHistoricalTransactions)
       .catch(() => setHistoricalTransactions([]));
 
@@ -74,7 +74,7 @@ export default function BudgetsPage() {
       unsubscribeBudgets();
       unsubscribeTransactions();
     };
-  }, [firebaseUser]);
+  }, [authUser]);
 
   // Track notified budget statuses to avoid duplicates
   const notifiedKeys = useRef(new Set<string>());
@@ -110,13 +110,13 @@ export default function BudgetsPage() {
       const dedupeKey = `budget-${budget.categoryId}-${currentMonth}-${currentYear}-${budget.status}`;
       if (notifiedKeys.current.has(dedupeKey)) return;
       notifiedKeys.current.add(dedupeKey);
-      if (!firebaseUser?.uid) return;
+      if (!authUser?.uid) return;
       const trigger = budget.status === 'overbudget'
         ? triggerBudgetOverNotification
         : triggerBudgetWarningNotification;
-      trigger(firebaseUser.uid, budget, currentMonth, currentYear).catch(() => undefined);
+      trigger(authUser.uid, budget, currentMonth, currentYear).catch(() => undefined);
     });
-  }, [budgetsWithUsage, firebaseUser?.uid, currentMonth, currentYear]);
+  }, [budgetsWithUsage, authUser?.uid, currentMonth, currentYear]);
 
   const totalBudget = budgetsWithUsage.reduce((sum, b) => sum + b.amount, 0);
   const totalUsed = budgetsWithUsage.reduce((sum, b) => sum + b.usedAmount, 0);
@@ -132,14 +132,14 @@ export default function BudgetsPage() {
   );
 
   const handleAddBudget = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     if (!formData.categoryId || !formData.amount) {
       addToast({ type: 'warning', title: 'Lengkapi data', message: 'Pilih kategori dan isi nominal budget' });
       return;
     }
 
     try {
-      await addBudget(firebaseUser.uid, formData);
+      await addBudget(authUser.uid, formData);
       addToast({ type: 'success', title: 'Budget berhasil ditambahkan' });
       setShowAddModal(false);
       setFormData({ categoryId: '', categoryName: '', amount: 0, month: currentMonth, year: currentYear });
@@ -149,9 +149,9 @@ export default function BudgetsPage() {
   };
 
   const handleDeleteBudget = async (budgetId: string) => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     try {
-      await deleteBudget(firebaseUser.uid, budgetId);
+      await deleteBudget(authUser.uid, budgetId);
       addToast({ type: 'success', title: 'Budget berhasil dihapus' });
       setShowDeleteConfirm(null);
     } catch {
@@ -160,13 +160,13 @@ export default function BudgetsPage() {
   };
 
   const handleApplyRecommendation = async (recommendationId: string) => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const recommendation = recommendations.find((item) => item.categoryId === recommendationId);
     if (!recommendation) return;
 
     if (recommendation.existingBudgetId) {
       try {
-        await updateBudget(firebaseUser.uid, recommendation.existingBudgetId, {
+        await updateBudget(authUser.uid, recommendation.existingBudgetId, {
           amount: recommendation.suggestedBudget,
           month: currentMonth,
           year: currentYear,

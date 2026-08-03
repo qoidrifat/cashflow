@@ -57,7 +57,7 @@ export interface UpdateSyncRunPatch {
 
 function resolveUser(arg1: any): string {
   if (typeof arg1 === 'string') return arg1;
-  return useAuthStore.getState().firebaseUser?.uid || '';
+  return useAuthStore.getState().authUser?.uid || '';
 }
 
 export async function createSyncRun(

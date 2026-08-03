@@ -26,7 +26,7 @@ interface FinancialSummary {
 }
 
 export default function ProfilePage() {
-  const { firebaseUser, logout, setLogoutAnimationActive } = useAuthStore();
+  const { authUser, logout, setLogoutAnimationActive } = useAuthStore();
   const { addToast } = useAppStore();
   const navigate = useNavigate();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -48,19 +48,19 @@ export default function ProfilePage() {
 
   // Load financial summary for current month
   useEffect(() => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     loadFinancialSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser?.uid]);
+  }, [authUser?.uid]);
 
   const loadFinancialSummary = useCallback(async () => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     setSummaryLoading(true);
     try {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const result = await getTransactionsPaginated({
-        userId: firebaseUser.uid,
+        userId: authUser.uid,
         page: 1,
         pageSize: 100,
         dateFrom: startOfMonth.toISOString().split('T')[0],
@@ -96,7 +96,7 @@ export default function ProfilePage() {
     } finally {
       setSummaryLoading(false);
     }
-  }, [firebaseUser?.uid]);
+  }, [authUser?.uid]);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -133,16 +133,16 @@ export default function ProfilePage() {
         <Card className="overflow-hidden">
           <div className="flex items-center gap-4">
             <img
-              src={firebaseUser?.photoURL || ''}
-              alt={firebaseUser?.displayName || 'User'}
+              src={authUser?.photoURL || ''}
+              alt={authUser?.displayName || 'User'}
               className="w-[72px] h-[72px] rounded-2xl object-cover ring-3 ring-primary-100 dark:ring-primary-500/20"
             />
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-black text-app-text truncate">
-                {firebaseUser?.displayName || 'User'}
+                {authUser?.displayName || 'User'}
               </h2>
               <p className="text-sm text-app-muted truncate">
-                {firebaseUser?.email || ''}
+                {authUser?.email || ''}
               </p>
               {memberSince && (
                 <p className="text-[10px] text-app-subtle mt-1">

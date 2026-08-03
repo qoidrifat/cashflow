@@ -109,7 +109,7 @@ const subscriptionSchema = z.object({
 });
 
 export default function ProfessionalSuitePage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -125,11 +125,11 @@ export default function ProfessionalSuitePage() {
   const currentYear = getCurrentYear();
 
   const reloadProfessionalData = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const [walletData, goalData, subscriptionData] = await Promise.all([
-      getWalletAccounts(firebaseUser.uid),
-      getSavingGoals(firebaseUser.uid),
-      getSubscriptions(firebaseUser.uid),
+      getWalletAccounts(authUser.uid),
+      getSavingGoals(authUser.uid),
+      getSubscriptions(authUser.uid),
     ]);
     setWallets(walletData);
     setGoals(goalData);
@@ -137,17 +137,17 @@ export default function ProfessionalSuitePage() {
   };
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     reloadProfessionalData().catch(() => {
       setWallets([]);
       setGoals([]);
       setSubscriptions([]);
     });
-    getAllTransactions(firebaseUser.uid).then(setTransactions).catch(() => setTransactions([]));
-    const unsubscribe = listenToBudgets(firebaseUser.uid, setBudgets, () => setBudgets([]));
+    getAllTransactions(authUser.uid).then(setTransactions).catch(() => setTransactions([]));
+    const unsubscribe = listenToBudgets(authUser.uid, setBudgets, () => setBudgets([]));
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser]);
+  }, [authUser]);
 
   const [detectedSubscriptions, setDetectedSubscriptions] = useState<Partial<SubscriptionFormData>[]>([]);
 
@@ -168,14 +168,14 @@ export default function ProfessionalSuitePage() {
     .reduce((sum, subscription) => sum + subscription.amount, 0);
 
   const handleSaveWallet = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const parsed = walletSchema.safeParse(walletForm);
     if (!parsed.success) {
       addToast({ type: 'warning', title: 'Data belum valid', message: parsed.error.issues[0]?.message });
       return;
     }
     try {
-      await saveWalletAccount(firebaseUser.uid, walletForm);
+      await saveWalletAccount(authUser.uid, walletForm);
       setWalletForm(walletDefaults);
       setModal(null);
       await reloadProfessionalData();
@@ -186,14 +186,14 @@ export default function ProfessionalSuitePage() {
   };
 
   const handleSaveGoal = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const parsed = goalSchema.safeParse(goalForm);
     if (!parsed.success) {
       addToast({ type: 'warning', title: 'Data belum valid', message: parsed.error.issues[0]?.message });
       return;
     }
     try {
-      await saveSavingGoal(firebaseUser.uid, goalForm);
+      await saveSavingGoal(authUser.uid, goalForm);
       setGoalForm(goalDefaults);
       setModal(null);
       await reloadProfessionalData();
@@ -204,14 +204,14 @@ export default function ProfessionalSuitePage() {
   };
 
   const handleSaveSubscription = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const parsed = subscriptionSchema.safeParse(subscriptionForm);
     if (!parsed.success) {
       addToast({ type: 'warning', title: 'Data belum valid', message: parsed.error.issues[0]?.message });
       return;
     }
     try {
-      await saveSubscription(firebaseUser.uid, subscriptionForm);
+      await saveSubscription(authUser.uid, subscriptionForm);
       setSubscriptionForm(subscriptionDefaults);
       setModal(null);
       await reloadProfessionalData();
@@ -333,8 +333,8 @@ export default function ProfessionalSuitePage() {
                 value={formatCurrency(wallet.balance)}
                 color={wallet.color}
                 onDelete={() => {
-                  if (!firebaseUser) return;
-                  deleteWalletAccount(firebaseUser.uid, wallet.id)
+                  if (!authUser) return;
+                  deleteWalletAccount(authUser.uid, wallet.id)
                     .then(reloadProfessionalData)
                     .catch((error) => addToast({ type: 'error', title: 'Gagal menghapus wallet', message: error instanceof Error ? error.message : undefined }));
                 }}
@@ -359,8 +359,8 @@ export default function ProfessionalSuitePage() {
                     value={`${progress.toFixed(0)}%`}
                     color={goal.color}
                     onDelete={() => {
-                      if (!firebaseUser) return;
-                      deleteSavingGoal(firebaseUser.uid, goal.id)
+                      if (!authUser) return;
+                      deleteSavingGoal(authUser.uid, goal.id)
                         .then(reloadProfessionalData)
                         .catch((error) => addToast({ type: 'error', title: 'Gagal menghapus saving target', message: error instanceof Error ? error.message : undefined }));
                     }}
@@ -388,8 +388,8 @@ export default function ProfessionalSuitePage() {
                 value={formatCurrency(subscription.amount)}
                 color="#06b6d4"
                 onDelete={() => {
-                  if (!firebaseUser) return;
-                  deleteSubscription(firebaseUser.uid, subscription.id)
+                  if (!authUser) return;
+                  deleteSubscription(authUser.uid, subscription.id)
                     .then(reloadProfessionalData)
                     .catch((error) => addToast({ type: 'error', title: 'Gagal menghapus subscription', message: error instanceof Error ? error.message : undefined }));
                 }}

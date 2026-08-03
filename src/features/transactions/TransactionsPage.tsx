@@ -39,7 +39,7 @@ import type { Category, PaymentMethod, Transaction, TransactionFormData, Transac
 import { formatCurrency, formatDate, cn } from '../../lib/utils';
 
 export default function TransactionsPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast, addNotification } = useAppStore();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -81,19 +81,19 @@ export default function TransactionsPage() {
   }, [search]);
 
   useEffect(() => {
-    if (!firebaseUser) return;
-    return listenToCategories(firebaseUser.uid, setCategories);
-  }, [firebaseUser]);
+    if (!authUser) return;
+    return listenToCategories(authUser.uid, setCategories);
+  }, [authUser]);
 
   const loadTransactions = useCallback(async (targetPage = pagination.page) => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     setLoading(true);
     setError(null);
     try {
       const minAmount = filterMinAmount ? Number(filterMinAmount) : null;
       const maxAmount = filterMaxAmount ? Number(filterMaxAmount) : null;
       const result = await getTransactionsPaginated({
-        userId: firebaseUser.uid,
+        userId: authUser.uid,
         page: targetPage,
         pageSize: pagination.pageSize,
         search: debouncedSearch,
@@ -128,7 +128,7 @@ export default function TransactionsPage() {
       setLoading(false);
     }
   }, [
-    firebaseUser,
+    authUser,
     pagination.page,
     pagination.pageSize,
     debouncedSearch,
@@ -148,11 +148,11 @@ export default function TransactionsPage() {
   }, [loadTransactions]);
 
   useEffect(() => {
-    if (!firebaseUser) return;
-    return listenToTransactionChanges(firebaseUser.uid, () => {
+    if (!authUser) return;
+    return listenToTransactionChanges(authUser.uid, () => {
       void loadTransactions();
     });
-  }, [firebaseUser, loadTransactions]);
+  }, [authUser, loadTransactions]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
@@ -217,10 +217,10 @@ export default function TransactionsPage() {
   };
 
   const handleDelete = async () => {
-    if (!firebaseUser || !selectedTransaction) return;
+    if (!authUser || !selectedTransaction) return;
 
     try {
-      await deleteTransaction(firebaseUser.uid, selectedTransaction.id);
+      await deleteTransaction(authUser.uid, selectedTransaction.id);
       addToast({ type: 'success', title: 'Transaksi berhasil dihapus' });
       setShowDeleteConfirm(false);
       setSelectedTransaction(null);
@@ -231,14 +231,14 @@ export default function TransactionsPage() {
   };
 
   const handleSubmit = async (data: TransactionFormData) => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     try {
       if (editingTransaction) {
-        await updateTransaction(firebaseUser.uid, editingTransaction.id, data);
+        await updateTransaction(authUser.uid, editingTransaction.id, data);
         addToast({ type: 'success', title: 'Transaksi berhasil diperbarui' });
       } else {
-        await addTransaction(firebaseUser.uid, data);
+        await addTransaction(authUser.uid, data);
         addToast({ type: 'success', title: 'Transaksi berhasil ditambahkan' });
         addNotification({
           type: 'transaction',
@@ -653,9 +653,9 @@ export default function TransactionsPage() {
         }}
         title={editingTransaction ? 'Edit Transaksi' : 'Tambah Transaksi'}
       >
-        {firebaseUser && (
+        {authUser && (
           <TransactionForm
-            userId={firebaseUser.uid}
+            userId={authUser.uid}
             initialData={editingTransaction}
             onSubmit={handleSubmit}
             onCancel={() => {
@@ -690,7 +690,7 @@ export default function TransactionsPage() {
         </div>
       </Modal>
 
-      {firebaseUser && (
+      {authUser && (
         <ScanReceiptModal
           isOpen={showScanModal}
           onClose={() => setShowScanModal(false)}

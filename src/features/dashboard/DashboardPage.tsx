@@ -78,7 +78,7 @@ const quickActions: Array<{
 ];
 
 export default function DashboardPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
   const navigate = useNavigate();
 
@@ -91,11 +91,11 @@ export default function DashboardPage() {
 
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     setLoading(true);
     const unsubscribe = listenToTransactions(
-      firebaseUser.uid,
+      authUser.uid,
       (data) => {
         setTransactions(data);
         setLoading(false);
@@ -110,17 +110,17 @@ export default function DashboardPage() {
     );
 
     return unsubscribe;
-  }, [firebaseUser, addToast]);
+  }, [authUser, addToast]);
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     return listenToBudgets(
-      firebaseUser.uid,
+      authUser.uid,
       setBudgets,
       (err) => addToast({ type: 'error', title: 'Gagal memuat budget', message: err.message }),
     );
-  }, [firebaseUser, addToast]);
+  }, [authUser, addToast]);
 
   const balance = calculateBalance(transactions);
   const currentMonth = getCurrentMonth();
@@ -157,7 +157,7 @@ export default function DashboardPage() {
 
   const notifiedBudgetKeys = useRef(new Set<string>());
   useEffect(() => {
-    if (!firebaseUser?.uid || loading) return;
+    if (!authUser?.uid || loading) return;
 
     budgetsWithUsage.forEach((budget) => {
       if (budget.status === 'safe') return;
@@ -168,9 +168,9 @@ export default function DashboardPage() {
       const trigger = budget.status === 'overbudget'
         ? triggerBudgetOverNotification
         : triggerBudgetWarningNotification;
-      trigger(firebaseUser.uid, budget, currentMonth, currentYear).catch(() => undefined);
+      trigger(authUser.uid, budget, currentMonth, currentYear).catch(() => undefined);
     });
-  }, [budgetsWithUsage, currentMonth, currentYear, firebaseUser?.uid, loading]);
+  }, [budgetsWithUsage, currentMonth, currentYear, authUser?.uid, loading]);
 
   // Prepare chart data
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -252,7 +252,7 @@ export default function DashboardPage() {
         >
           <div>
             <p className="text-sm text-app-subtle">
-              Halo, {firebaseUser?.displayName || 'User'}
+              Halo, {authUser?.displayName || 'User'}
             </p>
             <h2 className="text-lg sm:text-xl font-bold text-app-text">
               Ringkasan Keuangan

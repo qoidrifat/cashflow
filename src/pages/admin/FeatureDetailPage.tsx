@@ -58,7 +58,7 @@ function isFailed(status: string): boolean {
 export default function FeatureDetailPage() {
   const { feature = '' } = useParams<{ feature: string }>();
   const navigate = useNavigate();
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
 
   const [data, setData] = useState<FeatureCallsResponse | null>(null);
   const [status, setStatus] = useState<FeatureCallStatus>('all');
@@ -90,8 +90,8 @@ export default function FeatureDetailPage() {
   }, [feature, knownFeature, status, page]);
 
   useEffect(() => {
-    if (firebaseUser?.uid) void load();
-  }, [firebaseUser?.uid, load]);
+    if (authUser?.uid) void load();
+  }, [authUser?.uid, load]);
 
   // Reset page when status filter changes.
   const onChangeStatus = (next: FeatureCallStatus) => {

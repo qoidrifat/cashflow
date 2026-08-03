@@ -42,7 +42,7 @@ import CategoryIcon from '../../components/ui/CategoryIcon';
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 export default function ReportsPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiReport, setAiReport] = useState<MonthlyFinancialReport | null>(null);
@@ -52,12 +52,12 @@ export default function ReportsPage() {
 
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
     let cancelled = false;
     setLoading(true);
 
-    getAllTransactions(firebaseUser.uid)
+    getAllTransactions(authUser.uid)
       .then((data) => {
         if (cancelled) return;
         setTransactions(data);
@@ -70,7 +70,7 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [firebaseUser]);
+  }, [authUser]);
 
   const forecast = useMemo(
     () => buildSpendingForecast(transactions, getCurrentMonth(), getCurrentYear()),

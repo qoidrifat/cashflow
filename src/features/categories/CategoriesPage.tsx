@@ -17,7 +17,7 @@ const colorOptions = ['#10b981', '#8b5cf6', '#3b82f6', '#ec4899', '#f59e0b', '#e
 const iconOptions = ['Wallet', 'UtensilsCrossed', 'Car', 'ShoppingBag', 'Receipt', 'Gamepad2', 'BookOpen', 'HeartPulse', 'Briefcase', 'Gift'];
 
 export default function CategoriesPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeType, setActiveType] = useState<'expense' | 'income'>('expense');
@@ -31,14 +31,14 @@ export default function CategoriesPage() {
   });
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
 
-    initializeDefaultCategories(firebaseUser.uid).catch(() => {
+    initializeDefaultCategories(authUser.uid).catch(() => {
       addToast({ type: 'warning', title: 'Kategori default belum bisa dibuat' });
     });
 
-    return listenToCategories(firebaseUser.uid, setCategories);
-  }, [firebaseUser, addToast]);
+    return listenToCategories(authUser.uid, setCategories);
+  }, [authUser, addToast]);
 
   const visibleCategories = useMemo(
     () => categories.filter((category) => category.type === activeType),
@@ -58,14 +58,14 @@ export default function CategoriesPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!firebaseUser || !form.name.trim()) return;
+    if (!authUser || !form.name.trim()) return;
 
     try {
       if (editingCategory) {
-        await updateCategory(firebaseUser.uid, editingCategory.id, form);
+        await updateCategory(authUser.uid, editingCategory.id, form);
         addToast({ type: 'success', title: 'Kategori diperbarui' });
       } else {
-        await addCategory(firebaseUser.uid, form);
+        await addCategory(authUser.uid, form);
         addToast({ type: 'success', title: 'Kategori ditambahkan' });
       }
       setShowForm(false);
@@ -80,14 +80,14 @@ export default function CategoriesPage() {
   };
 
   const handleDelete = async (category: Category) => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     if (category.isDefault) {
       addToast({ type: 'warning', title: 'Kategori default tidak bisa dihapus' });
       return;
     }
 
     try {
-      await deleteCategory(firebaseUser.uid, category.id);
+      await deleteCategory(authUser.uid, category.id);
       addToast({ type: 'success', title: 'Kategori dihapus' });
     } catch {
       addToast({ type: 'error', title: 'Gagal menghapus kategori' });

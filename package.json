@@ -38,7 +38,6 @@
     "@google/generative-ai": "^0.24.1",
     "@libsql/client": "^0.17.4",
     "@libsql/kysely-libsql": "^0.4.1",
-    "@supabase/supabase-js": "^2.108.2",
     "better-auth": "^1.6.25",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",

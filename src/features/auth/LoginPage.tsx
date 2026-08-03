@@ -6,14 +6,14 @@ import PublicLandingPage from './components/PublicLandingPage';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading, error, clearError } = useAuthStore();
-  const { setFirebaseReady } = useAppStore();
+  const { setAuthReady } = useAppStore();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionExpired = searchParams.get('reason') === 'session_expired';
 
   useEffect(() => {
-    setFirebaseReady(true);
-  }, [setFirebaseReady]);
+    setAuthReady(true);
+  }, [setAuthReady]);
 
   useEffect(() => {
     if (isAuthenticated) {

@@ -10,7 +10,7 @@ export interface NotificationFilters {
 }
 
 export function useNotifications(filters: NotificationFilters = {}) {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const notifications = useAppStore((state) => state.notifications);
   const notificationLoading = useAppStore((state) => state.notificationLoading);
   const realtimeConnected = useAppStore((state) => state.realtimeConnected);
@@ -35,30 +35,30 @@ export function useNotifications(filters: NotificationFilters = {}) {
   );
 
   const refetch = useCallback(async () => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     setRefetching(true);
     setError(null);
     try {
-      const next = await fetchNotifications(firebaseUser.uid, { limit: 30 });
+      const next = await fetchNotifications(authUser.uid, { limit: 30 });
       setNotifications(next);
     } catch (refetchError) {
       setError(refetchError instanceof Error ? refetchError.message : 'Gagal memuat notifikasi.');
     } finally {
       setRefetching(false);
     }
-  }, [firebaseUser?.uid, setNotifications]);
+  }, [authUser?.uid, setNotifications]);
 
   const handleMarkRead = useCallback((id: string) => {
-    if (firebaseUser?.uid) markNotificationRead(firebaseUser.uid, id);
-  }, [firebaseUser?.uid, markNotificationRead]);
+    if (authUser?.uid) markNotificationRead(authUser.uid, id);
+  }, [authUser?.uid, markNotificationRead]);
 
   const handleMarkAllRead = useCallback(() => {
-    if (firebaseUser?.uid) markAllNotificationsRead(firebaseUser.uid);
-  }, [firebaseUser?.uid, markAllNotificationsRead]);
+    if (authUser?.uid) markAllNotificationsRead(authUser.uid);
+  }, [authUser?.uid, markAllNotificationsRead]);
 
   const handleRemove = useCallback((id: string) => {
-    if (firebaseUser?.uid) removeNotification(firebaseUser.uid, id);
-  }, [firebaseUser?.uid, removeNotification]);
+    if (authUser?.uid) removeNotification(authUser.uid, id);
+  }, [authUser?.uid, removeNotification]);
 
   return {
     notifications: filteredNotifications as AppNotification[],

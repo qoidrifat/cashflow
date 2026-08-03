@@ -17,7 +17,7 @@ interface QuickAddSheetProps {
 }
 
 export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAddSheetProps) {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast, addNotification } = useAppStore();
   const amountInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,10 +30,10 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
 
   // Subscribe to categories when sheet opens
   useEffect(() => {
-    if (!isOpen || !firebaseUser) return;
-    const unsubscribe = listenToCategories(firebaseUser.uid, setCategories);
+    if (!isOpen || !authUser) return;
+    const unsubscribe = listenToCategories(authUser.uid, setCategories);
     return unsubscribe;
-  }, [isOpen, firebaseUser]);
+  }, [isOpen, authUser]);
 
   // Auto-focus amount input when sheet opens
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
     const fallback = categoryType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
     return fallback.map((c) => ({
       id: c.id,
-      userId: firebaseUser?.uid || '',
+      userId: authUser?.uid || '',
       name: c.name,
       type: categoryType,
       icon: c.icon,
@@ -84,7 +84,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
       isDefault: true,
       createdAt: new Date(),
     }));
-  }, [categories, type, firebaseUser]);
+  }, [categories, type, authUser]);
 
   // Auto-select first category
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
   }, [categoryId, visibleCategories]);
 
   const handleSubmit = useCallback(async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     const amountNum = parseInt(amount.replace(/\./g, ''), 10);
     if (!amountNum || amountNum <= 0) {
       addToast({ type: 'warning', title: 'Isi nominal transaksi' });
@@ -115,7 +115,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
         date: getTodayString(),
       };
 
-      await addTransaction(firebaseUser.uid, data);
+      await addTransaction(authUser.uid, data);
       addToast({ type: 'success', title: 'Transaksi berhasil ditambahkan' });
       addNotification({
         type: 'transaction',
@@ -137,7 +137,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
     } finally {
       setSubmitting(false);
     }
-  }, [firebaseUser, amount, type, categoryId, categoryName, addToast, addNotification, onClose]);
+  }, [authUser, amount, type, categoryId, categoryName, addToast, addNotification, onClose]);
 
   // Handle Enter key to submit
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -147,7 +147,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
     }
   }, [handleSubmit, submitting, amount]);
 
-  if (!firebaseUser) return null;
+  if (!authUser) return null;
 
   return (
     <AnimatePresence>

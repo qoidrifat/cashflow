@@ -35,7 +35,7 @@ const navLinks = [
 
 export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useAppStore();
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
 
   return (
     <AnimatePresence mode="wait">
@@ -120,20 +120,20 @@ export default function Sidebar() {
         )}
 
         {/* User info */}
-        {sidebarOpen && firebaseUser && (
+        {sidebarOpen && authUser && (
           <div className="p-4 border-t border-app-border">
             <div className="flex items-center gap-3">
               <img
-                src={firebaseUser.photoURL || ''}
-                alt={firebaseUser.displayName || 'User'}
+                src={authUser.photoURL || ''}
+                alt={authUser.displayName || 'User'}
                 className="w-8 h-8 rounded-full object-cover ring-2 ring-app-border"
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-app-text truncate">
-                  {firebaseUser.displayName || 'User'}
+                  {authUser.displayName || 'User'}
                 </p>
                 <p className="text-xs text-app-subtle truncate">
-                  {firebaseUser.email || ''}
+                  {authUser.email || ''}
                 </p>
               </div>
             </div>

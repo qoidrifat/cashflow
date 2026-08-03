@@ -1,6 +1,8 @@
 # CashFlow — Technical Debt Report
 
 > Audit READ-ONLY · 2 Agustus 2026 · **DOKUMENTASI SAJA — tidak ada penghapusan otomatis.** Setiap item diberi status & rekomendasi; eksekusi menunggu keputusan.
+>
+> **Update 2026-08-03 (cleanup debt kecil dieksekusi):** Item #1 (`supabase/` arsip), #2 (`firestore.*`), #7 (naming `firebaseUser` → `authUser`), #9/#10 (`@supabase/supabase-js`) telah **dihapus/dieksekusi** — lihat commit cleanup 2026-08-03 (25 file rename, dep & arsip dihapus, E2E 41/41 hijau). Item lain di laporan ini tetap berlaku.
 
 ---
 

@@ -16,7 +16,7 @@ import { cn } from '../../lib/utils';
 import type { ThemeMode } from '../../types';
 
 export default function SettingsPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const {
     theme,
     setTheme,
@@ -47,10 +47,10 @@ export default function SettingsPage() {
   ];
 
   const handleExport = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     setExporting(true);
     try {
-      const transactions = await getAllTransactions(firebaseUser.uid);
+      const transactions = await getAllTransactions(authUser.uid);
       downloadTransactionsCSV(transactions);
       addToast({ type: 'success', title: 'CSV berhasil dibuat', message: `${transactions.length} transaksi diexport.` });
     } catch (error) {
@@ -73,11 +73,11 @@ export default function SettingsPage() {
   };
 
   const handleDeleteAllData = async () => {
-    if (!firebaseUser) return;
+    if (!authUser) return;
     setDeletingData(true);
     setDeleteSuccess(false);
     try {
-      await resetUserData(firebaseUser.uid);
+      await resetUserData(authUser.uid);
       setDeleteSuccess(true);
       deleteTimerRef.current = setTimeout(() => {
         setShowDeleteConfirm(false);

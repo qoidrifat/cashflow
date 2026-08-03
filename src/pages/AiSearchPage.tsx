@@ -24,7 +24,7 @@ import {
 import { cn } from '../lib/utils';
 
 export default function AiSearchPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
   const [activeTab, setActiveTab] = useState<AiSearchTab>('help');
   const [query, setQuery] = useState('');

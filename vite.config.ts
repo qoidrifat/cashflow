@@ -11,11 +11,8 @@ export default defineConfig({
           if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
             return 'vendor-react';
           }
-          // Sprint 4: rule firebase/supabase DIHAPUS — tidak ada import firebase/
-          // @supabase di src (0 referensi; hanya naming legacy firebaseUser).
-          // Verifikasi build: tidak ada chunk vendor-supabase/firebase di dist.
-          // @supabase/supabase-js tetap di dependencies karena dipakai script
-          // arsip LEGACY scripts/migrate* (bukan bundle frontend).
+          // Debt cleanup (2026-08): dependency & arsip firebase/supabase dihapus total.
+          // Verifikasi build: tidak ada chunk vendor-firebase/supabase di dist.
           if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
           if (id.includes('framer-motion')) return 'vendor-motion';
           if (id.includes('lucide-react')) return 'vendor-icons';

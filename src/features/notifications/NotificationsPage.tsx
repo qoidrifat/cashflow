@@ -16,7 +16,7 @@ const PAGE_SIZE = 20;
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const {
     addToast,
     markAllNotificationsRead,
@@ -32,12 +32,12 @@ export default function NotificationsPage() {
   const [hasMore, setHasMore] = useState(false);
 
   const loadPage = async (offset = 0) => {
-    if (!firebaseUser?.uid) return;
+    if (!authUser?.uid) return;
     if (offset === 0) setLoading(true);
     else setLoadingMore(true);
 
     try {
-      const rows = await fetchNotifications(firebaseUser.uid, {
+      const rows = await fetchNotifications(authUser.uid, {
         limit: PAGE_SIZE + 1,
         offset,
         type: activeType,
@@ -62,7 +62,7 @@ export default function NotificationsPage() {
     setNotifications([]);
     void loadPage(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser?.uid, activeType, unreadOnly]);
+  }, [authUser?.uid, activeType, unreadOnly]);
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,

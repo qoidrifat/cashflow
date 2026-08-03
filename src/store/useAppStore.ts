@@ -15,8 +15,8 @@ interface AppState {
   theme: ThemeMode;
   sidebarOpen: boolean;
   toasts: ToastMessage[];
-  firebaseReady: boolean;
-  firebaseError: string | null;
+  authReady: boolean;
+  authError: string | null;
   gmailSyncEnabled: boolean;
   gmailAutoConfirm: boolean;
   defaultCurrency: string;
@@ -28,8 +28,8 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
-  setFirebaseReady: (ready: boolean) => void;
-  setFirebaseError: (error: string | null) => void;
+  setAuthReady: (ready: boolean) => void;
+  setAuthError: (error: string | null) => void;
   setGmailSyncEnabled: (enabled: boolean) => void;
   setGmailAutoConfirm: (confirm: boolean) => void;
   setDefaultCurrency: (currency: string) => void;
@@ -53,8 +53,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   notifications: [],
   notificationLoading: false,
   realtimeConnected: false,
-  firebaseReady: true,
-  firebaseError: null,
+  authReady: true,
+  authError: null,
   gmailSyncEnabled: localStorage.getItem(STORAGE_KEYS.GMAIL_SYNC_ENABLED) === 'true',
   gmailAutoConfirm: localStorage.getItem(STORAGE_KEYS.GMAIL_AUTO_CONFIRM) === 'true',
   defaultCurrency: localStorage.getItem(STORAGE_KEYS.DEFAULT_CURRENCY) || 'IDR',
@@ -84,8 +84,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  setFirebaseReady: (ready) => set({ firebaseReady: ready }),
-  setFirebaseError: (error) => set({ firebaseError: error }),
+  setAuthReady: (ready) => set({ authReady: ready }),
+  setAuthError: (error) => set({ authError: error }),
 
   setGmailSyncEnabled: (enabled) => {
     localStorage.setItem(STORAGE_KEYS.GMAIL_SYNC_ENABLED, String(enabled));
@@ -103,7 +103,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addNotification: (notif, optionalUserId) => {
-    const userId = optionalUserId || useAuthStore.getState().firebaseUser?.uid;
+    const userId = optionalUserId || useAuthStore.getState().authUser?.uid;
     const { notifications } = get();
     const now = new Date().toISOString();
 
@@ -167,7 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRealtimeConnected: (connected) => set({ realtimeConnected: connected }),
 
   markNotificationRead: (id, optionalUserId) => {
-    const userId = optionalUserId || useAuthStore.getState().firebaseUser?.uid;
+    const userId = optionalUserId || useAuthStore.getState().authUser?.uid;
     const previous = get().notifications;
     const current = previous.find((notification) => notification.id === id);
     if (current?.read) return;
@@ -181,7 +181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   markAllNotificationsRead: (optionalUserId) => {
-    const userId = optionalUserId || useAuthStore.getState().firebaseUser?.uid;
+    const userId = optionalUserId || useAuthStore.getState().authUser?.uid;
     const previous = get().notifications;
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, read: true })),
@@ -190,7 +190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeNotification: (id, optionalUserId) => {
-    const userId = optionalUserId || useAuthStore.getState().firebaseUser?.uid;
+    const userId = optionalUserId || useAuthStore.getState().authUser?.uid;
     const previous = get().notifications;
     set((state) => ({
       notifications: state.notifications.filter((n) => n.id !== id),

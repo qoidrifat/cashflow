@@ -38,7 +38,7 @@ function formatTokens(value: number): string {
 }
 
 export default function MonitoringPage() {
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
   const [trend, setTrend] = useState<CostTrendPoint[]>([]);
@@ -75,8 +75,8 @@ export default function MonitoringPage() {
   }, []);
 
   useEffect(() => {
-    if (firebaseUser?.uid) void loadAll();
-  }, [firebaseUser?.uid, loadAll]);
+    if (authUser?.uid) void loadAll();
+  }, [authUser?.uid, loadAll]);
 
   return (
     <div>

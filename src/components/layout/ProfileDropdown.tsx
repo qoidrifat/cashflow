@@ -41,7 +41,7 @@ const menuItems: DropdownItem[] = profileMenuNav.map((item) => ({
 const LOGOUT_SUCCESS_FEEDBACK_DURATION_MS = 5000;
 
 export default function ProfileDropdown() {
-  const { firebaseUser, logout, setLogoutAnimationActive } = useAuthStore();
+  const { authUser, logout, setLogoutAnimationActive } = useAuthStore();
   const { addToast } = useAppStore();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
@@ -124,7 +124,7 @@ export default function ProfileDropdown() {
     <>
     <div ref={dropdownRef} className="relative">
       {/* Avatar Button — hanya render jika user masih login */}
-      {firebaseUser && (
+      {authUser && (
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="flex items-center gap-1 p-0.5 rounded-full transition-all duration-200 hover:ring-2 hover:ring-primary-500/30 focus-visible:ring-2 focus-visible:ring-primary-500 outline-none"
@@ -132,15 +132,15 @@ export default function ProfileDropdown() {
           aria-expanded={isOpen}
           aria-haspopup="true"
         >
-          {avatarError || !firebaseUser.photoURL ? (
+          {avatarError || !authUser.photoURL ? (
             <div className="w-8 h-8 rounded-full bg-primary-500 text-white flex items-center justify-center text-sm font-semibold ring-2 ring-app-border">
-              {(firebaseUser.displayName || firebaseUser.email || 'U')[0].toUpperCase()}
+              {(authUser.displayName || authUser.email || 'U')[0].toUpperCase()}
             </div>
           ) : (
             <img
-              key={firebaseUser.photoURL}
-              src={firebaseUser.photoURL}
-              alt={firebaseUser.displayName || 'User'}
+              key={authUser.photoURL}
+              src={authUser.photoURL}
+              alt={authUser.displayName || 'User'}
               className="w-8 h-8 rounded-full object-cover ring-2 ring-app-border"
               onError={() => setAvatarError(true)}
             />
@@ -155,7 +155,7 @@ export default function ProfileDropdown() {
       )}
 
       {/* Dropdown — hanya render jika user masih login */}
-      {firebaseUser && (
+      {authUser && (
         <AnimatePresence>
           {isOpen && (
             <motion.div
@@ -174,25 +174,25 @@ export default function ProfileDropdown() {
               {/* User Info */}
               <div className="px-4 py-3 border-b border-app-border">
                 <div className="flex items-center gap-3">
-                  {avatarError || !firebaseUser.photoURL ? (
+                  {avatarError || !authUser.photoURL ? (
                     <div className="w-10 h-10 rounded-full bg-primary-500 text-white flex items-center justify-center text-sm font-semibold ring-2 ring-primary-500/20 flex-shrink-0">
-                      {(firebaseUser.displayName || firebaseUser.email || 'U')[0].toUpperCase()}
+                      {(authUser.displayName || authUser.email || 'U')[0].toUpperCase()}
                     </div>
                   ) : (
                     <img
-                      key={firebaseUser.photoURL}
-                      src={firebaseUser.photoURL}
-                      alt={firebaseUser.displayName || 'User'}
+                      key={authUser.photoURL}
+                      src={authUser.photoURL}
+                      alt={authUser.displayName || 'User'}
                       className="w-10 h-10 rounded-full object-cover ring-2 ring-primary-500/20"
                       onError={() => setAvatarError(true)}
                     />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-app-text truncate">
-                      {firebaseUser.displayName || 'User'}
+                      {authUser.displayName || 'User'}
                     </p>
                     <p className="text-xs text-app-subtle truncate">
-                      {firebaseUser.email || ''}
+                      {authUser.email || ''}
                     </p>
                   </div>
                 </div>
@@ -247,7 +247,7 @@ export default function ProfileDropdown() {
       )}
     </div>
 
-      {/* Logout Success Overlay — tetap render meskipun firebaseUser menjadi null setelah signOut */}
+      {/* Logout Success Overlay — tetap render meskipun authUser menjadi null setelah signOut */}
       <Modal isOpen={logoutSuccess} onClose={() => undefined} maxWidth="sm">
         <SuccessFeedbackOverlay
           title="Logout berhasil"

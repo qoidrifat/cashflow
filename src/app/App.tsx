@@ -12,12 +12,12 @@ import SessionExpiredDialog from '../components/SessionExpiredDialog';
 
 export default function App() {
   const init = useAuthStore((state) => state.init);
-  const { firebaseUser } = useAuthStore();
+  const { authUser } = useAuthStore();
   const {
     prependNotification,
     removeNotificationLocal,
-    setFirebaseReady,
-    setFirebaseError,
+    setAuthReady,
+    setAuthError,
     setNotificationLoading,
     setNotifications,
     setRealtimeConnected,
@@ -27,15 +27,15 @@ export default function App() {
 
   // Initialize app and auth
   useEffect(() => {
-    setFirebaseReady(true);
-    setFirebaseError(null);
+    setAuthReady(true);
+    setAuthError(null);
 
     // Initialize auth listener
     const unsubscribe = init();
 
 
     return unsubscribe;
-  }, [init, setFirebaseReady, setFirebaseError]);
+  }, [init, setAuthReady, setAuthError]);
 
   // Apply theme on mount and keep "system" synced with OS preference changes.
   useEffect(() => {
@@ -55,42 +55,42 @@ export default function App() {
   // while allowing processing when switching to a different user
   const processedUid = useRef<string | null>(null);
   useEffect(() => {
-    if (!firebaseUser?.uid) return;
-    if (processedUid.current === firebaseUser.uid) return;
-    processedUid.current = firebaseUser.uid;
+    if (!authUser?.uid) return;
+    if (processedUid.current === authUser.uid) return;
+    processedUid.current = authUser.uid;
 
     // Give auth/session time to settle, then process dues
     const timer = setTimeout(() => {
-      processDueRecurringTransactions(firebaseUser.uid).catch((err) =>
+      processDueRecurringTransactions(authUser.uid).catch((err) =>
         logger.error('[App] Failed to process recurring', err)
       );
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [firebaseUser?.uid]);
+  }, [authUser?.uid]);
 
   useEffect(() => {
-    if (!firebaseUser?.uid) {
+    if (!authUser?.uid) {
       setNotifications([]);
       setRealtimeConnected(false);
       return undefined;
     }
 
     setNotificationLoading(true);
-    fetchNotifications(firebaseUser.uid, { limit: 30 })
+    fetchNotifications(authUser.uid, { limit: 30 })
       .then(setNotifications)
       .catch((error) => logger.warn('[App] Initial notifications fetch failed', error))
       .finally(() => setNotificationLoading(false));
 
     const refetchOnFocus = () => {
-      fetchNotifications(firebaseUser.uid, { limit: 30 })
+      fetchNotifications(authUser.uid, { limit: 30 })
         .then(setNotifications)
         .catch((error) => logger.warn('[App] Notification focus refetch failed', error));
     };
 
     window.addEventListener('focus', refetchOnFocus);
 
-    const unsubscribe = subscribeToNotifications(firebaseUser.uid, {
+    const unsubscribe = subscribeToNotifications(authUser.uid, {
       onInsert: prependNotification,
       onUpdate: updateNotification,
       onDelete: removeNotificationLocal,
@@ -104,7 +104,7 @@ export default function App() {
       unsubscribe();
     };
   }, [
-    firebaseUser?.uid,
+    authUser?.uid,
     prependNotification,
     removeNotificationLocal,
     setNotificationLoading,

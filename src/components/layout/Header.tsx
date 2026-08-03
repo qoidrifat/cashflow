@@ -13,7 +13,7 @@ interface HeaderProps {
 
 export default function Header({ title, showSearch, onSearchChange }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
-  const { firebaseUser, logoutAnimationActive } = useAuthStore();
+  const { authUser, logoutAnimationActive } = useAuthStore();
 
   const toggleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
@@ -73,7 +73,7 @@ export default function Header({ title, showSearch, onSearchChange }: HeaderProp
           <NotificationBell />
 
           {/* Profile Dropdown (mobile & desktop) — menggantikan avatar sederhana */}
-          {(firebaseUser || logoutAnimationActive) && <ProfileDropdown />}
+          {(authUser || logoutAnimationActive) && <ProfileDropdown />}
         </div>
       </div>
     </header>
