@@ -3,17 +3,17 @@
 > Quality gate: suite E2E dijalankan 3× berurutan → **0 flaky failures** (kriteria sukses enterprise).
 > Tanggal: 3 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
 
-## Hasil Final (2026-08-03 — setelah gate SSE + coverage review lengkap, 38 test / 13 spec)
+## Hasil Final (2026-08-03 — re-verifikasi 3× setelah stability gate CI + snapshot produksi, 38 test / 14 spec)
 
 | Run | Hasil | Waktu | Flaky/Failed |
 |---|---|---|---|
-| 1 | **38 passed** | 2.8m | 0 |
-| 2 | **38 passed** | 2.7m | 0 |
+| 1 | **38 passed** | 2.7m | 0 |
+| 2 | **38 passed** | 2.8m | 0 |
 | 3 | **38 passed** | 2.8m | 0 |
 
 **Verdict: ✅ 0 flaky dalam 3× run berurutan — kriteria stabilitas terpenuhi.**
 
-Rincian per spec (38 test): contract-check 9 (API contract) · notifications-realtime 4 (approve/reject/duplicate/amount-missing) · transactions 3 · gmail-sync 3 · core-pages 3 (budgets/reports/notifications) · agent-search-auth 3 · admin-metrics-auth 3 · admin-cache 3 · dashboard 2 · gmail-review-approve 1 · gmail-review-reject 1 · gmail-review-duplicate 1 · gmail-review-amount-missing 1 · rate-limit 1.
+Rincian per spec (38 test / 14 file spec — **13 spec UI + 1 spec API contract**): contract-check 9 (API contract) · notifications-realtime 4 (approve/reject/duplicate/amount-missing) · transactions 3 · gmail-sync 3 · core-pages 3 (budgets/reports/notifications) · agent-search-auth 3 · admin-metrics-auth 3 · admin-cache 3 · dashboard 2 · gmail-review-approve 1 · gmail-review-reject 1 · gmail-review-duplicate 1 · gmail-review-amount-missing 1 · rate-limit 1.
 
 ### Stabilisasi SSE (gate deterministik — apa yang berubah sejak baseline 17 test)
 
@@ -120,4 +120,4 @@ Uji edge-case oleh code reviewer (dua sesi review):
 1. **Jangan jalankan 2 instance Playwright paralel** (berbagi server/DB Turso) — workflow CI sudah mengunci via `concurrency` + `workers: 1`
 2. **Trace & video aktif** (`retain-on-failure`) — bukti visual bila flake muncul di CI
 3. Angka pinned (519 email / 284 transaksi) adalah **regression guard** — update bila data bertambah secara intentional
-4. Saat suite bertambah, pertimbangkan stability gate 3× otomatis di CI (lihat `CI_PIPELINE.md` roadmap)
+4. ~~Saat suite bertambah, pertimbangkan stability gate 3× otomatis di CI~~ — ✅ **SELESAI 2026-08-03**: `scripts/e2e-stability-gate.sh` + step `e2e-gate` di `.github/workflows/e2e.yml` (commit `3325caa`) — CI fail HANYA bila 3× flaky berturut; detail di `CI_PIPELINE.md` seksi *Stability Gate 3×*
