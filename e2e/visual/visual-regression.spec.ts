@@ -181,21 +181,25 @@ test.describe('Visual regression @visual', () => {
       // terhubung mengubah header. Gate yang sama dipakai spec review realtime.
       await waitRealtimeConnected(bellButton(page));
 
-      // ── AutoSync card: TINGGI-nya env-dependent (terbukti CI run #4/#5) ──
-      // Card (data-testid=autosync-status) berisi settings + riwayat sync: toggle
-      // ON/OFF mengubah STRUKTUR card (grid 4 sel vs satu baris 'Nonaktif'), plus
-      // tanggal & count dinamis. Baseline dev (DB riil, settings ada) vs CI (DB
-      // seed, tanpa gmail_sync_settings) → tinggi card berbeda ±200px → meski card
-      // di-mask, KONTEN DI BAWAHNYA (summary/filter/email list) bergeser → diff
-      // massif. Mask tidak menahan layout shift.
-      // Solusi: sembunyikan card (display:none) DI TEST — berlaku identik saat
-      // generate baseline maupun check CI → konten di bawahnya selalu sejajar.
+      // ── Region DATA-DRIVEN disembunyikan (display:none) — terbukti CI #4-#6 ──
+      // 1. AutoSync card (data-testid=autosync-status): settings + riwayat sync
+      //    (toggle ON/OFF mengubah STRUKTUR card, tanggal, count dinamis). Tinggi
+      //    card env-dependent (dev DB riil vs CI DB seed) → meski di-mask, konten
+      //    di bawahnya bergeser (mask tidak menahan layout shift) → diff massif.
+      // 2. Email cards ([data-testid^=email-card-]): TINGGI per-card tergantung
+      //    konten (subjek email dev 2 baris vs seed 1 baris) → blok mask tidak
+      //    sejajar antar-env (analisis diff PNG CI #6: gap y=680 di baseline).
+      // Keduanya PURE data-driven → display:none DI TEST berlaku identik saat
+      // generate baseline maupun check CI → layout di sekitarnya selalu sejajar.
+      // Coverage list/card dipertahankan via spec fungsional (gmail-sync.spec.ts).
       await expect(page.locator('[data-testid="autosync-status"]')).toBeVisible();
       await page.addStyleTag({
-        content: '[data-testid="autosync-status"]{display:none !important}',
+        content:
+          '[data-testid="autosync-status"]{display:none !important} ' +
+          '[data-testid^="email-card-"]{display:none !important}',
       });
 
-      // Mask: nilai summary (label → following-sibling value) + email cards + counter.
+      // Mask: nilai summary (label → following-sibling value) + counter pagination.
       // Label pakai anchored regex (bukan substring) agar tidak salah tangkap badge
       // 'Diterima Otomatis' / tombol filter 'Config Error' / riwayat 'Diterima:'.
       // notification-badge = jumlah unread (dinamis per env).
@@ -204,7 +208,6 @@ test.describe('Visual regression @visual', () => {
         page.locator('text=/^Perlu Review$/').first().locator('xpath=following-sibling::*[1]'),
         page.locator('text=/^Dilewati\\/Ditolak$/').first().locator('xpath=following-sibling::*[1]'),
         page.locator('text=/^Error$/').first().locator('xpath=following-sibling::*[1]'),
-        page.locator('[data-testid^="email-card-"]'),
         page.getByText(/Menampilkan \d+-\d+ dari \d+ email/),
         page.locator('[data-testid="notification-badge"]'),
       ];
