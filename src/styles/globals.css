@@ -1,4 +1,27 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');
+/* ── Self-hosted fonts (Manrope + Outfit, OFL license — google/fonts) ──────
+ * Variable TTFs disimpan di public/fonts/ agar rendering font IDENTIK di semua
+ * OS (baseline visual regression dibuat di Windows, check di CI Ubuntu).
+ * Bonus: menghapus request third-party ke Google Fonts (perf + privacy).
+ *
+ * Lisensi: SIL Open Font License v1.1 — teks lisensi lengkap di public/fonts/OFL.txt
+ *   Manrope © 2018 Michal Puza (OFL.txt: ofl/manrope)
+ *   Outfit © 2021 Rodrigo Fuenzalida (OFL.txt: ofl/outfit — lisensi sama)
+ */
+@font-face {
+  font-family: 'Manrope';
+  src: url('/fonts/Manrope-Variable.ttf') format('truetype-variations');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Outfit';
+  src: url('/fonts/Outfit-Variable.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 @tailwind base;
 @tailwind components;

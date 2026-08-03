@@ -61,31 +61,34 @@ test('@visual dashboard light desktop', async ({ page }) => {
 
 ## 4. Baseline Management
 
-- `npx playwright test --update-snapshots` untuk regenerate baseline (dev, bukan CI).
+- `npm run test:e2e:visual` = regenerate baseline (`--update-snapshots`); `npm run test:e2e:visual:check` = mode check (diff = failure).
 - Baseline di-commit; di CI `--update-snapshots` TIDAK dijalankan (diff = failure).
-- Folder: `e2e/visual/__screenshots__/` + `.gitignore` jangan meng-exclude.
+- Folder aktual: `e2e/visual/visual-regression.spec.ts-snapshots/*.png` (bukan `__screenshots__`).
+- **Portabel lintas OS**: `playwright.config.ts` memakai `snapshotPathTemplate` TANPA token `{-snapshotSuffix}` (suffix platform `-win32`/`-linux` dihapus) → baseline Windows & check Ubuntu memakai nama file sama.
+- **Font self-hosted**: Manrope + Outfit di `public/fonts/` (variable TTF, OFL) menggantikan Google Fonts CDN — prasyarat determinisme visual lintas-OS (baseline digenerate di Windows, check di Ubuntu).
 
-## 5. Matrix Snapshot Awal (prioritas)
+## 5. Matrix Snapshot Aktual (terimplementasi 2026-08-03 — 6 snapshot)
 
 | Halaman | Light | Dark | Desktop | Tablet | Mobile |
 |---|---|---|---|---|---|
-| Dashboard (above-fold) | ✅ | ✅ | ✅ | — | ✅ |
-| Transactions (list + pagination) | ✅ | ✅ | ✅ | — | ✅ |
-| Gmail Sync (summary + list) | ✅ | ✅ | ✅ | — | ✅ |
-| Login/Landing | ✅ | ✅ | ✅ | — | ✅ |
+| Landing (publik, tanpa auth) | ✅ | ✅ | ✅ | — | ✅ |
+| Dashboard (auth via cookie, stat cards di-mask) | ✅ | ✅ | ✅ | — | — |
+| Transactions / Gmail Sync / Login | — | — | — | — | — (menyusul) |
 
-> Mulai dengan 3 halaman inti × light/dark × desktop/mobile = 12 snapshot awal; tablet ditambahkan
-> setelah stabil.
+> Implementasi awal memakai **loop tema/viewport di dalam test** (1 project + `setTheme` helper) —
+> sesuai opsi "lebih sederhana" di seksi 2a. Stat cards dashboard di-mask (angka berubah, layout tidak)
+> → baseline stabil tanpa seed ulang. Tablet + halaman lain (Transactions/Gmail) menyusul di iterasi
+> berikutnya; tambahkan ke `e2e/visual/visual-regression.spec.ts`.
 
 ## 6. CI
 
-- Job `visual` di workflow (lihat CI_PIPELINE.md) — jalankan hanya pada PR yang menyentuh
-  `src/**` (path filter) untuk hemat biaya.
-- Artifact: `test-results/**/*-diff.png` + HTML report → lampirkan di PR comment (optional).
+- ✅ **TERIMPLEMENTASI** (2026-08-03): job `visual-regression` di `.github/workflows/e2e.yml`
+  (`needs: [quality, e2e]`, serial — DB Turso bersama), menjalankan `npm run test:e2e:visual:check`.
+- Artifact: `visual-diffs` (screenshot actual vs baseline + snapshot dir, on failure) + `playwright-report-visual` (always).
+- Kalibrasi pertama CI: bila diff antar-OS muncul (hinting/antialiasing), naikkan `maxDiffPixelRatio` bertahap atau mask region teks — bukan hapus matcher.
 
 ## 7. Risiko
 
-- Snapshot rapuh terhadap perubahan font/icons library — toleransi `maxDiffPixelRatio` 0.01–0.02.
-- Dataset berubah → angka di snapshot berubah → update baseline + re-commit.
-- **Rekomendasi**: jalankan visual regression terpisah dari functional suite (job berbeda)
-  agar kegagalan diff tidak memblokir smoke/functional.
+- Snapshot rapuh terhadap perubahan font/icons library — toleransi `maxDiffPixelRatio` 0.02 (sudah dipakai).
+- Dataset berubah → angka di snapshot berubah → update baseline + re-commit (dashboard sudah di-mask → minim).
+- **SELESAI**: visual regression berjalan di job terpisah dari functional suite — kegagalan diff tidak memblokir smoke/functional (keduanya serial di CI, tapi state terpisah).

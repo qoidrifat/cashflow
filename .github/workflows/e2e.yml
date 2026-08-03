@@ -158,3 +158,151 @@ jobs:
           name: test-results
           path: test-results/
           retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────
+  # VISUAL REGRESSION — Playwright snapshot (dark/light, desktop/mobile)
+  # ─────────────────────────────────────────────────────────────
+  # Roadmap CI_PIPELINE.md #4 (VISUAL_REGRESSION_PLAN.md). Baseline di-commit
+  # (e2e/visual/visual-regression.spec.ts-snapshots/, TANPA suffix platform via
+  # snapshotPathTemplate) → portabel lintas OS. Font Manrope/Outfit SELF-HOSTED
+  # di public/fonts/ (lihat globals.css) agar rendering identik Windows vs Ubuntu.
+  #
+  # needs: [quality, e2e] — SERIAL, bukan paralel: suite berbagi DB Turso
+  # (mintSession/cleanup) + webServer port 5180/5181. Menjalankan 2 instance
+  # Playwright paralel pada DB yang sama = race session (aturan proyek).
+  visual-regression:
+    name: Visual Regression
+    runs-on: ubuntu-latest
+    needs: [quality, e2e]
+    timeout-minutes: 20
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify Turso secrets
+        if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
+        run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (visual spec minting sesi e2e)' && exit 1
+
+      - name: Seed E2E dataset (CI-isolated DB, idempoten)
+        run: node scripts/seedE2eDataset.mjs
+        env:
+          SEED_E2E: '1'
+
+      # Check mode (tanpa --update-snapshots): bandingkan render vs baseline.
+      - name: Run visual regression check
+        run: npm run test:e2e:visual:check
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-visual
+          path: playwright-report/
+          retention-days: 14
+
+      # Diff screenshot (actual vs baseline) untuk debugging visual — hanya saat gagal.
+      - name: Upload screenshot diffs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: |
+            test-results/
+            e2e/visual/visual-regression.spec.ts-snapshots/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────
+  # PERFORMANCE BUDGET — page load, API latency, pagination
+  # ─────────────────────────────────────────────────────────────
+  # Roadmap CI_PIPELINE.md #7 (PERFORMANCE_TEST_PLAN.md). Budget dev (default di
+  # e2e/performance/performance.config.ts) sengaja longgar; di CI di-override
+  # lebih longgar lagi (runner shared ubuntu vs dev lokal) — angka di sini adalah
+  # kalibrasi AWAL untuk CI; setelah data trend terkumpul (artifact perf-*.json),
+  # tighten bertahap. Pagination: SOFT = warning (report-only), HARD = fail.
+  #
+  # needs: [quality, e2e, visual-regression] — SERIAL penuh (alasan sama di atas).
+  performance:
+    name: Performance Budget
+    runs-on: ubuntu-latest
+    needs: [quality, e2e, visual-regression]
+    timeout-minutes: 20
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
+      # Kalibrasi CI (runner shared): page load ≤8s, load ≤12s, API p95 ≤2.5s,
+      # pagination soft ≤4s (warning) / hard ≤15s (fail).
+      PERF_BUDGET_PAGE_LOAD_MS: '8000'
+      PERF_BUDGET_LOAD_MS: '12000'
+      PERF_BUDGET_API_P95_MS: '2500'
+      PERF_BUDGET_PAGINATION_SOFT_MS: '4000'
+      PERF_BUDGET_PAGINATION_HARD_MS: '15000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify Turso secrets
+        if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
+        run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (perf spec minting sesi e2e)' && exit 1
+
+      - name: Seed E2E dataset (CI-isolated DB, idempoten)
+        run: node scripts/seedE2eDataset.mjs
+        env:
+          SEED_E2E: '1'
+
+      - name: Run performance budget
+        run: npm run test:e2e:perf
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-perf
+          path: playwright-report/
+          retention-days: 14
+
+      # Perf report JSON (test-results/perf/perf-*.json) → trend historis.
+      - name: Upload perf report JSON (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-reports
+          path: test-results/perf/
+          if-no-files-found: ignore
+          retention-days: 30

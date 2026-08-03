@@ -41,7 +41,11 @@ async function snapshotPage(
   },
 ): Promise<void> {
   await waitForTheme(page, opts.theme);
-  await page.waitForTimeout(400); // skeleton → konten stabil
+  // Tunggu font self-hosted selesai dimuat (bukan timer tetap) — font swap
+  // tengah-screenshot = flaky. Font lokal (public/fonts) cepat, tapi robustness
+  // lebih baik daripada waitForTimeout: replace font → render stabil.
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(300); // skeleton → konten stabil
   await expect(page).toHaveScreenshot(opts.name, {
     animations: 'disabled',
     caret: 'hide',

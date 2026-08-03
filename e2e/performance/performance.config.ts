@@ -18,6 +18,14 @@ export interface PerfBudgets {
   apiLatencyP95Ms: number;
   /** Maksimal request HTTP per page load (exclude HMR/websocket). */
   maxRequestsPerPage: number;
+  /**
+   * Pagination besar: di atas SOFT = warning (report-only, tidak gagal);
+   * di atas HARD = test GAGAL (regresi orde-magnitudo).
+   * Soft sengaja realistis untuk dev build + React dev mode (dataset 541+);
+   * hard menangkap N+1 / query hilang index tanpa flaky dari noise mesin.
+   */
+  paginationSoftMs: number;
+  paginationHardMs: number;
 }
 
 const envNum = (key: string, fallback: number): number => {
@@ -30,6 +38,8 @@ export const PERF_BUDGETS: PerfBudgets = {
   pageLoadLoadMs: envNum('PERF_BUDGET_LOAD_MS', 6000),
   apiLatencyP95Ms: envNum('PERF_BUDGET_API_P95_MS', 1200),
   maxRequestsPerPage: envNum('PERF_BUDGET_MAX_REQUESTS', 80),
+  paginationSoftMs: envNum('PERF_BUDGET_PAGINATION_SOFT_MS', 2000),
+  paginationHardMs: envNum('PERF_BUDGET_PAGINATION_HARD_MS', 8000),
 };
 
 /** Endpoint inti yang diukur API latency-nya (p95). */

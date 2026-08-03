@@ -15,6 +15,7 @@
  */
 import { test, expect } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions } from '../helpers/mintSession';
+import { suppressOnboarding } from '../helpers/authContext';
 import {
   PERF_BUDGETS,
   CORE_API_ENDPOINTS,
@@ -72,8 +73,11 @@ test.describe('Performance budget @perf', () => {
     }
   });
 
-  test('large dataset pagination: pindah halaman transaksi < 2s (soft budget)', async ({ browser }) => {
+  test('large dataset pagination: pindah halaman transaksi — HARD budget (regresi orde-magnitudo)', async ({ browser }) => {
     const context = await browser.newContext();
+    // Onboarding modal (fixed inset-0 z-50) menghalangi klik tombol pagination
+    // bila tidak ditekan — pola sama dengan spec lain (authContext.suppressOnboarding).
+    await suppressOnboarding(context);
     const page = await context.newPage();
     await page.context().addCookies([
       { name: 'better-auth.session_token', value: session.cookie, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' },
@@ -88,8 +92,22 @@ test.describe('Performance budget @perf', () => {
     const paginationMs = Date.now() - t0;
 
     writePerfReport({ budgets: PERF_BUDGETS, paginationMs });
-    // Soft budget: 2s (dev). Gagal = warning (report), bukan hard-fail.
-    expect.soft(paginationMs, `pagination ${paginationMs}ms > 2000ms`).toBeLessThan(2000);
+
+    // HARD budget (default 8s): melebihi = regresi orde-magnitudo (mis. N+1,
+    // index hilang) → test GAGAL. Angka ini sengaja jauh di atas noise mesin dev.
+    expect(
+      paginationMs,
+      `pagination ${paginationMs}ms > HARD budget ${PERF_BUDGETS.paginationHardMs}ms (regresi orde-magnitudo)`,
+    ).toBeLessThan(PERF_BUDGETS.paginationHardMs);
+
+    // SOFT budget (default 2s): melebihi = warning di log + report JSON (bukan
+    // hard-fail) — dev build + React dev mode wajar 2-5s, noise mesin tidak boleh
+    // membatalkan CI. CI bisa mengetatkan via PERF_BUDGET_PAGINATION_SOFT_MS.
+    if (paginationMs > PERF_BUDGETS.paginationSoftMs) {
+      console.warn(
+        `[perf] pagination ${paginationMs}ms > soft budget ${PERF_BUDGETS.paginationSoftMs}ms (warning — tracking, bukan hard-fail)`,
+      );
+    }
     await context.close();
   });
 });

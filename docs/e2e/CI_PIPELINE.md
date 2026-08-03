@@ -1,21 +1,22 @@
 # CI Pipeline — CashFlow E2E
 
-> Phase 9 dari Enterprise E2E Modernization. Workflow: `.github/workflows/e2e.yml`
-
-## Arsitektur Pipeline
+> Phase 9 dari Enterprise E2E Modernization. Workflow: `.github/workflows/e2e.yml`## Arsitektur Pipeline
 
 ```
-┌─────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────┐
-│  quality    │──▶│  e2e (Playwright, 38 test + 9 contract) │──▶│  Artifacts       │
-│  lint+tc+b  │   │  stability gate 3×: fail only on 3× flaky│   │  report + traces │
-└─────────────┘   │  webServer: Vite 5180 + API 5181/5182   │   └──────────────────┘
-                  └──────────────────────────────────────────┘
+┌─────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+│  quality    │──▶│  e2e (Playwright, 41 test + 9 contract) │──▶│  visual-regression   │──▶│  performance         │
+│  lint+tc+b   │   │  stability gate 3×: fail only on 3× flaky│   │  6 snapshot (theme)  │   │  budget: load/API/   │
+└─────────────┘   │  webServer: Vite 5180 + API 5181/5182   │   │  desktop+mobile      │   │  pagination          │
+                  └──────────────────────────────────────────┘   └──────────────────────┘   └──────────────────────┘
+                                          │  Artifacts: report + traces + diff screenshot + perf JSON
+                                          └───────────────────────────────────────────────────────┘
 ```
 
-- **2 job terpisah** — `quality` (cepat, gagal duluan bila kode tidak valid) lalu `e2e` yang bergantung padanya (`needs: quality`).
+- **4 job berantai (serial)** — `quality` (cepat, gagal duluan bila kode tidak valid) → `e2e` (`needs: quality`) → `visual-regression` (`needs: [quality, e2e]`) → `performance` (`needs: [quality, e2e, visual-regression]`).
 - **Trigger**: push ke `main`/`gh-pages`, pull request, dan `workflow_dispatch` manual.
 - **`concurrency` (global, `group: e2e`)**: serialisasi **semua** run E2E — bukan per-ref. E2E memakai `workers: 1`, webServer bersama (Vite+API), dan DB Turso bersama; dua run paralel (mis. push ke main + PR, yang punya ref berbeda) saling rebut resource → flaky (pola ini terkonfirmasi saat investigasi flake filter status).
 - **Stability gate 3×**: suite dijalankan hingga 3 attempt; job GAGAL **hanya** bila 3× gagal berturut (regresi riil). Lihat seksi *Stability Gate 3×* di bawah.
+- **Visual & perf sengaja serial setelah `e2e`** (bukan paralel): ketiganya memakai DB Turso yang sama (`mintSession`/`cleanup` menulis baris `session`) + webServer bersama — menjalankan 2 instance Playwright paralel pada DB yang sama = race session (aturan serialisasi proyek, terbukti saat investigasi flake).
 
 ## Quality Gates (job `quality`)
 
@@ -54,9 +55,11 @@ Semua gate berjalan **berurutan dalam satu job** — build hanya dijalankan sete
 
 | Artifact | Kondisi | Isi |
 |---|---|---|
-| `playwright-report/` | `always()` | HTML report interaktif (reporter `html`, `open: never`) — state TERAKHIR (attempt final) |
+| `playwright-report/` | `always()` | HTML report interaktif (reporter `html`, `open: never`) — state TERAKHIR (attempt final); job visual/perf mengunggah report-nya sendiri (`playwright-report-visual` / `playwright-report-perf`) |
 | `stability-attempt-artifacts` | `always()` | Arsip **per-attempt** (`playwright-report-attempt-*` / `test-results-attempt-*`) dari SETIAP attempt yang gagal — termasuk attempt yang lalu sukses di retry (flake yang lolos gate) |
 | `test-results/` | `failure()` | Trace (.zip), screenshot (error-context.png), video (retain-on-failure), error-context.md — attempt final |
+| `visual-diffs` | `failure()` (job visual) | Screenshot diff (actual vs baseline) + snapshot dir untuk debug regresi visual |
+| `perf-reports` | `always()` (job perf) | `test-results/perf/perf-*.json` — trend historis budget (retensi 30 hari, kalibrasi budget CI) |
 
 Retensi 14 hari. Trace Playwright diaktifkan per-test via `trace: 'retain-on-failure'` di config — berguna untuk debug race di CI yang tidak bisa direproduksi lokal.
 
@@ -120,5 +123,23 @@ npx playwright show-report                                     # lihat HTML repo
 
 1. ~~**`npm run test:e2e` sebanyak 3× di CI** (stability gate)~~ — ✅ **SELESAI**: `scripts/e2e-stability-gate.sh` + step `e2e-gate` di workflow; fail hanya bila 3× flaky (lihat seksi *Stability Gate 3×*).
 2. **Seed data CI-isolasi** — jalankan E2E terhadap Turso DB `file:` lokal (SQLite) yang di-seed dari `turso-schema.sql` + fixture, agar tidak menulis sesi test ke DB produksi. (Catatan: `mintSession` menulis baris `session` ke Turso; `cleanupTestSessions()` membersihkannya di akhir. — Status saat ini: DB Turso **terpisah** untuk CI via secrets `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`.)
-3. **Visual regression + API contract** — setelah strategi di `VISUAL_REGRESSION_PLAN.md` / `API_CONTRACT_STRATEGY.md` diimplementasikan, tambah job terpisah (mis. `visual` dan `api-contract`) agar tidak memperlambat pipeline inti. (Status: contract **sudah jalan** di job `e2e` sebagai step terpisah; visual ada script `test:e2e:visual`.)
+3. ~~**Visual regression + API contract**~~ — ✅ **SELESAI** (2026-08-03): contract sudah jalan di job `e2e` (step terpisah); visual kini job terpisah `visual-regression` (6 snapshot: landing/dashboard × light/dark, desktop/mobile) + job `performance` terpisah untuk budget. Lihat seksi *Visual Regression & Performance Budget* di bawah.
 4. **`schedule` cron** — nightly full regression terhadap staging.
+
+## Visual Regression & Performance Budget (job terpisah)
+
+> ✅ **Roadmap CI #3 SELESAI** (2026-08-03) — roadmap 4 item kini 3 tuntas (1, 3), sisa #2 (seed CI file:) & #4 (cron).
+
+### Job `visual-regression` (`needs: [quality, e2e]`)
+
+- Menjalankan `npm run test:e2e:visual:check` (mode **check**, tanpa `--update-snapshots`) — 6 test snapshot (`e2e/visual/visual-regression.spec.ts`).
+- Baseline di-commit (`e2e/visual/visual-regression.spec.ts-snapshots/`) **tanpa suffix platform** (via `snapshotPathTemplate` di `playwright.config.ts`) → portabel Windows (dev) & Ubuntu (CI).
+- **Font self-hosted** (`public/fonts/Manrope-Variable.ttf` + `Outfit-Variable.ttf`, OFL): baseline digenerate di Windows, check di Ubuntu — tanpa self-host, Ubuntu fallback ke font sistem → diff besar → job pasti gagal. Self-host = file identik di semua OS + bonus hapus request third-party Google Fonts (perf/privacy).
+- Diff > 0.02 `maxDiffPixelRatio` → job merah + artifact `visual-diffs` (screenshot actual vs baseline).
+- Kalibrasi pertama di CI: bila diff antar-OS masih muncul (hinting/antialiasing), naikkan `maxDiffPixelRatio` bertahap atau mask region teks — bukan hapus matcher.
+
+### Job `performance` (`needs: [quality, e2e, visual-regression]`)
+
+- Menjalankan `npm run test:e2e:perf` — 3 test: page load (domContentLoaded + requests), API latency (p50/p95), large-dataset pagination.
+- Budget terpusat di `e2e/performance/performance.config.ts`; di CI di-override longgar via env (`PERF_BUDGET_*` — lihat komentar job): runner shared ubuntu vs dev lokal. Angka CI = kalibrasi awal; tighten bertahap setelah data trend (`perf-reports` artifact, retensi 30 hari).
+- Pagination: **soft** budget = warning (report + log, bukan fail), **hard** budget = fail (regresi orde-magnitudo seperti N+1 / index hilang). Detail di `PERFORMANCE_TEST_PLAN.md`.

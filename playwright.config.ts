@@ -19,6 +19,13 @@ export default defineConfig({
   // paralelisme antar test bisa saling timpa session/state.
   workers: 1,
   retries: 1,
+  // Visual regression: template path snapshot = lokasi default Playwright
+  // (e2e/visual/visual-regression.spec.ts-snapshots/) TANPA token platform
+  // (`{-snapshotSuffix}` = win32/linux) agar baseline ter-commit portabel
+  // lintas OS — CI (ubuntu) & dev (windows) memakai nama file yang sama.
+  // Hanya toHaveScreenshot yang memakai snapshot (spec visual); aman untuk
+  // matcher lain.
+  snapshotPathTemplate: '{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}{ext}',
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
