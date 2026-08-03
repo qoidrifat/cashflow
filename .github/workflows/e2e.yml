@@ -74,6 +74,15 @@ jobs:
       # Admin email untuk gate /api/admin/metrics (resolveAdmin). CI memakai
       # DB seed terisolasi (scripts/seedE2eDataset.mjs) dengan admin seed ini.
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
+      # Regression guard PINNED (e2e/helpers/fixtures.ts): CI memakai DB seed
+      # terisolasi dengan dataset deterministik (284 tx / 519 gmail logs — lihat
+      # konstanta di scripts/seedE2eDataset.mjs), BUKAN angka DB development
+      # (541/611 yang drift). Override env ini menyelaraskan assert spec dengan
+      # ground truth seed; mekanisme override didokumentasikan di fixtures.ts.
+      E2E_PINNED_TRANSACTIONS_TOTAL: '284'
+      E2E_PINNED_TRANSACTIONS_INCOME: '86'
+      E2E_PINNED_TRANSACTIONS_EXPENSE: '131'
+      E2E_PINNED_GMAIL_LOGS_TOTAL: '519'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
