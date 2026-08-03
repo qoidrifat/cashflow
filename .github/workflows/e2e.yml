@@ -107,6 +107,14 @@ jobs:
       # 519 gmail logs) yang cocok dengan PINNED di e2e/helpers/fixtures.ts.
       # Idempoten + hanya menyentuh user seed. SEED_E2E=1 = safety guard:
       # mencegah eksekusi tidak sengaja terhadap DB development.
+      #
+      # DB CI yang baru dibuat KOSONG (no schema) → seed gagal "no such table:
+      # user" (terbukti di run CI #2). Apply turso-schema.sql dulu: IDEMPOTEN
+      # (CREATE TABLE/INDEX IF NOT EXISTS + ALTER di-ignore bila kolom sudah
+      # ada) → aman di tiap run & terhadap DB apa pun.
+      - name: Apply Turso schema (CI DB, idempoten)
+        run: node scripts/applyTursoSchema.mjs
+
       - name: Seed E2E dataset (CI-isolated DB)
         run: node scripts/seedE2eDataset.mjs
         env:
@@ -203,6 +211,9 @@ jobs:
         if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
         run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (visual spec minting sesi e2e)' && exit 1
 
+      - name: Apply Turso schema (CI DB, idempoten)
+        run: node scripts/applyTursoSchema.mjs
+
       - name: Seed E2E dataset (CI-isolated DB, idempoten)
         run: node scripts/seedE2eDataset.mjs
         env:
@@ -286,6 +297,9 @@ jobs:
       - name: Verify Turso secrets
         if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
         run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset sebagai GitHub secret (perf spec minting sesi e2e)' && exit 1
+
+      - name: Apply Turso schema (CI DB, idempoten)
+        run: node scripts/applyTursoSchema.mjs
 
       - name: Seed E2E dataset (CI-isolated DB, idempoten)
         run: node scripts/seedE2eDataset.mjs

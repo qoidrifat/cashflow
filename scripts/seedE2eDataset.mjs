@@ -101,6 +101,16 @@ async function main() {
         args: [seedUserId, 'E2E Seed Admin', seedEmail],
       });
     }
+    // SYNC ke users (plural) — tabel bisnis (categories/transactions/budgets/...)
+    // ber-FK REFERENCES users(id), sementara Better Auth memakai user (singular).
+    // Keduanya HARUS berisi user seed dengan id yang SAMA (pola user riil di dev
+    // DB — terverifikasi: id pJV0r… ada di kedua tabel). Tanpa ini, seed di DB CI
+    // yang fresh gagal: "FOREIGN KEY constraint failed" (users kosong).
+    // Upsert idempoten: ON CONFLICT(id) DO NOTHING → aman dijalankan berulang.
+    await turso.execute({
+      sql: `INSERT INTO users (id, email, name, display_name) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      args: [seedUserId, seedEmail, 'E2E Seed Admin', 'E2E Seed Admin'],
+    });
 
     // ==== HAPUS data seed user (idempotent) ====
     for (const table of ['gmail_sync_logs', 'transactions', 'gmail_sync_runs', 'gmail_sync_settings', 'budgets', 'notifications', 'categories']) {
@@ -243,11 +253,21 @@ async function main() {
     console.log(`[seedE2e]    gmail_runs: ${counts.gmail_runs} · budgets: ${counts.budgets} · notifications: ${counts.notifications}`);
     console.log(`[seedE2e]    ADMIN_EMAILS harus memuat: ${seedEmail}`);
   } finally {
-    turso.close();
+    // sengaja TIDAK memanggil turso.close() di sini: pada Windows, close()
+    // koneksi native sqlite3 (file: DB) bisa hang intermittent; untuk one-shot
+    // script, OS melepas handle saat process.exit (deterministik). CI memakai
+    // remote libsql (HTTP) yang tidak terpengaruh, dan exit dipaksa di bawah.
+    try {
+      turso.close();
+    } catch {
+      /* no-op — exit deterministik tetap jalan */
+    }
   }
 }
 
-main().catch((err) => {
-  console.error('[seedE2e] Gagal:', err.message);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('[seedE2e] Gagal:', err.message);
+    process.exit(1);
+  });
