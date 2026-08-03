@@ -54,5 +54,5 @@ The following are explicitly in scope for security review:
 ## Our Posture
 
 - `server/.env`, `.env.local`, service-account JSONs, DB dumps, and screen recordings are git-ignored.
-- CI uses GitHub secrets; a secret-scan is part of the contribution checklist (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- CI uses GitHub secrets; a **Gitleaks secret-scan job** scans every push/PR against full git history and fails on new leaks (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - If you discover a leaked credential, **rotate it immediately** and report it privately — do not attempt to redact-and-publish.

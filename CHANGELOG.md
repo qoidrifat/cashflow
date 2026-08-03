@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **GitHub collaboration layer** — `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, and `dependabot.yml` (repository curation, 2026-08-04).
+- **CI secret scan** — Gitleaks job in `.github/workflows/e2e.yml` (full-history scan, pinned binary v8.30.1, license-free; 8 known findings allowlisted in `.gitleaksignore`) — GITHUB_READINESS score 98 → 100.
 
 ### Security
 

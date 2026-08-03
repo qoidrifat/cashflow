@@ -139,6 +139,7 @@ This project processes **financial data and Gmail content**. Never leak credenti
   git diff --cached | grep -cE 'service_role|-----BEGIN|AIza[0-9A-Za-z_-]{20}'
   ```
 - If your PR touches documentation, do **not** copy real keys, tokens, or PII (even in "redacted-looking" examples — use `<REDACTED>`).
+- CI runs a **Gitleaks secret scan** (full git history) on every push/PR — a new leak fails the pipeline. Known findings are tracked in `.gitleaksignore`; do **not** add entries there without maintainer approval.
 - Report security issues privately — see [SECURITY.md](SECURITY.md).
 
 ---

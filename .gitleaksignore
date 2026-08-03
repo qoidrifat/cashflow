@@ -1,0 +1,23 @@
+# Gitleaks ignore — known findings (2026-08-04)
+# Format per baris: <commit>:<file>:<rule>:<start-line>  (fingerprint, TANPA nilai secret)
+# Hanya berisi temuan yang sudah diketahui & didokumentasikan. Jangan tambahkan
+# entri baru tanpa persetujuan maintainer.
+
+# ── Group 1: Key Google API legacy (3) ────────────────────────────────────────
+# Key AIzaSy… masih ada di HISTORY (commit inisial 113563f2, path lama docs/review/).
+# Sudah di-scrub dari working tree pada 2026-08-04 (commit 6df3910).
+# WAJIB dihapus dari file ini SETELAH `git filter-repo` membersihkan history —
+# lihat docs/repository/SECURITY_REPOSITORY_REVIEW.md §3.1 (blocker publikasi).
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/review/FINAL_VERDICT_AND_ACTION_PLAN.md:gcp-api-key:83
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/review/BOB_AI_PIPELINE_POST_KIRO_REVIEW_REPORT.md:gcp-api-key:322
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/review/SECURITY_PERFORMANCE_AUDIT.md:gcp-api-key:69
+
+# ── Group 2: Placeholder token di contoh curl dokumentasi (5) ─────────────────
+# Bukan kredensial nyata: contoh `Authorization: Bearer YOUR_CRON_SECRET` /
+# `<SESSION_COOKIE>` di dokumen setup (docs/google-cloud, docs/gmail-sync).
+# Dikenali rule curl-auth-header karena pola header, nilai-nya placeholder.
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/google-cloud/GENAI_APP_BUILDER_CASHFLOW_SETUP.md:curl-auth-header:212
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/google-cloud/GENAI_APP_BUILDER_CASHFLOW_SETUP.md:curl-auth-header:223
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/google-cloud/GENAI_APP_BUILDER_CASHFLOW_SETUP.md:curl-auth-header:234
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/gmail-sync/GMAIL_BACKGROUND_SYNC_SETUP.md:curl-auth-header:76
+113563f2c854c640ac7ba64b9c86a788a0749ad3:docs/gmail-sync/GMAIL_BACKGROUND_SYNC_SETUP.md:curl-auth-header:130

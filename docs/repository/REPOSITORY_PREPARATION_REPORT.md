@@ -56,9 +56,9 @@ See [GIT_COMMIT_GUIDE.md](GIT_COMMIT_GUIDE.md) §2 — all verified git-ignored.
 | P2 | Add GitHub collaboration files (CONTRIBUTING, CHANGELOG, SECURITY, CoC, templates, Dependabot) | ✅ done 2026-08-04 |
 | P2 | Archive or delete `verify-*.mjs` |
 | P3 | Local disk cleanup (logs, dist, node_modules) |
-| P3 | Add `"test"` alias + gitleaks CI job |
+| P3 | Add `"test"` alias + gitleaks CI job | ✅ gitleaks job done 2026-08-04 |
 
-## 10. GitHub Readiness Score: **98/100** (target ≥ 85 reached)
+## 10. GitHub Readiness Score: **100/100** (target ≥ 85 reached)
 
 Gaps: CONTRIBUTING, CHANGELOG, SECURITY.md, CoC, issue/PR templates, Dependabot (see [GITHUB_READINESS](GITHUB_READINESS.md)).
 

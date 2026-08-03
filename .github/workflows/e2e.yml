@@ -55,6 +55,37 @@ jobs:
       - name: Build
         run: npm run build
 
+  # ─────────────────────────────────────────────
+  # SECRET SCAN — Gitleaks (repo security gate)
+  # ─────────────────────────────────────────────
+  # Menutup gap GITHUB_READINESS (skor 98→100): secret-scan otomatis di CI.
+  # Memindai SELURUH history git (fetch-depth: 0) + working tree — mendeteksi
+  # leak yang sudah "dihapus" dari tree tapi masih ada di history.
+  # 8 temuan known (3 key legacy AIza + 5 placeholder curl di dokumentasi)
+  # di-ignore via .gitleaksignore (fingerprint commit:file:rule:line — TANPA
+  # nilai secret). Jangan tambah entri .gitleaksignore tanpa persetujuan.
+  # Pakai BINARY resmi (bukan gitleaks-action@v2/v3): TANPA GITLEAKS_LICENSE —
+  # action resmi butuh lisensi untuk repo privat/org; binary berlaku semua repo.
+  gitleaks:
+    name: Gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Version di-pin di URL curl — Dependabot TIDAK melacak URL mentah ini,
+      # jadi bump manual berkala. Cek rilis terbaru: github.com/gitleaks/gitleaks/releases
+      - name: Install Gitleaks (pinned v8.30.1)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Run Gitleaks (full history + tree)
+        run: gitleaks detect --source . --no-banner --redact
+
   # ─────────────────────────────────────────────────────────────
   # E2E REGRESSION — Playwright, butuh Turso DB (via secrets)
   # ─────────────────────────────────────────────────────────────
