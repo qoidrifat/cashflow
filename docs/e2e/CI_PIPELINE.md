@@ -5,16 +5,17 @@
 ## Arsitektur Pipeline
 
 ```
-┌─────────────┐   ┌──────────────────────────────┐   ┌──────────────────┐
-│  quality    │──▶│  e2e (Playwright, 8 tests)   │──▶│  Artifacts       │
-│  lint+tc+b  │   │  webServer: Vite 5180 + API  │   │  report + traces │
-└─────────────┘   │  5181 (auto-start)            │   └──────────────────┘
-                  └──────────────────────────────┘
+┌─────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────┐
+│  quality    │──▶│  e2e (Playwright, 38 test + 9 contract) │──▶│  Artifacts       │
+│  lint+tc+b  │   │  stability gate 3×: fail only on 3× flaky│   │  report + traces │
+└─────────────┘   │  webServer: Vite 5180 + API 5181/5182   │   └──────────────────┘
+                  └──────────────────────────────────────────┘
 ```
 
 - **2 job terpisah** — `quality` (cepat, gagal duluan bila kode tidak valid) lalu `e2e` yang bergantung padanya (`needs: quality`).
 - **Trigger**: push ke `main`/`gh-pages`, pull request, dan `workflow_dispatch` manual.
 - **`concurrency` (global, `group: e2e`)**: serialisasi **semua** run E2E — bukan per-ref. E2E memakai `workers: 1`, webServer bersama (Vite+API), dan DB Turso bersama; dua run paralel (mis. push ke main + PR, yang punya ref berbeda) saling rebut resource → flaky (pola ini terkonfirmasi saat investigasi flake filter status).
+- **Stability gate 3×**: suite dijalankan hingga 3 attempt; job GAGAL **hanya** bila 3× gagal berturut (regresi riil). Lihat seksi *Stability Gate 3×* di bawah.
 
 ## Quality Gates (job `quality`)
 
@@ -53,10 +54,47 @@ Semua gate berjalan **berurutan dalam satu job** — build hanya dijalankan sete
 
 | Artifact | Kondisi | Isi |
 |---|---|---|
-| `playwright-report/` | `always()` | HTML report interaktif (reporter `html`, `open: never`) |
-| `test-results/` | `failure()` | Trace (.zip), screenshot (error-context.png), video (retain-on-failure), error-context.md |
+| `playwright-report/` | `always()` | HTML report interaktif (reporter `html`, `open: never`) — state TERAKHIR (attempt final) |
+| `stability-attempt-artifacts` | `always()` | Arsip **per-attempt** (`playwright-report-attempt-*` / `test-results-attempt-*`) dari SETIAP attempt yang gagal — termasuk attempt yang lalu sukses di retry (flake yang lolos gate) |
+| `test-results/` | `failure()` | Trace (.zip), screenshot (error-context.png), video (retain-on-failure), error-context.md — attempt final |
 
 Retensi 14 hari. Trace Playwright diaktifkan per-test via `trace: 'retain-on-failure'` di config — berguna untuk debug race di CI yang tidak bisa direproduksi lokal.
+
+## Stability Gate 3×
+
+> ✅ **Roadmap #1 SELESAI** (2026-08-03) — diterapkan saat suite > 20 test (kini 38 test + 9 contract).
+
+**Tujuan**: membedakan **flake** (kegagalan sesaat, lalu lulus) dari **regresi riil** (kegagalan konsisten) tanpa menyerah pada flake — dan tanpa membiarkan regresi lolos.
+
+### Semantik gate
+
+| Skenario | Result | Job CI | Forensik |
+|---|---|---|---|
+| Attempt 1 lulus | `passed`, `failed_attempts=0` | 🟢 HIJAU | report final |
+| 1–2 attempt gagal, lalu lulus | `passed`, `failed_attempts=1..2` | 🟢 HIJAU + `::warning::` | arsip per-attempt (flake) |
+| Semua 3 attempt gagal | `failed`, `failed_attempts=3` | 🔴 MERAH + `::error::` | arsip per-attempt + report final |
+
+### Cara kerja (`scripts/e2e-stability-gate.sh`, via `npm run test:e2e:stability`)
+
+1. Loop hingga `MAX_ATTEMPTS` (default **3**), menjalankan `E2E_CMD` (default `npm run test:e2e`).
+2. Attempt lulus → `exit 0`; bila ada attempt gagal sebelumnya, keluar warning flake.
+3. Attempt gagal → arsip `playwright-report/` + `test-results/` ke folder ber-suffix attempt (sebelum run berikutnya menimpanya), lalu **re-seed DB** (`SEED_CMD`, default `scripts/seedE2eDataset.mjs` — idempoten, hanya menyentuh user seed, guard `SEED_E2E=1`) agar attempt berikutnya mulai dari state deterministik.
+4. Semua attempt gagal → `::error::` + `exit 1` (job merah).
+
+**Interplay dengan retries Playwright**: `playwright.config.ts` `retries: 1` menangani flake **per-test** di dalam satu run (test gagal → 1 retry); gate bekerja di level **suite** (run gagal → ulangi run). Total eksekusi terburuk = 3 run × 2 (test-level retry).
+
+**Testable lokal** (tanpa menyentuh DB):
+
+```bash
+E2E_CMD="false" SEED_CMD="true" bash scripts/e2e-stability-gate.sh   # regresi: 3× gagal → exit 1
+E2E_CMD="true"  SEED_CMD="true" bash scripts/e2e-stability-gate.sh   # stabil: attempt 1 → exit 0
+```
+
+### Catatan
+
+- **Re-seed hanya berjalan antar attempt yang GAGAL** — attempt sukses tidak mengubah DB seed.
+- Output `result` + `failed_attempts` ditulis ke `GITHUB_OUTPUT` bila tersedia (dipakai step upload artifact).
+- Job `timeout-minutes: 45` (budget 3× suite ~3 menit/run + setup + seed + contract).
 
 ## Konfigurasi E2E yang CI-aware
 
@@ -80,7 +118,7 @@ npx playwright show-report                                     # lihat HTML repo
 
 ## Roadmap CI (rekomendasi lanjutan)
 
-1. **`npm run test:e2e` sebanyak 3× di CI** (stability gate) — bisa jadi job `stability` dengan loop shell; tambah saat suite > 20 test.
-2. **Seed data CI-isolasi** — jalankan E2E terhadap Turso DB `file:` lokal (SQLite) yang di-seed dari `turso-schema.sql` + fixture, agar tidak menulis sesi test ke DB produksi. (Catatan: `mintSession` menulis baris `session` ke Turso; `cleanupTestSessions()` membersihkannya di akhir.)
-3. **Visual regression + API contract** — setelah strategi di `VISUAL_REGRESSION_PLAN.md` / `API_CONTRACT_STRATEGY.md` diimplementasikan, tambah job terpisah (mis. `visual` dan `api-contract`) agar tidak memperlambat pipeline inti.
+1. ~~**`npm run test:e2e` sebanyak 3× di CI** (stability gate)~~ — ✅ **SELESAI**: `scripts/e2e-stability-gate.sh` + step `e2e-gate` di workflow; fail hanya bila 3× flaky (lihat seksi *Stability Gate 3×*).
+2. **Seed data CI-isolasi** — jalankan E2E terhadap Turso DB `file:` lokal (SQLite) yang di-seed dari `turso-schema.sql` + fixture, agar tidak menulis sesi test ke DB produksi. (Catatan: `mintSession` menulis baris `session` ke Turso; `cleanupTestSessions()` membersihkannya di akhir. — Status saat ini: DB Turso **terpisah** untuk CI via secrets `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`.)
+3. **Visual regression + API contract** — setelah strategi di `VISUAL_REGRESSION_PLAN.md` / `API_CONTRACT_STRATEGY.md` diimplementasikan, tambah job terpisah (mis. `visual` dan `api-contract`) agar tidak memperlambat pipeline inti. (Status: contract **sudah jalan** di job `e2e` sebagai step terpisah; visual ada script `test:e2e:visual`.)
 4. **`schedule` cron** — nightly full regression terhadap staging.

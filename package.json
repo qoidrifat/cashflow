@@ -12,6 +12,7 @@
     "dev:server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "test:e2e": "playwright test --grep-invert \"@visual|@perf\"",
+    "test:e2e:stability": "bash scripts/e2e-stability-gate.sh",
     "test:e2e:gmail": "playwright test e2e/gmail-sync.spec.ts",
     "test:e2e:gmail-review": "playwright test e2e/gmail-review-approve.spec.ts e2e/gmail-review-reject.spec.ts e2e/gmail-review-duplicate.spec.ts e2e/gmail-review-amount-missing.spec.ts",
     "test:e2e:notifications-realtime": "playwright test e2e/notifications-realtime.spec.ts",

@@ -3,6 +3,10 @@ node_modules
 # Playwright E2E artifacts
 test-results/
 playwright-report/
+# Arsip per-attempt stability gate (scripts/e2e-stability-gate.sh) — dibuat di
+# working dir saat pengujian lokal gate, hanya dipakai upload-artifact di CI.
+test-results-attempt-*/
+playwright-report-attempt-*/
 blob-report//
 dist/
 dist-ssr/

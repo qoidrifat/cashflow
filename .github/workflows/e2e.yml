@@ -62,7 +62,8 @@ jobs:
     name: Playwright E2E
     runs-on: ubuntu-latest
     needs: quality
-    timeout-minutes: 30
+    # Budget 3× suite: setup + seed + hingga 3 run suite (~3 menit/run) + contract.
+    timeout-minutes: 45
     env:
       # Server API (server/index.js) membaca env ini; webServer auto-start
       # memakainya saat boot. Tanpa ini API gagal start → semua test gagal.
@@ -111,8 +112,19 @@ jobs:
         env:
           SEED_E2E: '1'
 
-      - name: Run E2E suite
-        run: npm run test:e2e
+      # Stability gate 3× (roadmap CI_PIPELINE.md #1 — diterapkan saat suite > 20
+      # test; kini 38 test). scripts/e2e-stability-gate.sh menjalankan suite hingga
+      # 3 attempt dan GAGAL HANYA bila 3× gagal berturut (regresi riil). Flake
+      # sesekali (1-2 attempt gagal lalu lulus) = job HIJAU + ::warning:: + arsip
+      # per-attempt untuk forensik. Playwright retries:1 menangani flake per-test.
+      # Re-seed antar attempt gagal (idempoten, SEED_E2E=1) memastikan attempt
+      # berikutnya mulai dari state deterministik.
+      - name: Run E2E suite — stability gate (3×, fail only on 3× flaky)
+        id: e2e-gate
+        run: bash scripts/e2e-stability-gate.sh
+        env:
+          SEED_E2E: '1'
+          MAX_ATTEMPTS: '3'
 
       - name: Run API contract tests (schema drift detection)
         run: npm run test:e2e:contract
@@ -123,6 +135,20 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
+          retention-days: 14
+
+      # Arsip per-attempt (flake forensics): report + traces dari SETIAP attempt
+      # yang GAGAL — termasuk attempt yang lalu sukses di retry (flake yang lolos
+      # gate). Dipakai untuk menyelidiki mengapa sebuah test flaky.
+      - name: Upload stability-gate per-attempt artifacts (flake forensics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stability-attempt-artifacts
+          path: |
+            playwright-report-attempt-*/
+            test-results-attempt-*/
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Upload test artifacts — traces · screenshots · videos (on failure)
