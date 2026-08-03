@@ -7,6 +7,8 @@
 
 Validasi menyeluruh dijalankan **sekali** sebagai snapshot kesiapan rilis pada commit `0bf59c4` (working tree bersih, tanpa perubahan uncommitted).
 
+> ✅ **Re-validasi 2026-08-03 (commit `edd12c1`)**: hasil **identik** — lint 0 · typecheck 0 · build 0 (11.0s) · unit 113 · contract 9 · e2e 38/38 (0 flaky). **Snapshot tetap valid.** (Commit antara `3325caa`–`edd12c1` hanya menyentuh docs + stability gate CI — tanpa perubahan kode aplikasi.)
+
 | Gate | Perintah | Hasil | Detail |
 |---|---|---|---|
 | Lint | `npm run lint` | ✅ exit 0 | `tsc --noEmit` (src) bersih |
