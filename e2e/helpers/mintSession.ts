@@ -153,6 +153,28 @@ export async function cleanupGmailReviewTestData(testMessageId: string): Promise
   }
 }
 
+/**
+ * Hapus data test kategori (nama prefiks 'e2e-cat-') dari Turso.
+ * Dipakai spec e2e/categories.spec.ts — data test ditandai prefiks unik agar
+ * tidak mengganggu dataset asli user (kategori default is_default=1 tidak
+ * mungkin memiliki nama prefiks 'e2e-cat-', jadi aman).
+ */
+export async function cleanupTestCategories(): Promise<void> {
+  loadEnv();
+  const turso = createClient({
+    url: process.env.TURSO_DATABASE_URL as string,
+    authToken: process.env.TURSO_AUTH_TOKEN as string,
+  });
+  try {
+    await turso.execute({
+      sql: `DELETE FROM categories WHERE name LIKE 'e2e-cat-%'`,
+      args: [],
+    });
+  } finally {
+    turso.close();
+  }
+}
+
 /** Hapus sesi E2E (userAgent='e2e-test') + user test (email 'e2e-*') dari Turso. */
 export async function cleanupTestSessions(): Promise<void> {
   loadEnv();

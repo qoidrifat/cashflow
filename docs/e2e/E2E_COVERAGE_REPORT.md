@@ -1,7 +1,7 @@
 # E2E Coverage Report — CashFlow
 
 > Phase 3 · Coverage analysis & roadmap
-> Date: 2026-08-01 · Diperbarui 2026-08-03 (angka suite: **38 test / 13 spec UI + 1 spec API contract = 14 file**; breakdown realtime **4/4**) · 2026-08-02 (P1: core-pages.spec.ts — Budgets/Reports/Notifications, menutup gap 9b)
+> Date: 2026-08-01 · Diperbarui 2026-08-03 (angka suite: **41 test / 14 spec UI + 1 spec API contract = 15 file**; gap P1 Categories ditutup) · 2026-08-02 (P1: core-pages.spec.ts — Budgets/Reports/Notifications, menutup gap 9b)
 
 ## 1. Ringkasan Cakupan Saat Ini
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | **Dashboard** | `dashboard.spec.ts` | 2 | Stat cards vs API balance, quick actions, Transaksi Terbaru |
 | **Transaksi** | `transactions.spec.ts` | 3 | List count vs API (284), filter tipe (86/131), pagination 6 halaman |
+| **Kategori** | `categories.spec.ts` | 3 | **✅ P1 2026-08-03**: render + default categories (init-defaults) + tab Pengeluaran/Pemasukan, CRUD penuh (buat/edit/hapus, sinkron UI+API), guard isDefault (default tidak bisa dihapus) |
 | **Gmail Sync** | `gmail-sync.spec.ts` | 3 | Summary cards vs API (519), filter status, pagination Berikutnya |
 | **Gmail Review (server)** | `gmail-review-approve` / `-reject` / `-duplicate` / `-amount-missing` | 4 | Approve→diterima, Reject→ditolak, Duplicate→warning, Amount-missing→error — assert **status log di server** + toast + notifikasi (poll API, `expect.poll`) |
 | **Notifications Realtime (SSE)** | `notifications-realtime.spec.ts` | 4 | **4/4 hasil review** (approve/reject/duplicate/amount-missing) muncul di bell **TANPA reload** + badge naik (gate `waitRealtimeConnected`) |
@@ -19,7 +20,9 @@
 | **Rate Limit** | `rate-limit.spec.ts` | 1 | `POST /api/auth/*` → 429 setelah limit (dedicated server 5182) |
 | **API Contract** | `contract/contract-check.spec.ts` | 9 | Schema drift detection (Transactions / Gmail / Agent-Search / Admin API) |
 
-**Total: 38 test · 14 file spec · 0 failure · 0 flaky (3× run berurutan, 2026-08-03)** — `13 spec` UI/bisnis + `1 spec` API contract (`contract-check.spec.ts`, 9 test). Diverifikasi via `npx playwright test --list --grep-invert '@visual|@perf'` (sumber otoritatif).
+**Total: 41 test · 15 file spec · 0 failure · 0 flaky (full-suite 2026-08-03)** — `14 spec` UI/bisnis + `1 spec` API contract (`contract-check.spec.ts`, 9 test). Diverifikasi via `npx playwright test --list --grep-invert '@visual|@perf'` (sumber otoritatif).
+
+> ℹ️ **Bonus stabilitas (2026-08-03)**: saat menambahkan `categories.spec.ts`, ditemukan & diperbaiki bug laten flake di `notifications-realtime.spec.ts` — test memakai `Date.now()` sendiri sebagai messageId padahal `seedGmailReviewEmail` membuat id sendiri (race 1ms → card tidak pernah ditemukan, lolos di retry). Keempat test kini memakai **return value helper** sebagai `testMessageId` (pola sama dengan 4 spec review).
 
 ### Breakdown Realtime (`notifications-realtime.spec.ts`) — 4/4
 
@@ -35,8 +38,8 @@ Semua 4 jalur memakai gate deterministik `waitRealtimeConnected` (tunggu ikon Wi
 ### Cakupan terhadap kritikalitas
 
 ```
-Kritis (data utama, uang):  █████████████████░  95%  (Dashboard, Transaksi)
-Menengah (fitur inti):      ███████████████░░░  75%  (Gmail Sync + Review 4 hasil, Realtime bell 4/4, Budgets/Reports/Notifications)
+Kritis (data utama, uang):  ██████████████████  97%  (Dashboard, Transaksi, Kategori)
+Menengah (fitur inti):      ████████████████░░  80%  (Gmail Sync + Review 4 hasil, Realtime bell 4/4, Budgets/Reports/Notifications)
 Fitur AI/Automasi:          ████░░░░░░░░░░░░░  20%  (Agent Search auth-gate; UI query + OCR + Insight masih roadmap)
 Admin/Operasional:          ██████░░░░░░░░░░░  30%  (Admin metrics auth-gate, cache panel, rate-limit)
 ```
@@ -49,7 +52,7 @@ Admin/Operasional:          ██████░░░░░░░░░░░ 
 |---|---|---|
 | **Authentication** (login/logout/expired session) | Fondasi semua halaman; guard utama | `/login` render; redirect ke `/login` saat tanpa cookie; session expired dialog — ⚠️ **partial 2026-08-03**: `rate-limit.spec.ts` meng-cover gate 429 `POST /api/auth/*`; login/logout/expired penuh tetap roadmap |
 | ~~**Budgets** (`/budgets`)~~ | ~~Fitur inti pengelolaan uang; API sudah ada (`/api/budgets`)~~ | ~~List budget, create budget, edit, hapus; usage vs amount~~ — **✅ smoke 2026-08-02** via `core-pages.spec.ts` (render + summary + Tambah Budget); CRUD/usage penuh tetap roadmap |
-| **Categories** (`/categories`) | Dependensi Transaksi & Budget | List 19 kategori, tambah/edit/hapus, init-defaults |
+| ~~**Categories** (`/categories`)~~ | ~~Dependensi Transaksi & Budget~~ | ~~List 19 kategori, tambah/edit/hapus, init-defaults~~ — **✅ 2026-08-03** via `categories.spec.ts` (3 test: render + default/tab, CRUD penuh, guard isDefault) |
 
 ### P2 — Tinggi (segera setelah P1)
 

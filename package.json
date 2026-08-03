@@ -23,6 +23,7 @@
     "test:e2e:admin-cache": "playwright test e2e/admin-cache.spec.ts",
     "test:e2e:ratelimit": "playwright test e2e/rate-limit.spec.ts",
     "test:e2e:core-pages": "playwright test e2e/core-pages.spec.ts",
+    "test:e2e:categories": "playwright test e2e/categories.spec.ts",
     "test:e2e:typecheck": "tsc -p tsconfig.e2e.json --noEmit",
     "test:e2e:contract": "playwright test e2e/contract/contract-check.spec.ts",
     "test:e2e:visual": "playwright test e2e/visual/visual-regression.spec.ts --update-snapshots",

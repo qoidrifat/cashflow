@@ -63,11 +63,12 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup
-    // di afterAll (bukan meninggalkan data orfanas).
-    testMessageId = `${'e2e-bell-'}${Date.now()}`;
-    testMessageIds.push(testMessageId);
-    await seedGmailReviewEmail(request, session, {
+    // Pakai RETURN VALUE helper sebagai testMessageId — id yang benar-benar
+    // tersimpan di DB. Memakai Date.now() sendiri di test bisa SELISIH 1ms dari
+    // id yang dibuat helper → card email tidak pernah ditemukan di filter
+    // "Perlu Review" → flake (bug laten 2026-08-03, terpicu saat batas
+    // millisecond terlampaui; lolos di retry karena timestamp baru sejajar).
+    testMessageId = await seedGmailReviewEmail(request, session, {
       prefix: 'e2e-bell-',
       subject: `E2E Bell Test ${Date.now()}`,
       sender: 'e2e-bell@example.com',
@@ -82,6 +83,7 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
         confidence: 0.7,
       },
     });
+    testMessageIds.push(testMessageId);
 
     // ===== 2. Buka halaman & filter Perlu Review → email test tampil =====
     const card = await openReviewFilter(page, testMessageId);
@@ -115,11 +117,9 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test (unik per test) =====
-    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup
-    // di afterAll (bukan meninggalkan data orfanas).
-    testMessageId = `${'e2e-bell-'}${Date.now()}`;
-    testMessageIds.push(testMessageId);
-    await seedGmailReviewEmail(request, session, {
+    // testMessageId = RETURN VALUE helper (id yang benar-benar tersimpan) —
+    // hindari race 1ms Date.now() vs helper (flake 2026-08-03, lihat test approve).
+    testMessageId = await seedGmailReviewEmail(request, session, {
       prefix: 'e2e-bell-',
       subject: `E2E Bell Reject ${Date.now()}`,
       sender: 'e2e-bell@example.com',
@@ -134,6 +134,7 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
         confidence: 0.66,
       },
     });
+    testMessageIds.push(testMessageId);
 
     // ===== 2. Buka halaman & filter → email test tampil =====
     const card = await openReviewFilter(page, testMessageId);
@@ -163,12 +164,12 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test =====
-    // Catat messageId SEBELUM seed — bila seed gagal, id tetap ter-cleanup.
-    testMessageId = `${'e2e-bell-'}${Date.now()}`;
-    testMessageIds.push(testMessageId);
+    // testMessageId = RETURN VALUE helper (id yang benar-benar tersimpan) —
+    // dipakai juga oleh seed transaksi duplikat (gmailMessageId harus SAMA).
+    // Hindari race 1ms Date.now() vs helper (flake 2026-08-03).
     const amount = 88000;
     const merchant = 'E2E Bell Duplicate Merchant';
-    await seedGmailReviewEmail(request, session, {
+    testMessageId = await seedGmailReviewEmail(request, session, {
       prefix: 'e2e-bell-',
       subject: `E2E Bell Duplicate ${Date.now()}`,
       sender: 'e2e-bell@example.com',
@@ -183,6 +184,7 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
         confidence: 0.7,
       },
     });
+    testMessageIds.push(testMessageId);
 
     // ===== 2. Seed transaksi duplikat (gmail_message_id SAMA dengan email) =====
     // Menyimulasikan bahwa transaksi email ini SUDAH pernah disimpan —
@@ -232,9 +234,9 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
     const pageErrors = collectPageErrors(page);
 
     // ===== 1. Seed email test — candidate TANPA amount (nominal tidak ditemukan) =====
-    testMessageId = `${'e2e-bell-'}${Date.now()}`;
-    testMessageIds.push(testMessageId);
-    await seedGmailReviewEmail(request, session, {
+    // testMessageId = RETURN VALUE helper (id yang benar-benar tersimpan) —
+    // hindari race 1ms Date.now() vs helper (flake 2026-08-03).
+    testMessageId = await seedGmailReviewEmail(request, session, {
       prefix: 'e2e-bell-',
       subject: `E2E Bell No Amount ${Date.now()}`,
       sender: 'e2e-bell@example.com',
@@ -247,6 +249,7 @@ test.describe('Notification bell — review result realtime (e2e)', () => {
         confidence: 0.6,
       },
     });
+    testMessageIds.push(testMessageId);
 
     // ===== 2. Buka halaman & filter → email test tampil (tanpa nominal) =====
     const card = await openReviewFilter(page, testMessageId);
