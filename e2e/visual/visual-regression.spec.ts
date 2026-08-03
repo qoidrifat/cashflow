@@ -9,11 +9,16 @@
  * Halaman yang di-snapshot (above-the-fold, fullPage:false):
  *   - Landing (publik, tanpa auth)   — statis, baseline paling stabil
  *   - Dashboard (auth via cookie)    — data-driven: angka di-mask biar stabil
+ *   - Transactions (auth)            — data-driven: nominal & counter di-mask
+ *   - Gmail Sync (auth)              — data-driven: summary counts + email list di-mask
  *
  * Anti-flaky:
  *   - fonts.ready + animasi disabled + caret hide
  *   - maxDiffPixelRatio 0.02 (font AA/antialiasing)
- *   - region angka dinamis di-mask (stat cards dashboard)
+ *   - region angka dinamis di-mask (stat cards dashboard, nominal/counter transactions,
+ *     summary counts + email cards gmail sync)
+ *   - Banner "Gemini AI siap digunakan" bergantung pada API key server (env lokal vs CI
+ *     bisa beda) → di-deterministikan via route interception /api/gemini/health (mock ok)
  *
  * Menjalankan (generate baseline):
  *   npx playwright test e2e/visual/visual-regression.spec.ts --update-snapshots
@@ -128,4 +133,63 @@ test.describe('Visual regression @visual', () => {
     await snapshotPage(page, { name: 'dashboard-dark-desktop.png', theme: 'dark', mask });
     pageErrors.expectClean();
   });
+
+  // ── Transactions (auth, data-driven — nominal & counter pagination di-mask) ──
+  // Dataset e2e user deterministik (seed 284 tx + cleanup approve/reject tests),
+  // tapi nominal & counter tetap di-mask: nomor adalah data, layout adalah desain.
+  for (const theme of THEMES) {
+    test(`transactions ${theme} desktop — nominal & counter dimask (data-driven)`, async ({ page, context }) => {
+      await setTheme(context, theme);
+      await setupAuthContext(context, session);
+      const pageErrors = collectPageErrors(page);
+      await page.setViewportSize(DESKTOP);
+      await page.goto('/transactions');
+      await page.waitForLoadState('domcontentloaded');
+      await expect(page.getByText(/Menampilkan \d+-\d+ dari \d+ transaksi/).first()).toBeVisible();
+
+      // Mask: nominal per baris (p.tabular-nums) + counter pagination (angka dinamis).
+      const mask = [
+        page.locator('p.tabular-nums'),
+        page.getByText(/Menampilkan \d+-\d+ dari \d+ transaksi/),
+        page.getByText(/Halaman \d+ dari \d+/).first(),
+      ];
+      await snapshotPage(page, { name: `transactions-${theme}-desktop.png`, theme, mask });
+      pageErrors.expectClean();
+    });
+  }
+
+  // ── Gmail Sync (auth, data-driven — summary counts & email list di-mask) ──
+  // Banner Gemini health env-dependent (API key server lokal vs CI) → route
+  // interception mock ok:true agar baseline lokal == CI (banner + layout di bawahnya
+  // identik). Summary counts + email cards (data-testid^=email-card-) + counter
+  // "Menampilkan X-Y dari N email" di-mask (data, bukan desain).
+  for (const theme of THEMES) {
+    test(`gmail-sync ${theme} desktop — summary counts & email list dimask (data-driven)`, async ({ page, context }) => {
+      await setTheme(context, theme);
+      await setupAuthContext(context, session);
+      // Deterministikkan banner Gemini health (env-dependent) — mock ok:true.
+      await page.route('**/api/gemini/health**', (route) =>
+        route.fulfill({ json: { ok: true, status: 'ok', message: 'E2E mock health' } }),
+      );
+      const pageErrors = collectPageErrors(page);
+      await page.setViewportSize(DESKTOP);
+      await page.goto('/gmail-sync');
+      await page.waitForLoadState('domcontentloaded');
+      await expect(page.getByText('Diterima', { exact: true }).first()).toBeVisible();
+
+      // Mask: nilai summary (label → following-sibling value) + email cards + counter.
+      // Label pakai anchored regex (bukan substring) agar tidak salah tangkap badge
+      // 'Diterima Otomatis' / tombol filter 'Config Error' / riwayat 'Diterima:'.
+      const mask = [
+        page.locator('text=/^Diterima$/').first().locator('xpath=following-sibling::*[1]'),
+        page.locator('text=/^Perlu Review$/').first().locator('xpath=following-sibling::*[1]'),
+        page.locator('text=/^Dilewati\\/Ditolak$/').first().locator('xpath=following-sibling::*[1]'),
+        page.locator('text=/^Error$/').first().locator('xpath=following-sibling::*[1]'),
+        page.locator('[data-testid^="email-card-"]'),
+        page.getByText(/Menampilkan \d+-\d+ dari \d+ email/),
+      ];
+      await snapshotPage(page, { name: `gmail-sync-${theme}-desktop.png`, theme, mask });
+      pageErrors.expectClean();
+    });
+  }
 });

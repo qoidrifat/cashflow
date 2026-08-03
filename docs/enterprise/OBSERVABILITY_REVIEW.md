@@ -139,3 +139,15 @@ Aksi #1–#4 dari tabel prioritas di atas **telah diimplementasikan dan diverifi
 ### Validasi
 
 - `npm run lint` ✅ · `typecheck` ✅ · `build` ✅ · unit 57/57 ✅ · contract 8/8 ✅ · **E2E 25/25 (0 flaky)** ✅
+
+---
+
+## 8. Pelengkap CI — Trend Latency HTTP per Endpoint (2026-08-03)
+
+Pilar **Request metrics (HTTP)** tidak lagi hanya counter realtime (`httpMetricsMiddleware`, Sprint 2) — integrasi CI visual + perf (commit `bf6bb4e` + kalibrasi v2) menambahkan **trend historis latency per endpoint**:
+
+- Job `performance` di CI menjalankan `npm run test:e2e:perf` → `perf-reports` artifact (`test-results/perf/perf-*.json`: p50/p95 per endpoint inti — `/api/transactions/paginated`, `/api/gmail/logs`, `/api/budgets`, `/api/categories`; retensi 30 hari).
+- Budget CI terkalibrasi dari pengukuran nyata (API p95 ≤549ms dev → budget 1800ms, margin 3.3×) — **drift latency terdeteksi otomatis** (fail di atas budget) + warning soft untuk pagination (6s) vs hard fail (12s).
+- Ini menjawab gap audit awal ("tidak ada metrik latency historis"): kini ada trend yang bisa di-plot/di-trend dari artifact — tanpa agent eksternal.
+
+> Skor tidak diubah (6.0/10) — pilar metrics sudah tercakup. Kenaikan berikutnya dari backlog Sprint 2: #5 SSE health metrics + #6 DB timing (sampled).

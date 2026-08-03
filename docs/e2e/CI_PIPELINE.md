@@ -5,7 +5,7 @@
 ```
 ┌─────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
 │  quality    │──▶│  e2e (Playwright, 41 test + 9 contract) │──▶│  visual-regression   │──▶│  performance         │
-│  lint+tc+b   │   │  stability gate 3×: fail only on 3× flaky│   │  6 snapshot (theme)  │   │  budget: load/API/   │
+│  lint+tc+b   │   │  stability gate 3×: fail only on 3× flaky│   │  10 snapshot (theme) │   │  budget: load/API/   │
 └─────────────┘   │  webServer: Vite 5180 + API 5181/5182   │   │  desktop+mobile      │   │  pagination          │
                   └──────────────────────────────────────────┘   └──────────────────────┘   └──────────────────────┘
                                           │  Artifacts: report + traces + diff screenshot + perf JSON
@@ -123,7 +123,7 @@ npx playwright show-report                                     # lihat HTML repo
 
 1. ~~**`npm run test:e2e` sebanyak 3× di CI** (stability gate)~~ — ✅ **SELESAI**: `scripts/e2e-stability-gate.sh` + step `e2e-gate` di workflow; fail hanya bila 3× flaky (lihat seksi *Stability Gate 3×*).
 2. **Seed data CI-isolasi** — jalankan E2E terhadap Turso DB `file:` lokal (SQLite) yang di-seed dari `turso-schema.sql` + fixture, agar tidak menulis sesi test ke DB produksi. (Catatan: `mintSession` menulis baris `session` ke Turso; `cleanupTestSessions()` membersihkannya di akhir. — Status saat ini: DB Turso **terpisah** untuk CI via secrets `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`.)
-3. ~~**Visual regression + API contract**~~ — ✅ **SELESAI** (2026-08-03): contract sudah jalan di job `e2e` (step terpisah); visual kini job terpisah `visual-regression` (6 snapshot: landing/dashboard × light/dark, desktop/mobile) + job `performance` terpisah untuk budget. Lihat seksi *Visual Regression & Performance Budget* di bawah.
+3. ~~**Visual regression + API contract**~~ — ✅ **SELESAI** (2026-08-03): contract sudah jalan di job `e2e` (step terpisah); visual kini job terpisah `visual-regression` (**10 snapshot**: landing ×4, dashboard ×2, transactions/gmail-sync ×2 — lihat `VISUAL_REGRESSION_PLAN.md`) + job `performance` terpisah untuk budget. Lihat seksi *Visual Regression & Performance Budget* di bawah.
 4. **`schedule` cron** — nightly full regression terhadap staging.
 
 ## Visual Regression & Performance Budget (job terpisah)
@@ -141,5 +141,5 @@ npx playwright show-report                                     # lihat HTML repo
 ### Job `performance` (`needs: [quality, e2e, visual-regression]`)
 
 - Menjalankan `npm run test:e2e:perf` — 3 test: page load (domContentLoaded + requests), API latency (p50/p95), large-dataset pagination.
-- Budget terpusat di `e2e/performance/performance.config.ts`; di CI di-override longgar via env (`PERF_BUDGET_*` — lihat komentar job): runner shared ubuntu vs dev lokal. Angka CI = kalibrasi awal; tighten bertahap setelah data trend (`perf-reports` artifact, retensi 30 hari).
+- Budget terpusat di `e2e/performance/performance.config.ts`; di CI di-override via env (`PERF_BUDGET_*` — lihat komentar job). **Kalibrasi v2 (2026-08-03)**: berbasis perf-reports nyata (DOM ≤261ms / LOAD ≤277ms / API p95 ≤549ms / 41 requests per page / pagination 3.0–5.1s) → budget = terukur × margin ~3–15× (`3000/4000/1800/60/6000/12000`; API p95 1800 karena p95 n=3 = maks dari 3 sampel). Angka masih akan di-tighten lanjut dari trend `perf-reports` (retensi 30 hari).
 - Pagination: **soft** budget = warning (report + log, bukan fail), **hard** budget = fail (regresi orde-magnitudo seperti N+1 / index hilang). Detail di `PERFORMANCE_TEST_PLAN.md`.

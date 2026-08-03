@@ -14,7 +14,7 @@
 | Bundle index | 99.27 kB (gzip 30.73 kB) | |
 | Unit tests | 57/57 dalam 6.8s | vitest |
 | Contract tests | 8/8 dalam 9.1s | |
-| E2E (25 test) | ~1.5–2 menit | Playwright |
+| E2E (41 test, 0 flaky 3×) | ~3.0 menit | Playwright |
 
 **Performance budget (dev, `e2e/performance/performance.config.ts`):**
 - pageLoadDomMs: 4000 · pageLoadLoadMs: 6000 · apiLatencyP95Ms: 1200 · maxRequestsPerPage: 80.
@@ -96,7 +96,7 @@
 
 1. ✅ **SELESAI (Sprint 4)**: SQL aggregate untuk `getAIUsageSummary`/`getCostTrend`/`getFeatureHealth` + batas range 90 hari.
 2. ✅ **SELESAI (Sprint 3)**: LRU cache AI (hash prompt+model, TTL per feature).
-3. **P1**: Jalankan `test:e2e:perf` di CI sebagai job non-blocking + simpan trend report artifact. ⚠️ Test "pagination < 2s (soft budget)" **flaky di mesin dev** (terverifikasi 3× gagal, nilai tidak tercatat) — backend dalam budget (API p95 666ms, page load 291ms); dugaan: animasi PageTransition + remote Turso. Gunakan `PERF_BUDGET_*` env di CI atau naikkan soft budget.
+3. ✅ **SELESAI (2026-08-03 — CI visual + perf, commit `bf6bb4e` + kalibrasi v2)**: `test:e2e:perf` berjalan sebagai job `performance` di `.github/workflows/e2e.yml` (`needs: [quality, e2e, visual-regression]`, serial — berbagi DB Turso/webServer) + report JSON trend (`perf-reports` artifact, retensi 30 hari). Masalah "pagination < 2s (soft budget) flaky di mesin dev" diselesaikan dengan **dua level budget** — `paginationSoftMs` (warning report-only) vs `paginationHardMs` (fail) — + `suppressOnboarding` di spec (modal onboarding `fixed inset-0 z-50` menghalangi klik pagination: bug nyata di perf spec). Budget CI **dikalibrasi dari pengukuran nyata (v2)**: DOM 3000 / LOAD 4000 / API p95 1800 / MAX_REQUESTS 60 / pagination soft 6000 / hard 12000 ms (terukur dev: DOM ≤261ms · LOAD ≤277ms · API p95 ≤549ms · requests 41/page · pagination 3.0–5.1s). Tighten lanjut dari trend artifact.
 4. ✅ **SELESAI (Sprint 4)**: `checkAlerts` cache 60s. Sisa: delta sync Agent Search (P2).
 5. ✅ **Sudah ada**: recharts sudah di chunk terpisah (`vendor-charts`, lazy via page code-split) — hanya dimuat saat halaman laporan/admin dibuka.
 6. **P3**: SSE backpressure (drain check) + max koneksi per user.
@@ -116,3 +116,16 @@
 
 ### Validasi Sprint 4 (semua hijau)
 `unit 66/66 ✅ · full E2E 26/26 (0 flaky) ✅ · contract 8/8 ✅ · server health 200 ✅ · perf page-load & API latency dalam budget ✅ · secret scan 0 ✅`
+
+---
+
+## 9. STATUS IMPLEMENTASI — CI Visual + Perf Budget (2026-08-03)
+
+| Item | Status | Implementasi & Bukti |
+|---|---|---|
+| Job `performance` di CI | ✅ | `.github/workflows/e2e.yml` — job terpisah (`needs: [quality, e2e, visual-regression]`, serial karena DB Turso + webServer bersama). `npm run test:e2e:perf`; artifact `perf-reports` (JSON trend p50/p95, retensi 30 hari) + `playwright-report-perf`. Commit `bf6bb4e` |
+| Budget CI terkalibrasi (v2) | ✅ | Dari pengukuran nyata (DOM ≤261ms / LOAD ≤277ms / API p95 ≤549ms / 41 request per page / pagination 3.0–5.1s): `PERF_BUDGET_PAGE_LOAD_MS=3000` · `LOAD_MS=4000` · `API_P95_MS=1800` (p95 n=3 = maks dari 3 → margin 3.3× untuk spike cold-TLS/GC runner shared) · `MAX_REQUESTS=60` (terukur 41, deterministik) · `PAGINATION_SOFT_MS=6000` (warning) · `PAGINATION_HARD_MS=12000` (fail). Tighten lanjut dari trend artifact |
+| Fix perf spec (bug nyata) | ✅ | `suppressOnboarding` — modal onboarding menghalangi klik tombol pagination (perf spec lama gagal 3× karenanya). Komentar lama soal `expect.soft` keliru (tetap menggagalkan test) → diganti hard assert `paginationHardMs` + `console.warn` untuk soft |
+| Font self-hosted | ✅ | Manrope + Outfit variable TTF di `public/fonts/` (OFL) menggantikan Google Fonts CDN → **−2+ request third-party** (perf & privacy win) + determinisme rendering lintas-OS (prasyarat visual regression: baseline Windows == check Ubuntu) |
+| Job `visual-regression` di CI | ✅ | `npm run test:e2e:visual:check` — kini **10 snapshot** (landing ×4, dashboard ×2, **transactions ×2 + gmail-sync ×2** — region data di-mask; banner Gemini health env-dependent di-route-intercept mock `ok:true`). Baseline portabel via `snapshotPathTemplate` tanpa suffix platform |
+| Validasi | ✅ | perf 3/3 (0 warning soft) · visual 10/10 check 0 diff · build OK · full suite 41/41 0 flaky · YAML valid (PyYAML) · secret scan 0 |

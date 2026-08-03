@@ -235,10 +235,9 @@ jobs:
   # PERFORMANCE BUDGET — page load, API latency, pagination
   # ─────────────────────────────────────────────────────────────
   # Roadmap CI_PIPELINE.md #7 (PERFORMANCE_TEST_PLAN.md). Budget dev (default di
-  # e2e/performance/performance.config.ts) sengaja longgar; di CI di-override
-  # lebih longgar lagi (runner shared ubuntu vs dev lokal) — angka di sini adalah
-  # kalibrasi AWAL untuk CI; setelah data trend terkumpul (artifact perf-*.json),
-  # tighten bertahap. Pagination: SOFT = warning (report-only), HARD = fail.
+  # e2e/performance/performance.config.ts) longgar untuk dev build; di CI di-override
+  # dengan angka terkalibrasi dari perf-reports nyata (v2, 2026-08-03 — lihat env job).
+  # Pagination: SOFT = warning (report-only), HARD = fail.
   #
   # needs: [quality, e2e, visual-regression] — SERIAL penuh (alasan sama di atas).
   performance:
@@ -250,13 +249,20 @@ jobs:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
-      # Kalibrasi CI (runner shared): page load ≤8s, load ≤12s, API p95 ≤2.5s,
-      # pagination soft ≤4s (warning) / hard ≤15s (fail).
-      PERF_BUDGET_PAGE_LOAD_MS: '8000'
-      PERF_BUDGET_LOAD_MS: '12000'
-      PERF_BUDGET_API_P95_MS: '2500'
-      PERF_BUDGET_PAGINATION_SOFT_MS: '4000'
-      PERF_BUDGET_PAGINATION_HARD_MS: '15000'
+      # Kalibrasi CI v2 (2026-08-03 — berbasis perf-reports nyata, bukan tebakan).
+      # Terukur (dev, 3 sampel): DOM ≤261ms · LOAD ≤277ms · API p95 ≤549ms ·
+      # requests 41/page (deterministik) · pagination 3.0–5.1s (dev React + Turso remote).
+      # Budget = terukur × margin ~3–15×: runner shared ubuntu lebih lambat dari dev
+      # lokal (margin menyerap noise mesin), tapi tetap menangkap regresi orde-magnitudo
+      # (bundle bloat, N+1, index hilang). API p95 1800 (bukan 1500): dengan n=3 sampel,
+      # p95 = maks dari 3 → margin 3.3× menyerap spike cold-TLS/GC di runner shared
+      # tanpa false-fail. Tighten berikutnya dari trend artifact perf-reports.
+      PERF_BUDGET_PAGE_LOAD_MS: '3000'
+      PERF_BUDGET_LOAD_MS: '4000'
+      PERF_BUDGET_API_P95_MS: '1800'
+      PERF_BUDGET_MAX_REQUESTS: '60'
+      PERF_BUDGET_PAGINATION_SOFT_MS: '6000'
+      PERF_BUDGET_PAGINATION_HARD_MS: '12000'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

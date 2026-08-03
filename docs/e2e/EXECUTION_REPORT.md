@@ -9,6 +9,8 @@ Validasi menyeluruh dijalankan **sekali** sebagai snapshot kesiapan rilis pada c
 
 > ✅ **Re-validasi 2026-08-03 (commit `edd12c1`)**: hasil **identik** — lint 0 · typecheck 0 · build 0 (11.0s) · unit 113 · contract 9 · e2e 38/38 (0 flaky). **Snapshot tetap valid.** (Commit antara `3325caa`–`edd12c1` hanya menyentuh docs + stability gate CI — tanpa perubahan kode aplikasi.)
 
+> ✅ **CI visual + perf terintegrasi (2026-08-03, commit `bf6bb4e` + perluasan)**: job `visual-regression` (10 snapshot — landing/dashboard/transactions/gmail-sync × light/dark; baseline portabel lintas-OS: font Manrope/Outfit self-host + `snapshotPathTemplate` tanpa suffix platform) & job `performance` (budget CI **v2 terkalibrasi** dari pengukuran nyata: 3000/4000/1800/60/6000/12000 ms; trend artifact `perf-reports`, retensi 30 hari). Validasi lokal: visual 10/10 check 0 diff · perf 3/3 · full suite **41/41 0 flaky** (baseline stabilitas baru).
+
 | Gate | Perintah | Hasil | Detail |
 |---|---|---|---|
 | Lint | `npm run lint` | ✅ exit 0 | `tsc --noEmit` (src) bersih |
@@ -27,6 +29,9 @@ Validasi menyeluruh dijalankan **sekali** sebagai snapshot kesiapan rilis pada c
 | 2026-08-01 | 8 | 3 | 0 |
 | 2026-08-02 | 17 | 6 | 0 |
 | 2026-08-03 | 38 (29 UI + 9 contract) | 14 (13 UI + 1 contract) | 0 |
+| 2026-08-03 | 41 (32 UI + 9 contract) | 15 (14 UI + 1 contract) | 0 |
+
+> Suite 38 → 41 (commit `31e6a72`): spec **Categories** 3 test + fix bug laten flake realtime (testMessageId pakai return value `seedGmailReviewEmail`, hindari race 1ms).
 
 ## 1. Ringkasan Eksekutif
 
@@ -106,14 +111,14 @@ Tidak ada yang di-rewrite: arsitektur, helpers inti, Better Auth flow, session m
 
 | Dimensi | Skor | Catatan |
 |---|---|---|
-| Reliability | 9/10 | 0 flaky 3× (38 test); race app difix; gate SSE deterministik |
-| Coverage | 8/10 | 38 test / 14 spec — 13+ area; realtime bell 4/4; admin + auth-gate |
+| Reliability | 9/10 | 0 flaky 3× (41 test); race app difix; gate SSE deterministik |
+| Coverage | 8.5/10 | 41 test / 15 spec — 14+ area; realtime bell 4/4; admin + auth-gate + categories |
 | Maintainability | 9/10 | Helpers shared (mintSession/authContext/pagination/gmailReview/realtime/errors/fixtures) |
-| CI/CD | 9/10 | Workflow siap; seed CI-isolasi (P4.15) + **stability gate 3×** (fail only on 3× flaky) |
-| Determinism | 9/10 | Response-based waits, workers 1, gate SSE, re-seed antar attempt |
+| CI/CD | 9.5/10 | Workflow 4 job serial: quality → e2e (stability gate 3×, fail only on 3× flaky) → **visual-regression (10 snapshot)** → **performance (budget v2 terkalibrasi)**; seed CI-isolasi (P4.15) |
+| Determinism | 9/10 | Response-based waits, workers 1, gate SSE, re-seed antar attempt, mask data-driven visual |
 | Enterprise docs | 9/10 | 10 dokumen + snapshot produksi ini |
 
-**Untuk naik ke 9.5+**: visual regression aktif di CI + perf budget (PERFORMANCE_TEST_PLAN.md) + coverage halaman tersisa (Categories, Recurring, Profile, Settings, AI UI query).
+**Untuk naik ke 9.5+**: sisa — coverage halaman (Recurring, Profile, Settings, AI Search UI query, Receipt OCR, Insight Generator). Visual regression + perf budget + Categories sudah aktif di CI.
 
 ## 8. Deliverables
 
@@ -137,7 +142,7 @@ docs/e2e/
 1. ~~**Halaman kritis berikutnya**: Budgets → Reports → Notifications~~ — ✅ SELESAI (`core-pages.spec.ts` smoke, 2026-08-02)
 2. ~~**Implementasi API contract testing**~~ — ✅ SELESAI (`contract-check.spec.ts` 9 test, schema drift detection)
 3. ~~**CI-isolated DB seed**~~ — ✅ SELESAI (P4.15: `scripts/seedE2eDataset.mjs` + guard `SEED_E2E=1`, ter-wire di `e2e.yml`)
-4. **Visual regression** (Playwright Snapshot, dark/light, mobile) — script `test:e2e:visual` ada; baseline snapshot + job CI tersendiri masih roadmap
+4. ~~**Visual regression** (Playwright Snapshot, dark/light, mobile)~~ — ✅ **SELESAI (2026-08-03)**: job `visual-regression` di CI — 10 snapshot (landing/dashboard/transactions/gmail-sync × light/dark; mobile untuk landing), baseline portabel lintas-OS (font Manrope/Outfit self-host + `snapshotPathTemplate` tanpa suffix platform), commit `bf6bb4e` + perluasan
 5. ~~**Stability gate 3× otomatis di CI saat suite > 20 test**~~ — ✅ SELESAI (`scripts/e2e-stability-gate.sh` + step `e2e-gate`, fail only on 3× flaky, commit `3325caa`)
-6. **Coverage halaman tersisa**: Categories, Recurring, Profile, Settings, AI Search UI query, Receipt OCR, Insight Generator
-7. **Perf budget** di CI (`test:e2e:perf`) — page load, API latency, large dataset pagination
+6. **Coverage halaman tersisa**: Categories ✅ (`categories.spec.ts` 3 test, 2026-08-03); sisa Recurring, Profile, Settings, AI Search UI query, Receipt OCR, Insight Generator
+7. ~~**Perf budget** di CI (`test:e2e:perf`)~~ — ✅ **SELESAI (2026-08-03)**: job `performance` terpisah — budget CI v2 terkalibrasi dari pengukuran nyata (3000/4000/1800/60/6000/12000 ms), pagination soft (warning) vs hard (fail), trend artifact `perf-reports` (retensi 30 hari). Commit `bf6bb4e` + kalibrasi

@@ -3,17 +3,17 @@
 > Quality gate: suite E2E dijalankan 3× berurutan → **0 flaky failures** (kriteria sukses enterprise).
 > Tanggal: 3 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
 
-## Hasil Final (2026-08-03 — re-verifikasi 3× setelah stability gate CI + snapshot produksi, 38 test / 14 spec)
+## Hasil Final (2026-08-03 — baseline stabilitas baru setelah spec Categories + fix race 1ms realtime, 41 test / 15 spec)
 
 | Run | Hasil | Waktu | Flaky/Failed |
 |---|---|---|---|
-| 1 | **38 passed** | 2.7m | 0 |
-| 2 | **38 passed** | 2.8m | 0 |
-| 3 | **38 passed** | 2.8m | 0 |
+| 1 | **41 passed** | 3.4m | 0 |
+| 2 | **41 passed** | 3.0m | 0 |
+| 3 | **41 passed** | 3.0m | 0 |
 
 **Verdict: ✅ 0 flaky dalam 3× run berurutan — kriteria stabilitas terpenuhi.**
 
-Rincian per spec (38 test / 14 file spec — **13 spec UI + 1 spec API contract**): contract-check 9 (API contract) · notifications-realtime 4 (approve/reject/duplicate/amount-missing) · transactions 3 · gmail-sync 3 · core-pages 3 (budgets/reports/notifications) · agent-search-auth 3 · admin-metrics-auth 3 · admin-cache 3 · dashboard 2 · gmail-review-approve 1 · gmail-review-reject 1 · gmail-review-duplicate 1 · gmail-review-amount-missing 1 · rate-limit 1.
+Rincian per spec (41 test / 15 file spec — **14 spec UI + 1 spec API contract**): contract-check 9 (API contract) · notifications-realtime 4 (approve/reject/duplicate/amount-missing) · transactions 3 · gmail-sync 3 · core-pages 3 (budgets/reports/notifications) · agent-search-auth 3 · admin-metrics-auth 3 · admin-cache 3 · **categories 3 (baru — render+defaults/tab, CRUD penuh sinkron UI+API, guard isDefault)** · dashboard 2 · gmail-review-approve 1 · gmail-review-reject 1 · gmail-review-duplicate 1 · gmail-review-amount-missing 1 · rate-limit 1.
 
 ### Stabilisasi SSE (gate deterministik — apa yang berubah sejak baseline 17 test)
 
@@ -21,7 +21,14 @@ Rincian per spec (38 test / 14 file spec — **13 spec UI + 1 spec API contract*
 2. **Coverage realtime diperluas ke 4/4 hasil review** (approve → success, reject → info, duplicate → warning, amount-missing → error) — tiap test punya `pageErrors.expectClean()`.
 3. Refactor helper (d0d12aa) + relokasi `realtime.ts` (3f5168f) tidak mengubah perilaku — hanya pemusatan logika.
 
-> Baseline sebelumnya (2026-08-02): 17 test / 6 spec — 17/17 × 3 (1.0m/57.5s/59.9s) 0 flaky. Era 8 test: 8/8 × 3 (43.1/41.7/42.6s) 0 flaky; pasca-audit 14 test: 14/14 × 3. Angka di atas adalah **baseline terbaru** (38 test) setelah gate SSE + 4 spec review + notifikasi realtime + rate-limit + admin-cache.
+> Baseline sebelumnya (2026-08-03): 38 test / 14 spec — 38/38 × 3 (2.7m/2.8m/2.8m) 0 flaky. (2026-08-02): 17 test / 6 spec — 17/17 × 3 (1.0m/57.5s/59.9s) 0 flaky. Era 8 test: 8/8 × 3 (43.1/41.7/42.6s) 0 flaky; pasca-audit 14 test: 14/14 × 3. Angka di atas adalah **baseline terbaru** (41 test).
+
+### Yang berubah sejak baseline 38 test (commit 31e6a72)
+
+1. **Spec baru `e2e/categories.spec.ts`** (3 test, pola cookie-login) — render + default categories + tab Pengeluaran/Pemasukan, CRUD penuh sinkron UI+API, guard isDefault. + `cleanupTestCategories()` di `mintSession.ts` + script `test:e2e:categories`.
+2. **Fix bug laten flake realtime (race 1ms)** — 4 test di `notifications-realtime.spec.ts` membuat `testMessageId = e2e-bell-${Date.now()}` sendiri lalu memanggil `seedGmailReviewEmail` yang membuat id-nya sendiri dan **mengembalikannya**; spec mengabaikan return value → bila kedua `Date.now()` beda 1ms, `openReviewFilter` mencari card yang tidak pernah ada → 20s timeout (flake, lolos di retry). **Fix**: keempat test pakai return value helper sebagai `testMessageId`. Bukti: orphan `e2e-bell-…319` tertinggal di DB (id helper tidak pernah di-track cleanup).
+
+Suite: 41 test / 15 spec · 0 flaky · ±3.0–3.4m per run.
 
 ---
 

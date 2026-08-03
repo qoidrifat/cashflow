@@ -87,7 +87,8 @@ test('performance: dashboard load budget', async () => {
 ## 6. Integrasi CI (terimplementasi 2026-08-03)
 
 - ✅ Job `performance` terpisah di `.github/workflows/e2e.yml` (`needs: [quality, e2e, visual-regression]` — serial, DB Turso bersama), menjalankan `npm run test:e2e:perf`.
-- Budget CI di-override longgar via env job (`PERF_BUDGET_PAGE_LOAD_MS=8000`, `LOAD_MS=12000`, `API_P95_MS=2500`, `PAGINATION_SOFT_MS=4000`, `PAGINATION_HARD_MS=15000`) — runner shared ubuntu; angka awal, di-tighten bertahap dari trend `perf-reports` artifact (retensi 30 hari).
+- Budget CI di-override via env job (**kalibrasi v2, 2026-08-03 — berbasis pengukuran nyata, bukan tebakan**): `PERF_BUDGET_PAGE_LOAD_MS=3000` · `LOAD_MS=4000` · `API_P95_MS=1800` · `MAX_REQUESTS=60` · `PAGINATION_SOFT_MS=6000` · `PAGINATION_HARD_MS=12000`. API p95 1800 (bukan 1500): dengan n=3 sampel p95 = maks dari 3 → margin 3.3× menyerap spike cold-TLS/GC runner shared tanpa false-fail.
+- **Dasar kalibrasi (dev terukur, 3 sampel, 2026-08-03)**: DOM ≤261ms · LOAD ≤277ms · API p95 ≤549ms · requests 41/page (deterministik) · pagination 3.0–5.1s (dev React + Turso remote). Budget = terukur × margin ~3–15× — runner shared ubuntu lebih lambat dari dev lokal; margin menyerap noise mesin, tapi tetap menangkap regresi orde-magnitudo. Tighten berikutnya dari trend `perf-reports` artifact (retensi 30 hari).
 - Artifact: `perf-reports` (JSON, always) + `playwright-report-perf` (always).
 
 ## 7. Risiko & Catatan

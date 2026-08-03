@@ -67,18 +67,23 @@ test('@visual dashboard light desktop', async ({ page }) => {
 - **Portabel lintas OS**: `playwright.config.ts` memakai `snapshotPathTemplate` TANPA token `{-snapshotSuffix}` (suffix platform `-win32`/`-linux` dihapus) → baseline Windows & check Ubuntu memakai nama file sama.
 - **Font self-hosted**: Manrope + Outfit di `public/fonts/` (variable TTF, OFL) menggantikan Google Fonts CDN — prasyarat determinisme visual lintas-OS (baseline digenerate di Windows, check di Ubuntu).
 
-## 5. Matrix Snapshot Aktual (terimplementasi 2026-08-03 — 6 snapshot)
+## 5. Matrix Snapshot Aktual (terimplementasi 2026-08-03 — 10 snapshot)
 
 | Halaman | Light | Dark | Desktop | Tablet | Mobile |
 |---|---|---|---|---|---|
 | Landing (publik, tanpa auth) | ✅ | ✅ | ✅ | — | ✅ |
 | Dashboard (auth via cookie, stat cards di-mask) | ✅ | ✅ | ✅ | — | — |
-| Transactions / Gmail Sync / Login | — | — | — | — | — (menyusul) |
+| Transactions (auth, nominal & counter di-mask) | ✅ | ✅ | ✅ | — | — |
+| Gmail Sync (auth, summary counts & email list di-mask) | ✅ | ✅ | ✅ | — | — |
+| Login | — | — | — | — | — (menyusul) |
 
-> Implementasi awal memakai **loop tema/viewport di dalam test** (1 project + `setTheme` helper) —
-> sesuai opsi "lebih sederhana" di seksi 2a. Stat cards dashboard di-mask (angka berubah, layout tidak)
-> → baseline stabil tanpa seed ulang. Tablet + halaman lain (Transactions/Gmail) menyusul di iterasi
-> berikutnya; tambahkan ke `e2e/visual/visual-regression.spec.ts`.
+> Implementasi memakai **loop tema/viewport di dalam test** (1 project + `setTheme` helper) —
+> sesuai opsi "lebih sederhana" di seksi 2a. Region data di-mask (angka berubah, layout tidak):
+> stat cards dashboard, nominal & counter pagination transactions, summary counts + email cards
+> (`[data-testid^="email-card-"]`) gmail sync → baseline stabil tanpa seed ulang. Banner Gemini
+> health (env-dependent: API key server lokal vs CI) di-deterministikan via route interception
+> `/api/gemini/health` (mock ok:true). Tablet + Login menyusul di iterasi berikutnya; tambahkan
+> ke `e2e/visual/visual-regression.spec.ts`.
 
 ## 6. CI
 
@@ -91,4 +96,5 @@ test('@visual dashboard light desktop', async ({ page }) => {
 
 - Snapshot rapuh terhadap perubahan font/icons library — toleransi `maxDiffPixelRatio` 0.02 (sudah dipakai).
 - Dataset berubah → angka di snapshot berubah → update baseline + re-commit (dashboard sudah di-mask → minim).
+- **Transactions**: nominal & counter di-mask, tapi teks baris (merchant/kategori/tanggal) **tidak** — aman hanya karena seed e2e deterministik (284 tx) + `cleanupGmailReviewTestData` menghapus transaksi hasil approve/reject test. Bila seed berubah atau test e2e gagal tengah jalan menyisakan orphan → baris atas bergeser → re-generate baseline.
 - **SELESAI**: visual regression berjalan di job terpisah dari functional suite — kegagalan diff tidak memblokir smoke/functional (keduanya serial di CI, tapi state terpisah).
