@@ -2,6 +2,7 @@
 
 > Audit READ-ONLY · Tanggal: 1 Agustus 2026
 > Rantai verifikasi: **Implementation Summary → Actual Code → Documentation → Specs**
+> **Catatan status (2026-08-04):** snapshot audit — beberapa temuan sudah tidak berlaku: `README.md` kini ada (rebuild commit `721559e`), naming `firebaseUser` sudah di-rename (commit `55d11d2`), dan `.kiro/` kini **untracked + gitignored** (kurasi repositori 2026-08-04) — seluruh rujukan `.kiro/specs/*` di bawah bersifat historis.
 
 ## 1. Inventaris Dokumentasi
 

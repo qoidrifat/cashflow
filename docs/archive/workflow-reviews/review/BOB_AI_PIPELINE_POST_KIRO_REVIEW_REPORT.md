@@ -319,7 +319,7 @@ const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
 **Severity:** Low  
 **Area:** Security  
 **File:** `server/ - Copy.env`  
-**Symptom:** File contains `GEMINI_API_KEY=AIzaSyCJk14QJHmLUHpqpwYWYPXlU_7knN05iyI`  
+**Symptom:** File contains `GEMINI_API_KEY=<REDACTED>`  
 **Root Cause:** Backup file created during development, not cleaned up  
 **Impact:** Key exposed in local filesystem (not in git, not in production)  
 **Evidence:**

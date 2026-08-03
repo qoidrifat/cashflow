@@ -1,0 +1,54 @@
+version: 2
+updates:
+  # Root frontend + tooling dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    versioning-strategy: increase-if-necessary
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "react-router-dom"
+      dev-tooling:
+        patterns:
+          - "typescript"
+          - "vite"
+          - "vitest"
+          - "playwright"
+
+  # Server dependencies (separate package.json)
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    versioning-strategy: increase-if-necessary
+
+  # GitHub Actions — keep workflows on current action versions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci

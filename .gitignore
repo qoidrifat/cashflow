@@ -40,3 +40,11 @@ backups/
 
 # Agent runtime state (scratch/session internal — bukan produk)
 .bob/
+
+# Repository curation (2026-08-04)
+.agents/
+.kiro/
+skills-lock.json
+task-list.md
+public/logout-debug-viewport.png
+*.tsbuildinfo

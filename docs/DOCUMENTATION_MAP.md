@@ -18,18 +18,19 @@
 | E2E testing | [docs/e2e/](e2e/INDEX.md) |
 | Architecture & audit | [docs/architecture/](architecture/INDEX.md) · [security](security/INDEX.md) · [performance](performance/INDEX.md) |
 | Documentation system | [docs/meta/](meta/INDEX.md) |
+| Repo curation & GitHub prep | [docs/repository/](repository/INDEX.md) |
 | Historical / legacy | [docs/archive/ARCHIVE.md](archive/ARCHIVE.md) |
 
 ---
 
 ## 2. Complete Tree & Folder Responsibilities
 
-**146 documents** + **34 generated indexes** = **180 `.md` files** in `docs/` (2026-08-04).
+**157 documents** + **35 generated indexes** = **192 `.md` files** in `docs/` (2026-08-04).
 
 | Folder | Real docs | Status | Responsibility |
 |---|---|---|---|
 | `docs/adr/` | 7 | 🟢 Active | Architecture Decision Records (001–007) |
-| `docs/architecture/` | 7 | 🟢 Active | Architecture & implementation audits (system report, code quality, gap analysis, compliance matrix) |
+| `docs/architecture/` | 6 | 🟢 Active | Architecture & implementation audits (system report, code quality, gap analysis, compliance matrix) |
 | `docs/security/` | 1 | 🟢 Active | Security audit |
 | `docs/performance/` | 1 | 🟢 Active | Performance audit |
 | `docs/e2e/` | 10 | 🟢 Active | Playwright E2E strategy, coverage, stability, CI pipeline |
@@ -37,6 +38,7 @@
 | `docs/system/` | 4 | 🟢 Active | System architecture, audit report, feature matrix, screenshot index |
 | `docs/google-cloud/` | 2 | 🟢 Active | GCP / Agent Builder / Discovery Engine setup |
 | `docs/meta/` | 7 | 🟢 Active | Documentation system itself (this layer) + documentation-consistency audit |
+| `docs/repository/` | 12 | 🟢 Active | Repository curation & GitHub publication prep (audit, security, readiness, commit guide) |
 | `docs/assets/` | 0 (21 PNG + diagrams) | 🟢 Active | Screenshots (21) + canonical Mermaid diagrams |
 | `docs/gmail-sync/` | 18 | 🟡 Historical ref | Gmail sync checklists + troubleshooting |
 | `docs/transactions/` | 4 | 🟡 Historical ref | Transactions feature checklists |
@@ -85,10 +87,10 @@ README.md (entry point)
 
 ## 5. Status Summary
 
-- **Navigation:** ✅ every folder has `INDEX.md` (19)
+- **Navigation:** ✅ every folder has `INDEX.md` (35)
 - **Why-decisions:** ✅ 7 ADRs
 - **Current-state:** ✅ `docs/system/` (4)
-- **Historical:** ✅ archived (62 files, nothing deleted)
-- **Governance:** ✅ `docs/meta/` (6) — audit, structure, naming, style, cleanup, quality
+- **Historical:** ✅ archived (63 files — 62 docs + `ARCHIVE.md` policy; nothing deleted)
+- **Governance:** ✅ `docs/meta/` (7) — audit, structure, naming, style, cleanup, quality, consistency
 - **Assets:** ✅ centralized under `docs/assets/`
 - **Remaining debt:** content drift in historical docs; phased migration to target IA ([meta/DOCUMENTATION_STRUCTURE.md](meta/DOCUMENTATION_STRUCTURE.md))

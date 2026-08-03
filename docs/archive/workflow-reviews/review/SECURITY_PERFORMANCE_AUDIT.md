@@ -66,7 +66,7 @@ server/*service-account*.json         # ✅ Gitignored
 **⚠️ ISSUE-001: Exposed API Key in Filesystem**
 
 **File:** `server/ - Copy.env`  
-**Content:** Contains `GEMINI_API_KEY=AIzaSyCJk14QJHmLUHpqpwYWYPXlU_7knN05iyI`  
+**Content:** Contains `GEMINI_API_KEY=<REDACTED>`  
 **Severity:** Low  
 **Impact:** Key exposed in local filesystem only (NOT in git, NOT in production)  
 **Risk:** Developer machine compromise could expose key  

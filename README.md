@@ -271,7 +271,7 @@ cp server/.env.example server/.env  # backend secrets (see below)
 ### 3. Apply the database schema
 
 ```bash
-npx tsx scripts/applyTursoSchema.mjs   # creates all 22 tables in Turso
+node scripts/applyTursoSchema.mjs   # creates all 22 tables in Turso (idempotent — safe to re-run)
 ```
 
 ### 4. Run (development)
@@ -470,6 +470,9 @@ The repository maintains an enterprise documentation system — every folder has
 
 ## 🤝 Contributing
 
+Please read our **[Contributing Guide](CONTRIBUTING.md)** — it covers local setup, test commands, the mandatory quality gate, and **secret hygiene**.
+
+Quick checklist for every PR:
 1. Fork the repository and create a feature branch
 2. Add tests for new behavior (unit for helpers, E2E for user flows)
 3. Run the quality gate before opening a PR:
@@ -479,6 +482,12 @@ The repository maintains an enterprise documentation system — every folder has
    npm run test:e2e
    ```
 4. CI runs the same gates plus visual regression and performance budget
+
+Also see our [Code of Conduct](CODE_OF_CONDUCT.md) and, for security issues, [SECURITY.md](SECURITY.md) — **report vulnerabilities privately**.
+
+## 📝 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the version history (backfilled from the initial 45 commits into [1.0.0]).
 
 ---
 

@@ -80,7 +80,7 @@ ls -la "server/ - Copy.env"
 ```bash
 # Rotate API key in Google Cloud Console
 # 1. Go to https://console.cloud.google.com/apis/credentials
-# 2. Delete key: AIzaSyCJk14QJHmLUHpqpwYWYPXlU_7knN05iyI
+# 2. Delete key: <REDACTED>
 # 3. Create new key
 # 4. Update server/.env with new key
 # 5. Restart server
