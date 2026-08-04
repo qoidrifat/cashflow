@@ -4,6 +4,8 @@
 
 ## Overview
 
+> ⚠️ **Folder ini adalah ARSIP HISTORIS (era Supabase, sebelum 2026-08-02).** Semua dokumen di bawah (kecuali `GEMINI_QUOTA_AND_FALLBACK_STRATEGY.md`) ditulis untuk arsitektur lama dan TIDAK mencerminkan implementasi aktif. Desain Gmail sync saat ini (Express 4 + Better Auth + Turso, auto sync dijadwalkan client, tanpa Supabase Edge Functions / Gmail History API) didokumentasikan secara otoritatif di [ADR-007](../adr/ADR-007-gmail-sync.md).
+
 Checklist fitur Gmail Sync, troubleshooting, dan catatan perbaikan (dari fase pengembangan).
 
 ## Documents
@@ -32,6 +34,7 @@ Checklist fitur Gmail Sync, troubleshooting, dan catatan perbaikan (dari fase pe
 
 ## Related
 
+- [ADR-007 — Gmail Sync](../adr/ADR-007-gmail-sync.md) — desain Gmail sync aktif saat ini.
 - [Documentation Map](../DOCUMENTATION_MAP.md) — peta lengkap seluruh dokumentasi.
 - [Meta documentation](../meta/INDEX.md) — sistem dokumentasi & konvensi.
 - [Root README](../../README.md) — entry point repository.

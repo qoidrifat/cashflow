@@ -38,8 +38,8 @@
 | `docs/system/` | 4 | 🟢 Active | System architecture, audit report, feature matrix, screenshot index |
 | `docs/google-cloud/` | 2 | 🟢 Active | GCP / Agent Builder / Discovery Engine setup |
 | `docs/meta/` | 7 | 🟢 Active | Documentation system itself (this layer) + documentation-consistency audit |
-| `docs/repository/` | 12 | 🟢 Active | Repository curation & GitHub publication prep (audit, security, readiness, commit guide) |
-| `docs/assets/` | 0 (21 PNG + diagrams) | 🟢 Active | Screenshots (21) + canonical Mermaid diagrams |
+| `docs/repository/` | 11 | 🟢 Active | Repository curation & GitHub publication prep (audit, security, readiness, commit guide) |
+| `docs/assets/` | 1 (`diagrams/ARCHITECTURE.md`) + 21 PNG | 🟢 Active | Screenshots (21) + canonical Mermaid diagrams |
 | `docs/gmail-sync/` | 18 | 🟡 Historical ref | Gmail sync checklists + troubleshooting |
 | `docs/transactions/` | 4 | 🟡 Historical ref | Transactions feature checklists |
 | `docs/mobile/` | 3 | 🟡 Historical ref | Mobile UI fix checklists |

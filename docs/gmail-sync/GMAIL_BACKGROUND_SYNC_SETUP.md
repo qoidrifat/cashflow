@@ -1,5 +1,7 @@
 # Gmail Background Sync Setup
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI; auto background sync saat ini dijadwalkan oleh client, dan Supabase Edge Functions sudah dihapus. Lihat [ADR-007](../adr/ADR-007-gmail-sync.md) untuk desain Gmail sync saat ini.
+
 > ⚠️ **DEPRECATED (2026-08-02)** — Supabase sudah di-decommission penuh dari CashFlow.
 > Server-side background sync via Supabase Edge Function (`gmail-auto-sync`) + Cron
 > TIDAK lagi tersedia. Dokumen ini dipertahankan hanya sebagai catatan historis.

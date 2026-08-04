@@ -9,7 +9,7 @@
 
 ```
 ┌─────────────────┐   HTTPS/HTTP   ┌──────────────────────────────────────────┐
-│ React SPA (Vite)│ ─────────────► │ Express 5 API (server/index.js, 325 L)   │
+│ React SPA (Vite)│ ─────────────► │ Express 4 API (server/index.js, 325 L)   │
 │ port 5180       │                │  ├ /api/auth/*      → Better Auth        │
 │ · Zustand store │                │  ├ authMiddleware   → req.user (cookie)   │
 │ · localStorage  │                │  ├ SSE /api/events  → realtime push       │
@@ -27,7 +27,7 @@
 
 **Fakta terverifikasi:**
 - Frontend: React 18 + TypeScript + Vite 5 + TailwindCSS + Zustand + React Router (`src/`, ~20 pages/features).
-- Backend: Express 5, entry `server/index.js` **325 baris** (pasca-ekstraksi P4.14) + **12 route modules** (`server/routes/*`, total server 5.082 baris).
+- Backend: Express 4 (4.22.2), entry `server/index.js` **325 baris** (pasca-ekstraksi P4.14) + **12 route modules** (`server/routes/*`, total server 5.082 baris).
 - Auth: **Better Auth** + Google OAuth (cookie httpOnly session, tabel `user/session/account/verification` di Turso).
 - DB: **Turso (libSQL)** via `@libsql/client` — singleton `server/lib/turso.js`, schema auto-verify di boot (`initTursoSchema`).
 - Realtime: **SSE custom** (`server/lib/sse.js` + `src/lib/sse.ts`) — heartbeat 30s, auto-reconnect browser.

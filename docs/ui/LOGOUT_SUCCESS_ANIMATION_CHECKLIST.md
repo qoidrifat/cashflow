@@ -28,7 +28,7 @@
 - Modal sukses baru terbuka setelah `logout()` resolve tanpa error.
 - Jika `logout()` throw error, overlay sukses tidak dirender dan toast error muncul.
 - Redirect ke `/login` ditunda 5000ms agar success logout terlihat lebih lama.
-- Header tetap merender `ProfileDropdown` selama `logoutAnimationActive` agar modal success tidak unmount setelah `firebaseUser` menjadi null.
+- Header tetap merender `ProfileDropdown` selama `logoutAnimationActive` agar modal success tidak unmount setelah session Better Auth berakhir (state user terautentikasi menjadi null).
 - `Modal` render via portal ke `document.body`, sehingga modal logout dari Header tidak terpotong oleh `backdrop-filter` header.
 
 ## Style Sync

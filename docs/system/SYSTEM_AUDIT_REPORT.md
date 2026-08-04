@@ -17,12 +17,12 @@ CashFlow is a production-shaped, AI-native personal finance platform. Authentica
 | Layer | Implementation (verified) | Notes |
 |---|---|---|
 | Frontend | React 18 + TypeScript + Vite + Tailwind + Zustand | SPA, route-level code splitting, dark/light theme |
-| Backend | Express 5 (`server/index.js` + domain route modules) | `PORT` default 5181 |
+| Backend | Express 4.22.2 (`server/index.js` + domain route modules) | `PORT` default 5181 |
 | Auth | Better Auth (Google OAuth, DB-backed sessions) | httpOnly cookie, secure cookies in prod, `ADMIN_EMAILS` gate |
 | Database | Turso / libSQL via Kysely | 22 tables (`turso-schema.sql` canonical) |
 | Realtime | SSE (`server/lib/sse.js`) | Live notification push + connection indicator |
 | AI | Gemini primary/fallback + Vertex AI + Discovery Engine | Agent search over 3 data stores |
-| Storage | Google Cloud Storage (receipts/docs) | Server-side only |
+| Storage | Google Cloud Storage — Agent Search/Discovery Engine JSONL staging buckets only | Server-side only; receipts processed in-memory, never stored |
 | Monitoring | `admin_metrics`, `ai_usage_metrics`, `system_metrics`, `alert_rules` | Scheduler + webhook/SMTP channels |
 | Observability | request-ID middleware, pino structured logs, HTTP metrics | Sprint-2 delivery |
 
@@ -64,11 +64,11 @@ CashFlow is a production-shaped, AI-native personal finance platform. Authentica
 
 ## 5. Cloud (Google Cloud)
 
-- **Gemini** — `GEMINI_API_KEY`, `GEMINI_PRIMARY_MODEL`/`GEMINI_FALLBACK_MODEL`; used for transaction extraction, receipt OCR, monthly reports, classification.
+- **Gemini** — `GEMINI_PRIMARY_MODEL`/`GEMINI_FALLBACK_MODEL` (gemini-2.5-flash → gemini-2.5-flash-lite), invoked via Vertex AI (`@google/genai` + service account). `GEMINI_API_KEY` is **dead/legacy config — not consumed by active code**. Used for transaction extraction, receipt OCR, monthly reports, classification.
 - **Vertex AI** — `GOOGLE_CLOUD_PROJECT`/`GCP_LOCATION`; `server/lib/vertexContext.js` (timeouts, retries, quota mapping).
 - **Discovery Engine** — agent search over 3 data stores (transactions, gmail logs, receipts) with sync endpoints (`/api/agent-search/sync-*`).
 - **Gmail API** — server-side OAuth token flow (`/api/gmail/token`), scan + classification pipeline.
-- **Cloud Storage** — receipts/docs buckets (`AGENT_SEARCH_DOCS_BUCKET`, `AGENT_SEARCH_DATA_BUCKET`).
+- **Cloud Storage** — staging buckets for Agent Search/Discovery Engine JSONL import only (`AGENT_SEARCH_DOCS_BUCKET`, `AGENT_SEARCH_DATA_BUCKET`); receipts are processed in-memory and never stored.
 
 ---
 
@@ -113,7 +113,7 @@ CashFlow is a production-shaped, AI-native personal finance platform. Authentica
 | ~~`supabase/` + `firestore.*` archive folders~~ | — | ✅ **Resolved 2026-08-03** — deleted (Edge Function, migrations, `firestore.rules`/`indexes.json`, 2 legacy migrate scripts) |
 | `server/index.js` monolith (~1650 lines) | Medium | Route modules exist; further extraction planned |
 | Docs still referencing legacy stack | Low | Migration docs marked superseded |
-| `GEMINI_API_KEY` in production (vs Vertex service account) | Medium | Decision documented in enterprise audit |
+| ~~`GEMINI_API_KEY` in production (vs Vertex service account)~~ | — | ✅ **Resolved** — `GEMINI_API_KEY` is dead/legacy config, not consumed by code; AI runs exclusively via Vertex AI service account |
 
 ---
 

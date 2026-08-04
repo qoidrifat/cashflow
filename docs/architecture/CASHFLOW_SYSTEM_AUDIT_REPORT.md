@@ -1,5 +1,7 @@
 # CashFlow System Audit Report
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Klaim "Supabase Auth + RLS" di bawah sudah tidak berlaku. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI. Lihat [ADR-001..007](../adr/INDEX.md) untuk keputusan arsitektur terkini.
+
 **Audit Date:** 21 Juni 2026  
 **Auditor:** Senior Fullstack Engineer, Software Architect, QA Engineer, Security Reviewer  
 **Project Version:** 1.0.0  

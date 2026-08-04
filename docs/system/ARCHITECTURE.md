@@ -13,7 +13,7 @@
 └────────────────────────────────┬─────────────────────────────────────┘
                                  │ HTTP + SSE
 ┌────────────────────────────────▼─────────────────────────────────────┐
-│                        Express 5 API · Port 5181                     │
+│                        Express 4 API · Port 5181                     │
 │  ├─ Better Auth (Google OAuth, DB sessions, req.user)                │
 │  ├─ Observability: request-ID → pino logs → HTTP metrics             │
 │  ├─ Rate limiting (auth) · Helmet · CORS · Multer                    │
@@ -44,7 +44,7 @@
 
 ---
 
-## 3. Backend (Express 5)
+## 3. Backend (Express 4)
 
 - **Bootstrap:** `server/index.js` — middleware chain, route mounting, SSE hub, alert scheduler, graceful shutdown (SIGINT/SIGTERM).
 - **Auth:** `server/lib/auth.js` — Better Auth instance; Google social provider; `BETTER_AUTH_SECRET` (dev fallback guarded by log warning); `useSecureCookies` in production; `trustedOrigins` from env.

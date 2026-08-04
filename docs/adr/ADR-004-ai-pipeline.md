@@ -1,6 +1,8 @@
 # ADR-004: AI Pipeline — Gemini, Resilience Layer, Cost Tracking
 
 > **Status:** Accepted · **Date:** 2026-07 · **Owner:** Core Engineering · **Related:** [ADR-006](ADR-006-discovery-engine.md), [ADR-005](ADR-005-monitoring.md)
+>
+> **Update (2026-08-04):** the `@google/generative-ai` / Gemini API-key path was removed. AI now runs **exclusively via Vertex AI** (`@google/genai` + service account); `GEMINI_API_KEY` is dead/legacy config not consumed by code.
 
 ## Context
 

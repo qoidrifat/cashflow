@@ -1,5 +1,7 @@
 # Gmail Extracted Note Schema Fix Checklist
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI. Lihat [ADR-001..007](../adr/INDEX.md) untuk keputusan arsitektur terkini; desain Gmail sync saat ini ada di [ADR-007](../adr/ADR-007-gmail-sync.md).
+
 ## Masalah
 
 * [x] Error muncul: `Could not find the 'extracted_note' column of 'gmail_sync_logs' in the schema cache`

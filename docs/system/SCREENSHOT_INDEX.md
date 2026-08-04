@@ -1,6 +1,6 @@
 # CashFlow — Screenshot Index
 
-> All screenshots captured **2026-08-03** from the running application (localhost:5180) using the Playwright cookie-auth harness (`e2e/capture-screenshots.spec.ts` — temporary tool, not part of the test suite). Viewport: desktop `1440×900`, mobile `390×844`. Stored in `docs/assets/screenshots/`.
+> All screenshots captured **2026-08-03** from the running application (localhost:5180) using a temporary Playwright cookie-auth capture harness that has since been removed (it was never part of the test suite). Viewport: desktop `1440×900`, mobile `390×844`. Stored in `docs/assets/screenshots/`.
 
 ## Public pages
 

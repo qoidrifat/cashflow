@@ -40,7 +40,7 @@ Semua gate berjalan **berurutan dalam satu job** — build hanya dijalankan sete
 |---|---|---|
 | `TURSO_DATABASE_URL` | `server/index.js` (boot) → webServer auto-start | **YA** — tanpa ini API tidak boot, seluruh suite gagal |
 | `TURSO_AUTH_TOKEN` | `server/lib/turso.js` | **YA** |
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Frontend boot | Opsional — **terbukti aman kosong**: `src/config/supabase.ts` adalah *compatibility stub* (tidak pernah memanggil `createClient`), satu-satunya referensi lain hanya string pesan di `src/config/constants.ts` L108 (bukan throw), dan semua `import.meta.env` lain memakai fallback aman |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | ~~Frontend boot~~ (legacy) | **Tidak diperlukan** — *catatan usang*: baris ini semula merujuk `src/config/supabase.ts` sebagai compatibility stub; stub tersebut sudah **dihapus** (Supabase di-decommission penuh 2026-08-02) dan variabel ini tidak dibaca oleh kode aktif mana pun |
 | `GEMINI_API_KEY` | Fitur AI (server-side) | Opsional — server tidak memvalidasi key saat boot (komentar `server/index.js` L7), dan spec saat ini tidak memanggil AI riil (di-mock, lihat `AI_E2E_STRATEGY.md`) |
 
 > ⚠️ Env server dibaca **langsung dari `process.env`** (dotenv hanya fallback dari `server/.env`), jadi menyetel secret di GitHub Actions cukup — tidak perlu commit `.env`.

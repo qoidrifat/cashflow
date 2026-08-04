@@ -1,5 +1,7 @@
 # CashFlow Notification Database Schema
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI. Lihat [ADR-001..007](adr/INDEX.md) untuk keputusan arsitektur terkini. Skema database aktif saat ini ada di [`turso-schema.sql`](../turso-schema.sql) (root repo), bukan migration Supabase.
+
 Tanggal: 2026-06-20
 
 Migration file:

@@ -32,7 +32,7 @@ flowchart LR
         VERTEX[Vertex AI]
         DE[Discovery Engine<br/>Agent Search · 3 data stores]
         GMAIL[Gmail API]
-        STORAGE[Cloud Storage<br/>receipts & docs]
+        STORAGE[Cloud Storage<br/>Agent Search JSONL staging]
     end
 
     subgraph Mon["Monitoring & Alerts"]

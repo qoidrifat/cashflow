@@ -33,7 +33,7 @@ Closes #<!-- issue number -->
 ## Documentation
 
 - [ ] Behavior changes are reflected in `docs/` (folder `INDEX.md` updated if new docs added)
-- [ ] `docs/` changes follow [docs/meta/DOCUMENTATION_STYLE_GUIDE.md](docs/meta/DOCUMENTATION_STYLE_GUIDE.md) (English for public docs, metadata headers, relative links)
+- [ ] `docs/` changes follow [docs/meta/DOCUMENTATION_STYLE_GUIDE.md](../docs/meta/DOCUMENTATION_STYLE_GUIDE.md) (English for public docs, metadata headers, relative links)
 
 ## Checklist before merge
 

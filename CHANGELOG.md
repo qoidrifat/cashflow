@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.0.0] - 2026-08-04
 
-Initial enterprise baseline. Full-stack AI-native personal finance platform: React 18 + Vite + Express 5 + Better Auth + Turso (libSQL) + Google Vertex AI / Gemini / Discovery Engine / Gmail API.
+Initial enterprise baseline. Full-stack AI-native personal finance platform: React 18 + Vite + Express 4 (4.22.2) + Better Auth + Turso (libSQL) + Google Vertex AI / Gemini / Discovery Engine / Gmail API.
 
 ### Added
 

@@ -55,7 +55,7 @@ Open <http://localhost:5180> and sign in with Google.
 | Path | Responsibility |
 |---|---|
 | `src/` | React 18 SPA (features, services, stores, utils) |
-| `server/` | Express 5 API (routes/, services/, middleware/, lib/) |
+| `server/` | Express 4 (4.22.2) API (routes/, services/, middleware/, lib/) |
 | `e2e/` | Playwright: specs, helpers (session minting), contract, visual, performance |
 | `tests/` | Vitest unit tests (parsers, validators, mappers, helpers) |
 | `scripts/` | Ops utilities: schema apply, E2E seed, Turso backup/restore, stability gate |

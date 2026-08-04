@@ -41,7 +41,7 @@ CashFlow is a full-stack AI-native personal finance platform (React + Vite + Exp
 ```text
 cashflow/
 ├─ src/            # React frontend (pages, services, store, utils, types)
-├─ server/         # Express 5 API (index.js monolith + routes/services/middleware/lib)
+├─ server/         # Express 4 (4.22.2) API (index.js monolith + routes/services/middleware/lib)
 ├─ e2e/            # Playwright (specs, helpers, contract, performance, visual baselines)
 ├─ tests/          # Vitest unit tests
 ├─ scripts/        # Ops utilities (seed, backup/restore Turso, apply schema, stability gate)

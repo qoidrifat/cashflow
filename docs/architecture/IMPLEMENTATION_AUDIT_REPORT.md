@@ -7,7 +7,7 @@
 
 # 1. Executive Summary
 
-CashFlow adalah aplikasi manajemen keuangan pribadi dengan arsitektur **React 18 + Vite 5 + TypeScript (frontend)** dan **Express 5 + Turso/libSQL + Better Auth (backend)**, dengan fitur AI (Gemini, Agent Search, Receipt OCR) dan integrasi Gmail. Sistem E2E berbasis **Playwright** telah dimodernisasi ke standar enterprise: **17 test deterministik (17/17 passed 3× run — 1.0m/57.5s/59.9s; 0 flaky pasca-P1; 8/8 era awal)**, helper auth cookie-login tanpa Google OAuth manual, ditemukan + difix **satu bug race produksi nyata** di halaman Gmail Sync, dan **auth gate regression guard** untuk `/api/agent-search/*`.
+CashFlow adalah aplikasi manajemen keuangan pribadi dengan arsitektur **React 18 + Vite 5 + TypeScript (frontend)** dan **Express 4 (4.22.2) + Turso/libSQL + Better Auth (backend)**, dengan fitur AI (Gemini, Agent Search, Receipt OCR) dan integrasi Gmail. Sistem E2E berbasis **Playwright** telah dimodernisasi ke standar enterprise: **17 test deterministik (17/17 passed 3× run — 1.0m/57.5s/59.9s; 0 flaky pasca-P1; 8/8 era awal)**, helper auth cookie-login tanpa Google OAuth manual, ditemukan + difix **satu bug race produksi nyata** di halaman Gmail Sync, dan **auth gate regression guard** untuk `/api/agent-search/*`.
 
 **Verdict keseluruhan: IMPLEMENTASI PLAN E2E MODERNIZATION: 100% SELESAI.** Inti (bagian 1–8) selesai **33/33 item (100%)**; rekomendasi lanjutan (bagian 9) **4/4 selesai**; fix pasca-audit (bagian 10–11) **12/12 item selesai** — termasuk E2E auth gate guard admin metrics + script npm (11e/11f), setelah fix `authMiddleware` (P0) menghilangkan flaky. Suite kini 17 test (6 spec).
 

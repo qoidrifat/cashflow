@@ -35,6 +35,8 @@
 
 ## 4. Supabase (Kompatibilitas)
 
+> **Update (2026-08-04):** stub `src/config/supabase.ts` yang diaudit di bagian ini sudah **dihapus** — Supabase di-decommission penuh sejak 2026-08-02. Temuan di seksi ini adalah arsip historis; tidak ada kode Supabase tersisa di jalur aktif.
+
 - **`src/config/supabase.ts` = stub penuh** — tidak ada koneksi riil, tidak ada key client bundle. `@supabase/supabase-js` masih di dependencies tapi tidak aktif di jalur utama.
 - ⚠️ **`resolveAdmin()` di `server/index.js` berkomentar "Supabase JWT"** (L1545–1547) — komentar tidak sinkron dengan stack Better Auth; **verifikasi diperlukan** apakah admin metrics masih memvalidasi JWT Supabase atau sudah pakai session Better Auth. Ini satu-satunya titik yang berpotensi bergantung pada Supabase legacy di server.
 

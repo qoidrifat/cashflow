@@ -1,5 +1,7 @@
 # Gmail Range and Result Pagination Checklist
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI. Lihat [ADR-001..007](../adr/INDEX.md) untuk keputusan arsitektur terkini; desain Gmail sync saat ini ada di [ADR-007](../adr/ADR-007-gmail-sync.md).
+
 ## Range Pengambilan Gmail
 - [x] Start date diset ke 2026-01-01
 - [x] End date dihitung dinamis saat user login/klik scan

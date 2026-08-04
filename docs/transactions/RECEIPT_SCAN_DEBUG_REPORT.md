@@ -1,5 +1,7 @@
 # Receipt Scan Debug Report
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI; receipt diproses in-memory dan tidak pernah disimpan di GCS. Lihat [ADR-001..007](../adr/INDEX.md) untuk keputusan arsitektur terkini.
+
 ## Root Cause
 
 Fitur Scan Bukti tidak berfungsi end-to-end karena modal `ScanReceiptModal` sudah di-import dan state `showScanModal` sudah ada di `TransactionsPage`, tetapi komponen modal tidak dirender di JSX akhir halaman. Akibatnya klik tombol `Scan Bukti` hanya mengubah state dan tidak menampilkan modal.

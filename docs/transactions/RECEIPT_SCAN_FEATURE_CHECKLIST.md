@@ -1,5 +1,7 @@
 # Receipt Scan Feature Checklist
 
+> ⚠️ **STATUS: ARSIP HISTORIS (SUPERSEDED)** — Dokumen ini ditulis pada era Supabase/Firebase (sebelum 2026-08-02) dan TIDAK mencerminkan arsitektur aktif. Arsitektur saat ini: Express 4 + Better Auth + Turso (libSQL) + SSE + Vertex AI; receipt diproses in-memory dan tidak pernah disimpan di GCS. Lihat [ADR-001..007](../adr/INDEX.md) untuk keputusan arsitektur terkini.
+
 ## Fix Scan Bukti Not Working
 
 * [x] Tombol Scan Bukti ditemukan
