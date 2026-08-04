@@ -7,13 +7,24 @@ on:
     branches: [main, gh-pages]
   workflow_dispatch:
 
-# Penting: SERIALISASI GLOBAL semua run E2E.
+# Penting: SERIALISASI GLOBAL semua run E2E yang menyentuh DB/server.
 # Playwright workers:1 + webServer bersama + DB Turso bersama (mintSession menulis
 # ke DB yang sama) → dua run paralel (mis. push ke main + PR) akan saling rebut
 # server/DB dan memicu flaky (ditemukan saat investigasi flake). Jangan ubah group
 # menjadi per-ref — push & PR punya ref berbeda dan bisa berjalan paralel.
+#
+# Pengecualian TERPISAH: run dependabot[bot]. Job e2e/visual/perf di-skip untuk
+# dependabot (if: github.actor != dependabot[bot]) sehingga run dependabot HANYA
+# menjalankan quality + gitleaks — TIDAK menyentuh DB Turso / webServer Playwright.
+# Sebelum ini, run dependabot masuk group `e2e` yang sama → cancel-in-progress
+# membatalkan run push yang sah (terbukti run f91fb9a di-cancel PR dependabot
+# 30934765113). Group terpisah untuk dependabot = aman (tanpa akses resource E2E)
+# dan push/PR normal tetap terserialisasi global.
 concurrency:
-  group: e2e
+  # Hanya DUA nilai: 'dependabot' (terisolasi) vs 'normal' (semua run lain).
+  # JANGAN pakai github.ref di sini — push & PR normal punya ref berbeda dan bisa
+  # berjalan paralel, padahal keduanya menyentuh DB Turso yang sama (aturan di atas).
+  group: e2e-${{ github.actor == 'dependabot[bot]' && 'dependabot' || 'normal' }}
   cancel-in-progress: true
 
 permissions:

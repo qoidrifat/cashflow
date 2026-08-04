@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **GitHub collaboration layer** — `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, and `dependabot.yml` (repository curation, 2026-08-04).
 - **CI secret scan** — Gitleaks job in `.github/workflows/e2e.yml` (full-history scan, pinned binary v8.30.1, license-free; 8 known findings allowlisted in `.gitleaksignore`) — GITHUB_READINESS score 98 → 100.
 - **CI dependabot guard** — e2e / visual-regression / performance jobs skipped for `dependabot[bot]` PRs (Dependabot has no access to Turso secrets, so those jobs always failed and flooded the global `e2e` concurrency group, cancelling legitimate push runs).
+- **CI unit-test gate** — `npm run test:unit` (334 vitest tests) added to the quality job + server dependencies install, closing the gap where unit-test regressions (e.g. 8 G3 mock-state-leak failures) went undetected (Phase-1 hardening audit, 2026-08-04).
+- **CI concurrency isolation** — Dependabot runs moved to their own `e2e-dependabot` concurrency group (they only run quality + gitleaks, no DB/server access), so Dependabot PRs no longer cancel legitimate push runs via the shared `e2e` group (fixed after run `30934509118` was cancelled by Dependabot PR run `30934765113`).
+- **Phase-1 hardening** — validation layer P1-2 (`server/lib/validation.js`, notificationGuard), 334 unit tests / 54 E2E tests, audit reports in `docs/review/PHASE1_*` (8/8 fixes verified, production readiness 78/100), GCP key rotation checklist (`docs/security/GCP_KEY_ROTATION_CHECKLIST.md`), Turso section added to `server/.env.example`.
 
 ### Security
 
