@@ -6,8 +6,16 @@ export const authClient = createAuthClient({
   baseURL: getApiBaseUrl(),
 });
 
+// P0-3: the Google provider token is cached in-memory ONLY (page lifetime).
+// sessionStorage caching was removed — XSS-readable storage of provider tokens
+// is the risk being closed. Legacy cached values are purged once on load.
 let gmailAccessToken: string | null = null;
-const GMAIL_PROVIDER_TOKEN_KEY = 'cashflow-google-provider-token';
+const LEGACY_GMAIL_PROVIDER_TOKEN_KEY = 'cashflow-google-provider-token';
+try {
+  sessionStorage.removeItem(LEGACY_GMAIL_PROVIDER_TOKEN_KEY);
+} catch {
+  /* sessionStorage unavailable (e.g. privacy mode) — nothing to purge */
+}
 
 export async function getCurrentUser(): Promise<AppUser | null> {
   try {
@@ -56,33 +64,31 @@ export async function signInWithGoogle(_redirectPath = '/auth/callback'): Promis
 
 export async function signOutUser(): Promise<void> {
   gmailAccessToken = null;
-  sessionStorage.removeItem(GMAIL_PROVIDER_TOKEN_KEY);
   await authClient.signOut();
 }
 
 export async function requestGmailAccessToken(): Promise<string> {
-  const token = gmailAccessToken || sessionStorage.getItem(GMAIL_PROVIDER_TOKEN_KEY);
-  if (token) return token;
+  if (gmailAccessToken) return gmailAccessToken;
 
   try {
     const data = await apiGet<{ accessToken: string }>('/api/gmail/token');
     if (data?.accessToken) {
       gmailAccessToken = data.accessToken;
-      sessionStorage.setItem(GMAIL_PROVIDER_TOKEN_KEY, data.accessToken);
       return data.accessToken;
     }
   } catch {
-    // If not found in account table, fallback to re-authenticating
+    // 401 { error: 'token_expired' } or 404 (no token stored): drop any stale
+    // in-memory cache and fall through to re-sign-in with Gmail scope.
+    gmailAccessToken = null;
   }
 
-  // Re-trigger sign in with Gmail scope if token not cached
+  // Re-trigger sign in with Gmail scope if token not cached/expired
   await signInWithGoogleGmail();
   throw new Error('Mengarahkan ke Google untuk mengizinkan akses Gmail...');
 }
 
 export function clearGmailAccessToken(): void {
   gmailAccessToken = null;
-  sessionStorage.removeItem(GMAIL_PROVIDER_TOKEN_KEY);
 }
 
 export async function signInWithGoogleGmail(): Promise<void> {

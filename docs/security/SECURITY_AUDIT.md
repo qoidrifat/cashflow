@@ -30,15 +30,19 @@
 ## 3. Gmail OAuth & Token Exposure
 
 - Google OAuth scope `gmail.readonly` (auth.js) — prinsip least-privilege untuk scan email. ✅
-- `provider_token` Gmail di-cache dari session (per `.kiro/specs/auth.md`); endpoint `/api/gmail/token` dilindungi `requireAuth`. ✅
+- `provider_token` Gmail: cache **in-memory saja** di client (update 2026-08-04,
+  per `.kiro/specs/auth.md`) — entri `sessionStorage` legacy di-purge saat module
+  load; endpoint `/api/gmail/token` dilindungi `requireAuth`, memvalidasi
+  `accessTokenExpiresAt` (ISO-8601, skew 60 dtk, fail closed → 401 `token_expired`),
+  dan `refreshToken` tidak pernah meninggalkan server. ✅
 - Token tidak pernah dikirim ke client bundle (semua AI/scan di server-side, `server/.env` GEMINI — lihat `.env.example`: "API key hanya di server"). ✅
 
-## 4. Supabase (Kompatibilitas)
+## 4. Supabase (Decommissioned)
 
-> **Update (2026-08-04):** stub `src/config/supabase.ts` yang diaudit di bagian ini sudah **dihapus** — Supabase di-decommission penuh sejak 2026-08-02. Temuan di seksi ini adalah arsip historis; tidak ada kode Supabase tersisa di jalur aktif.
+> **Update (2026-08-04):** Supabase di-decommission penuh — tidak ada kode Supabase tersisa di jalur aktif.
 
-- **`src/config/supabase.ts` = stub penuh** — tidak ada koneksi riil, tidak ada key client bundle. `@supabase/supabase-js` masih di dependencies tapi tidak aktif di jalur utama.
-- ⚠️ **`resolveAdmin()` di `server/index.js` berkomentar "Supabase JWT"** (L1545–1547) — komentar tidak sinkron dengan stack Better Auth; **verifikasi diperlukan** apakah admin metrics masih memvalidasi JWT Supabase atau sudah pakai session Better Auth. Ini satu-satunya titik yang berpotensi bergantung pada Supabase legacy di server.
+- `src/config/supabase.ts` (compatibility stub) **dihapus**; dependensi `@supabase/supabase-js` **dihapus** dari `package.json` (commit `55d11d2`, 0 match terverifikasi 2026-08-04). Arsip `supabase/` + `firestore.*` dipindah ke arsip.
+- **`resolveAdmin()` sudah diganti** — admin metrics kini memakai `req.user` dari `authMiddleware` (Better Auth session cookie) + `getAdminEmails()` dari env `ADMIN_EMAILS` (`server/routes/adminMetricsRoutes.js`). Tidak ada validasi JWT Supabase. (Perbaikan diverifikasi ulang pada audit Phase-1 2026-08-04.)
 
 ## 5. Logging & Error Exposure
 
@@ -61,14 +65,14 @@
 | Secrets handling | 8.5/10 | .gitignore kuat; fallback secret & pre-first-commit perlu perhatian |
 | Auth & cookies | 7.5/10 | Dev config benar; produksi butuh hardening (secure cookies, secret produksi, origin) |
 | Gmail/OAuth | 8.5/10 | Least-privilege scope, server-side tokens |
-| Supabase legacy | 7/10 | Stub aman; komentar `resolveAdmin` usang perlu verifikasi |
+| Supabase legacy | 10/10 | Decommission penuh; `resolveAdmin` sudah Better Auth (0 referensi aktif) |
 | Logging/exposure | 6.5/10 | Redaction & error-envelope belum ada |
-| **Overall** | **7.6/10** | Tidak ada Critical issue terverifikasi; 2 area butuh hardening pra-produksi |
+| **Overall** | **8.5/10** | Superseded oleh `docs/review/PHASE1_SECURITY_REVIEW.md` (2026-08-04): resolveAdmin/Better Auth, supabase-js dihapus, secure cookies produksi aktif — 2 area hardening tersisa (wildcard origin, error detail non-prod) |
 
 ## 8. Prioritas (rekomendasi, TIDAK dieksekusi)
 
 1. **High**: Pastikan `BETTER_AUTH_SECRET` produksi ≠ fallback dev; aktifkan secure cookies di produksi.
 2. **High**: Sebelum commit pertama, audit staging — pastikan service accounts & .env tidak ter-track.
-3. **Medium**: Verifikasi/ganti `resolveAdmin` — apakah masih butuh Supabase JWT atau migrasi ke Better Auth session.
+3. ~~**Medium**: Verifikasi/ganti `resolveAdmin`~~ — **SELESAI (2026-08-04)**: admin metrics sudah migrasi ke `req.user` (authMiddleware/Better Auth) + `getAdminEmails()` (`server/routes/adminMetricsRoutes.js`); tidak ada validasi JWT Supabase. Lihat §4.
 4. **Medium**: Redact error sebelum dikirim ke client (envelope `{ error: { message } }`).
 5. **Low**: Hapus wildcard trustedOrigins ngrok/loca.lt di produksi.

@@ -77,13 +77,13 @@ export default function App() {
     }
 
     setNotificationLoading(true);
-    fetchNotifications(authUser.uid, { limit: 30 })
+    fetchNotifications(authUser.uid, { limit: 100 })
       .then(setNotifications)
       .catch((error) => logger.warn('[App] Initial notifications fetch failed', error))
       .finally(() => setNotificationLoading(false));
 
     const refetchOnFocus = () => {
-      fetchNotifications(authUser.uid, { limit: 30 })
+      fetchNotifications(authUser.uid, { limit: 100 })
         .then(setNotifications)
         .catch((error) => logger.warn('[App] Notification focus refetch failed', error));
     };

@@ -12,7 +12,7 @@ Store metrics in Turso and evaluate alerts in-process:
 
 - Tables: `admin_metrics` (feature calls), `ai_usage_metrics` (tokens/latency/cost), `system_metrics` (memory/CPU), `alert_rules`.
 - In-process alert scheduler (`ALERT_SCHEDULER_ENABLED`, interval + cooldown) evaluates rules and fires channels.
-- Channels: in-app notification + webhook (`ALERT_WEBHOOK_URL`) + SMTP (`SMTP_*`).
+- Channels: in-app notification + webhook (`ALERT_WEBHOOK_URL`) + SMTP (`SMTP_*`, env-gated: `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` required; recipients `ADMIN_EMAILS`).
 - Observability middleware: request-ID → pino structured logs → HTTP metrics (4xx/5xx/latency).
 - Admin routes gated by `ADMIN_EMAILS` (E2E-tested 401/403).
 

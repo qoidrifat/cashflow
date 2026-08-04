@@ -46,11 +46,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Unit tests meng-import server modules (gmailRoutes → authMiddleware →
+      # auth.js → @better-auth/infra; agentSearch → google-auth-library /
+      # @google-cloud/storage) yang hanya ada di server/package.json, BUKAN root.
+      # Tanpa install server deps, `npm run test:unit` gagal di CI fresh install
+      # (locally lolos karena server/node_modules ter-hoist dari install e2e
+      # sebelumnya — verifikasi reviewer Phase-1 2026-08-04).
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
       - name: Lint (tsc src)
         run: npm run lint
 
       - name: Typecheck E2E
         run: npm run test:e2e:typecheck
+
+      # Unit tests (vitest) — pure logic, TANPA secrets/Turso → bisa jalan di
+      # quality job tanpa DB. Audit Phase-1 (2026-08-04) menemukan 8 test G3
+      # gagal (mock state leak) yang TIDAK terdeteksi karena test:unit tidak
+      # pernah dijalankan CI. Gate ini menutup gap tersebut: regresi unit test
+      # kini memblokir merge sebelum e2e (needs: quality).
+      - name: Unit tests (vitest)
+        run: npm run test:unit
 
       - name: Build
         run: npm run build

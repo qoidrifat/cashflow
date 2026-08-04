@@ -1,11 +1,133 @@
 /**
  * Professional Suite Routes for CashFlow
  * (Wallet Accounts, Saving Goals, Subscriptions)
+ *
+ * P1-2 (Validation Layer): semua write-endpoint divalidasi via
+ * server/lib/validation.js. Gagal validasi → 400 VALIDATION_ERROR
+ * (sendValidationError), JANGAN PERNAH 401. Bentuk respons SUKSES tidak
+ * berubah (contract-pinned). Enum dirujuk dari nilai kanonik frontend
+ * (src/types/index.ts: WalletAccountType, SavingGoalStatus,
+ * SubscriptionCycle, SubscriptionStatus) — satu-satunya caller endpoint ini
+ * adalah ProfessionalSuitePage via professionalSuiteService.ts, sehingga
+ * setiap request sah hari ini tetap lolos.
  */
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import {
+  validateBody,
+  sendValidationError,
+  validateRequiredString,
+  validateOptionalString,
+  validateEnum,
+  validateAmount,
+  validateBoolean,
+  validateIsoDate,
+  validateId,
+} from '../lib/validation.js';
 import crypto from 'node:crypto';
+
+// ================= Enum kanonik (sumber: src/types/index.ts) =================
+
+/** WalletAccountType — dipakai zod walletSchema di ProfessionalSuitePage. */
+export const WALLET_TYPES = ['cash', 'bank', 'e-wallet', 'credit', 'investment', 'other'];
+
+/** SavingGoalStatus — status 'on-track'/'completed' juga dihitung server saat POST. */
+export const GOAL_STATUSES = ['on-track', 'behind', 'completed'];
+
+/** SubscriptionCycle — detectSubscriptions hanya menghasilkan 'monthly'. */
+export const SUBSCRIPTION_CYCLES = ['weekly', 'monthly', 'quarterly', 'yearly'];
+
+/** SubscriptionStatus — default POST 'active' (perilaku lama dipertahankan). */
+export const SUBSCRIPTION_STATUSES = ['active', 'paused', 'cancelled'];
+
+/**
+ * Tanggal ISO fail-closed tetapi MENGEMBALIKAN string mentah (di-trim), bukan
+ * hasil normalisasi toISOString() — format tersimpan ('YYYY-MM-DD' kiriman
+ * client) tidak boleh berubah agar pembaca existing tetap kompatibel.
+ */
+export function validateRawIsoDate(value, opts) {
+  const check = validateIsoDate(value, opts);
+  if (!check.ok || check.value === undefined) return check;
+  return { ok: true, value: typeof value === 'string' ? value.trim() : check.value };
+}
+
+/**
+ * Wrapper pola partial PUT: field TIDAK dikirim (undefined) → dilewati
+ * (undefined-skip dipertahankan); field dikirim divalidasi seperti biasa.
+ */
+export const whenPresent = (validator) => (value, opts) =>
+  (value === undefined ? { ok: true, value: undefined } : validator(value, opts));
+
+// ================= Skema validasi (di-export untuk unit test) =================
+
+export const WALLET_CREATE_SCHEMA = {
+  name: { validate: validateRequiredString, options: { field: 'name', max: 100 } },
+  type: { validate: validateEnum, options: { field: 'type', values: WALLET_TYPES, required: true } },
+  institution: { validate: validateOptionalString, options: { field: 'institution', max: 100 } },
+  // zod client: balance min(0) → negatif ditolak (tidak ada caller sah negatif).
+  balance: { validate: validateAmount, options: { field: 'balance' } },
+  color: { validate: validateOptionalString, options: { field: 'color', max: 50 } },
+};
+
+export const WALLET_UPDATE_SCHEMA = {
+  name: { validate: whenPresent(validateRequiredString), options: { field: 'name', max: 100 } },
+  type: { validate: whenPresent(validateEnum), options: { field: 'type', values: WALLET_TYPES } },
+  institution: { validate: whenPresent(validateOptionalString), options: { field: 'institution', max: 100 } },
+  balance: { validate: whenPresent(validateAmount), options: { field: 'balance' } },
+  color: { validate: whenPresent(validateOptionalString), options: { field: 'color', max: 50 } },
+  archived: { validate: whenPresent(validateBoolean), options: { field: 'archived' } },
+};
+
+export const GOAL_CREATE_SCHEMA = {
+  name: { validate: validateRequiredString, options: { field: 'name', max: 100 } },
+  // zod client: targetAmount positive — dipakai menghitung status saat create.
+  targetAmount: { validate: validateAmount, options: { field: 'targetAmount', required: true } },
+  currentAmount: { validate: validateAmount, options: { field: 'currentAmount' } },
+  targetDate: { validate: validateRawIsoDate, options: { field: 'targetDate' } },
+  color: { validate: validateOptionalString, options: { field: 'color', max: 50 } },
+};
+
+export const GOAL_UPDATE_SCHEMA = {
+  name: { validate: whenPresent(validateRequiredString), options: { field: 'name', max: 100 } },
+  targetAmount: { validate: whenPresent(validateAmount), options: { field: 'targetAmount' } },
+  currentAmount: { validate: whenPresent(validateAmount), options: { field: 'currentAmount' } },
+  targetDate: { validate: whenPresent(validateRawIsoDate), options: { field: 'targetDate' } },
+  color: { validate: whenPresent(validateOptionalString), options: { field: 'color', max: 50 } },
+  status: { validate: whenPresent(validateEnum), options: { field: 'status', values: GOAL_STATUSES } },
+};
+
+export const SUBSCRIPTION_CREATE_SCHEMA = {
+  name: { validate: validateRequiredString, options: { field: 'name', max: 100 } },
+  // zod client: amount positive.
+  amount: { validate: validateAmount, options: { field: 'amount', required: true } },
+  cycle: { validate: validateEnum, options: { field: 'cycle', values: SUBSCRIPTION_CYCLES, required: true } },
+  // categoryId/categoryName opsional: detectSubscriptions mengirim partial tanpa categoryId.
+  categoryId: { validate: validateOptionalString, options: { field: 'categoryId', max: 100 } },
+  categoryName: { validate: validateOptionalString, options: { field: 'categoryName', max: 100 } },
+  nextBillingDate: { validate: validateRawIsoDate, options: { field: 'nextBillingDate' } },
+  status: { validate: validateEnum, options: { field: 'status', values: SUBSCRIPTION_STATUSES } },
+};
+
+export const SUBSCRIPTION_UPDATE_SCHEMA = {
+  name: { validate: whenPresent(validateRequiredString), options: { field: 'name', max: 100 } },
+  amount: { validate: whenPresent(validateAmount), options: { field: 'amount' } },
+  cycle: { validate: whenPresent(validateEnum), options: { field: 'cycle', values: SUBSCRIPTION_CYCLES } },
+  categoryId: { validate: whenPresent(validateOptionalString), options: { field: 'categoryId', max: 100 } },
+  categoryName: { validate: whenPresent(validateOptionalString), options: { field: 'categoryName', max: 100 } },
+  nextBillingDate: { validate: whenPresent(validateRawIsoDate), options: { field: 'nextBillingDate' } },
+  status: { validate: whenPresent(validateEnum), options: { field: 'status', values: SUBSCRIPTION_STATUSES } },
+};
+
+/** Tolak id path param tak valid dengan 400 VALIDATION_ERROR (bukan 401/500). */
+function rejectInvalidId(res, rawId) {
+  const check = validateId(rawId, { field: 'id' });
+  if (!check.ok) {
+    sendValidationError(res, check);
+    return false;
+  }
+  return true;
+}
 
 export function registerProfessionalSuiteRoutes(app) {
   // ================= WALLET ACCOUNTS =================
@@ -28,7 +150,12 @@ export function registerProfessionalSuiteRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
-      const { name, type, institution = '', balance = 0, color = '#8b5cf6' } = req.body;
+
+      // P1-2: validasi body (400 VALIDATION_ERROR bila gagal); field tak
+      // dikenal dibuang (anti mass-assignment).
+      const result = validateBody(req.body, WALLET_CREATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { name, type, institution = '', balance = 0, color = '#8b5cf6' } = result.value;
       const now = new Date().toISOString();
 
       await turso.execute({
@@ -46,10 +173,16 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.put('/api/wallets/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;
-      const data = req.body;
+
+      // P1-2: partial update — field undefined dilewati (pola lama), field
+      // terkirim divalidasi; gagal → 400 VALIDATION_ERROR.
+      const result = validateBody(req.body, WALLET_UPDATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const data = result.value;
 
       const updates = [];
       const args = [];
@@ -77,6 +210,7 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.delete('/api/wallets/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;
@@ -113,7 +247,11 @@ export function registerProfessionalSuiteRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
-      const { name, targetAmount, currentAmount = 0, targetDate, color = '#10b981' } = req.body;
+
+      // P1-2: validasi body (400 VALIDATION_ERROR bila gagal).
+      const result = validateBody(req.body, GOAL_CREATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { name, targetAmount, currentAmount = 0, targetDate, color = '#10b981' } = result.value;
       const now = new Date().toISOString();
 
       let status = 'on-track';
@@ -134,10 +272,15 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.put('/api/goals/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;
-      const data = req.body;
+
+      // P1-2: partial update tervalidasi (undefined-skip dipertahankan).
+      const result = validateBody(req.body, GOAL_UPDATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const data = result.value;
 
       const updates = [];
       const args = [];
@@ -165,6 +308,7 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.delete('/api/goals/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;
@@ -201,7 +345,12 @@ export function registerProfessionalSuiteRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
-      const { name, amount, cycle, categoryId, categoryName, nextBillingDate, status = 'active' } = req.body;
+
+      // P1-2: validasi body (400 VALIDATION_ERROR bila gagal). status default
+      // 'active' dipertahankan lewat destructure, bukan schema.
+      const result = validateBody(req.body, SUBSCRIPTION_CREATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { name, amount, cycle, categoryId, categoryName, nextBillingDate, status = 'active' } = result.value;
       const now = new Date().toISOString();
 
       await turso.execute({
@@ -219,10 +368,15 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.put('/api/subscriptions/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;
-      const data = req.body;
+
+      // P1-2: partial update tervalidasi (undefined-skip dipertahankan).
+      const result = validateBody(req.body, SUBSCRIPTION_UPDATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const data = result.value;
 
       const updates = [];
       const args = [];
@@ -251,6 +405,7 @@ export function registerProfessionalSuiteRoutes(app) {
 
   app.delete('/api/subscriptions/:id', requireAuth, async (req, res) => {
     try {
+      if (!rejectInvalidId(res, req.params.id)) return;
       const turso = getTurso();
       const userId = req.user.id;
       const { id } = req.params;

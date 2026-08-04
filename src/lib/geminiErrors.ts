@@ -24,6 +24,7 @@ export const GEMINI_ERROR_CODES = {
   BLOCKED: 'GEMINI_BLOCKED',
   NETWORK_ERROR: 'GEMINI_NETWORK_ERROR',
   TIMEOUT: 'GEMINI_TIMEOUT',
+  UNAUTHORIZED: 'GEMINI_UNAUTHORIZED',
   UNKNOWN: 'GEMINI_UNKNOWN_ERROR',
   FALLBACK_USED: 'GEMINI_FALLBACK_USED',
   TEMPORARY_ERROR: 'GEMINI_TEMPORARY_ERROR',
@@ -154,6 +155,14 @@ const ERROR_INFO: Record<GeminiErrorCode, GeminiErrorInfo> = {
       'Request ke AI timeout. Parser lokal akan mencoba membaca email ini.',
     isConfigError: false,
     isRetryable: true,
+    fallbackAllowed: true,
+  },
+  [GEMINI_ERROR_CODES.UNAUTHORIZED]: {
+    code: GEMINI_ERROR_CODES.UNAUTHORIZED,
+    userMessage:
+      'Sesi Anda tidak valid untuk AI proxy. Muat ulang halaman lalu masuk kembali. Parser lokal membaca email ini.',
+    isConfigError: false,
+    isRetryable: false,
     fallbackAllowed: true,
   },
   [GEMINI_ERROR_CODES.UNKNOWN]: {

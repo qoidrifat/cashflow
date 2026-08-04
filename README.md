@@ -152,7 +152,7 @@ Detailed design: [docs/system/ARCHITECTURE.md](docs/system/ARCHITECTURE.md)
 | Categories | Defaults seeding, CRUD, `isDefault` guard |
 | Notifications | In-app bell + realtime SSE push + webhook/SMTP channels |
 | Admin Monitoring | Feature health, AI usage, system metrics, cache stats |
-| Alert Rules | 60s scheduler + webhook/SMTP notification channels |
+| Alert Rules | 60s scheduler + webhook/SMTP (env-gated) notification channels |
 | Dark Mode / Mobile | Full theming, hamburger navigation, responsive layouts |
 
 ---
@@ -330,7 +330,7 @@ npm run dev:server       # serve API; host dist/ with any static server
 | `GEMINI_FALLBACK_MODEL` | ⚠️ | Fallback model (default `gemini-2.5-flash-lite`) |
 | `ADMIN_EMAILS` | ⚠️ | Comma-separated admin emails — gates `/api/admin/*` |
 | `ALERT_WEBHOOK_URL` | ⚠️ | Webhook channel for alert rules (Slack/Discord/generic) |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | ⚠️ | Email channel for alerts & Gmail review results |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | ⚠️ | Email channel for alerts (HOST+USER+PASS required, sent to `ADMIN_EMAILS`) & Gmail review results |
 | `AGENT_SEARCH_ENABLED` + `AGENT_SEARCH_*` | ⚠️ | Discovery Engine search (project, location, engine, data-store IDs, GCS bucket) — default off |
 | `PORT` | ⚠️ | API port (default `5181`) |
 
@@ -422,7 +422,7 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 - **Admin metrics API:** 7 endpoints under `/api/admin/metrics/*` (feature usage, AI usage, system, cache, alerts, …) — gated by `ADMIN_EMAILS`
 - **Alert scheduler:** evaluates `alert_rules` every **60 seconds**
-- **Channels:** webhook (`ALERT_WEBHOOK_URL`) + SMTP email, with cooldown between firings
+- **Channels:** webhook (`ALERT_WEBHOOK_URL`) + SMTP email to `ADMIN_EMAILS` (env-gated: requires `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`), with cooldown between firings
 - **Seeded rules:** AI cost threshold, failure-rate threshold, cache hit-rate threshold
 - **Observability:** request-ID middleware, pino structured logs, HTTP metrics (4xx/5xx/latency)
 - **Admin dashboard:** `/admin/monitoring` — summary cards, feature health, alert history, cache panel

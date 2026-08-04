@@ -11,10 +11,22 @@
  *   GET /api/admin/metrics/cache
  *
  * Auth: req.user dari authMiddleware (Better Auth) + ADMIN_EMAILS env.
+ *
+ * P1-2 G4 (Validation Layer — gap-fill): parameter query yang tadinya lolos
+ * tanpa validasi kini memakai shared library server/lib/validation.js:
+ *   - /system: metric_name → validateOptionalString (trim, max 191; kosong/absen
+ *     → null = tanpa filter). from/to & feature whitelist tetap seperti lama.
+ *   - /feature/:feature/calls: page & page_size → validateInt clamp [1,100000]
+ *     / [1,100] — string non-integer yang tadinya diam-diam jadi default kini
+ *     ditolak 400 (fail-closed); nilai numerik di luar rentang tetap di-clamp.
+ * Semua kegagalan validasi → 400 bentuk DOMAIN `{ ok:false,
+ * code:'ADMIN_METRICS_400', message }` via sendAdminError — BUKAN bentuk
+ * generik sendValidationError, dan JANGAN PERNAH 401.
  */
 import metricsService from '../services/metricsService.js';
 import { getAdminEmails, FEATURES } from '../config/metricsConfig.js';
 import { getAICacheStats } from '../lib/aiCache.js';
+import { validateInt, validateOptionalString, validateQuery } from '../lib/validation.js';
 
 /**
  * Resolve admin user dari session Better Auth (req.user diisi authMiddleware).
@@ -48,6 +60,27 @@ function sendAdminError(res, error) {
   return res.status(status).json({ ok: false, code: `ADMIN_METRICS_${status}`, message });
 }
 
+/**
+ * Kirim kegagalan validasi shared-library sebagai 400 bentuk domain
+ * ADMIN_METRICS_400 (bukan bentuk generik sendValidationError).
+ */
+function sendAdminValidationError(res, result) {
+  const err = new Error(result?.error || 'Parameter tidak valid.');
+  err.status = 400;
+  return sendAdminError(res, err);
+}
+
+/** Skema query GET /system — gap-fill P1-2 G4: metric_name sebelumnya tanpa validasi. */
+const SYSTEM_QUERY_SCHEMA = {
+  metric_name: { validate: validateOptionalString, options: { max: 191 } },
+};
+
+/** Skema query GET /feature/:feature/calls — clamp pola lama dipertahankan. */
+const FEATURE_CALLS_QUERY_SCHEMA = {
+  page: { validate: validateInt, options: { min: 1, max: 100000, clamp: true } },
+  page_size: { validate: validateInt, options: { min: 1, max: 100, clamp: true } },
+};
+
 function parseDateRange(req, defaultDays = 7) {
   const to = req.query.to ? new Date(req.query.to) : new Date();
   const from = req.query.from ? new Date(req.query.from) : new Date(Date.now() - defaultDays * 86400_000);
@@ -80,8 +113,11 @@ export function registerAdminMetricsRoutes(app) {
       await resolveAdmin(req);
       const { from, to } = parseDateRange(req);
       const feature = req.query.feature && FEATURES.includes(req.query.feature) ? req.query.feature : null;
+      // P1-2 G4 gap-fill: metric_name divalidasi sebelum dipakai sebagai argumen SQL.
+      const sysQuery = validateQuery(req.query, SYSTEM_QUERY_SCHEMA);
+      if (!sysQuery.ok) return sendAdminValidationError(res, sysQuery);
       const result = await metricsService.getSystemMetrics({
-        metricName: req.query.metric_name || null, from, to, feature,
+        metricName: sysQuery.value.metric_name || null, from, to, feature,
       });
       return res.json({ ok: true, ...result });
     } catch (error) {
@@ -152,8 +188,13 @@ export function registerAdminMetricsRoutes(app) {
       }
       const allowedStatus = ['all', 'success', 'failed'];
       const status = allowedStatus.includes(req.query.status) ? req.query.status : 'all';
-      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.page_size, 10) || 20));
+      // P1-2 G4 gap-fill: page/page_size via validateInt clamp. Nilai numerik
+      // di luar rentang tetap di-clamp (pola lama), tetapi string non-integer
+      // kini ditolak 400 fail-closed (tadinya diam-diam jadi default).
+      const callsQuery = validateQuery(req.query, FEATURE_CALLS_QUERY_SCHEMA);
+      if (!callsQuery.ok) return sendAdminValidationError(res, callsQuery);
+      const page = callsQuery.value.page ?? 1;
+      const pageSize = callsQuery.value.page_size ?? 20;
 
       const result = await metricsService.getFeatureCalls({ feature, status, from, to, page, pageSize });
       return res.json({ ok: true, ...result });

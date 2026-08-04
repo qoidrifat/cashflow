@@ -1,10 +1,90 @@
 /**
  * Category Routes for CashFlow
+ *
+ * P1-2 (Validation Layer) — Group G1: endpoint mutating divalidasi via
+ * server/lib/validation.js. Gagal validasi → 400 VALIDATION_ERROR via
+ * sendValidationError (JANGAN PERNAH 401). Bentuk respons SUKSES tidak
+ * berubah (contract-pinned di e2e/contract/contracts.ts).
+ *
+ * Sumber constraint (diturunkan dari kode existing, bukan karangan):
+ *  - type : CHECK DB `type IN ('income','expense')` (turso-schema.sql
+ *           categories.type) + union Category.type (src/types/index.ts).
+ *  - name wajib : kolom DB NOT NULL (absen hari ini → 500 dari SQLite).
+ *  - icon/color : default lama dipertahankan ('MoreHorizontal' / '#6b7280').
  */
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import {
+  validateBody,
+  sendValidationError,
+  validateRequiredString,
+  validateOptionalString,
+  validateEnum,
+  validateId,
+} from '../lib/validation.js';
 import crypto from 'node:crypto';
+
+// Whitelist type kategori: SAMA PERSIS dengan CHECK DB dan Category.type
+// (src/types/index.ts): 'income' | 'expense'.
+export const CATEGORY_TYPES = ['income', 'expense'];
+
+/** String opsional yang boleh kosong ('' sah utk PUT — pola lama dipertahankan). */
+export function validateClearableString(value, opts) {
+  const { field, max = 1000 } = opts || {};
+  if (value === undefined || value === null) return { ok: true, value: undefined };
+  if (typeof value !== 'string') {
+    return { ok: false, error: `${field} harus berupa teks.` };
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > max) {
+    return { ok: false, error: `${field} maksimal ${max} karakter.` };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/** Skema POST /api/categories (di-export untuk unit test). */
+export const CATEGORY_CREATE_SCHEMA = {
+  name: { validate: validateRequiredString, options: { max: 200 } },
+  type: { validate: validateEnum, options: { values: CATEGORY_TYPES, required: true } },
+  icon: { validate: validateOptionalString, options: { max: 100 } },
+  color: { validate: validateOptionalString, options: { max: 50 } },
+};
+
+/** Skema PUT /api/categories/:id — partial update (hanya field hadir). */
+export const CATEGORY_UPDATE_SCHEMA = {
+  name: { validate: validateClearableString, options: { max: 200 } },
+  type: { validate: validateEnum, options: { values: CATEGORY_TYPES } },
+  icon: { validate: validateClearableString, options: { max: 100 } },
+  color: { validate: validateClearableString, options: { max: 50 } },
+};
+
+/** Saring skema partial update: hanya field yang benar-benar hadir di body. */
+export function presentFieldsSchema(body, schema) {
+  const filtered = {};
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return filtered;
+  for (const key of Object.keys(schema)) {
+    if (body[key] !== undefined) filtered[key] = schema[key];
+  }
+  return filtered;
+}
+
+/**
+ * Skema SATU item init-defaults. id wajib: bagian PRIMARY KEY (user_id, id) —
+ * absen hari ini → constraint error SQLite → 500. name/type wajib: NOT NULL +
+ * CHECK DB. Nilai default item lama ('MoreHorizontal'/'#6b7280') dipertahankan
+ * di handler. Label field memakai `categories[i].*` agar pesan error jelas.
+ */
+export function categoryInitItemSchema(index) {
+  const prefix = `categories[${index}]`;
+  return {
+    id: { validate: validateRequiredString, options: { field: `${prefix}.id`, max: 191 } },
+    name: { validate: validateRequiredString, options: { field: `${prefix}.name`, max: 200 } },
+    type: { validate: validateEnum, options: { field: `${prefix}.type`, values: CATEGORY_TYPES, required: true } },
+    icon: { validate: validateOptionalString, options: { field: `${prefix}.icon`, max: 100 } },
+    color: { validate: validateOptionalString, options: { field: `${prefix}.color`, max: 50 } },
+  };
+}
 
 // H-2 (Sprint 4): cache in-memory GET /api/categories per-user (30s TTL) +
 // invalidasi pada mutasi (POST/PUT/DELETE/init-defaults) — menghindari query
@@ -61,7 +141,12 @@ export function registerCategoryRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
-      const { name, type, icon = 'MoreHorizontal', color = '#6b7280' } = req.body;
+
+      // P1-2: validasi body via shared validation library. Gagal → 400
+      // VALIDATION_ERROR. Field tak dikenal dibuang (anti mass-assignment).
+      const result = validateBody(req.body, CATEGORY_CREATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { name, type, icon = 'MoreHorizontal', color = '#6b7280' } = result.value;
 
       await turso.execute({
         sql: `INSERT INTO categories (id, user_id, name, type, icon, color, is_default, created_at)
@@ -82,10 +167,26 @@ export function registerCategoryRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { categories } = req.body;
+      const { categories } = req.body ?? {};
 
+      // Perilaku lama DIPERTAHANKAN: `categories` bukan array → no-op sukses.
       if (Array.isArray(categories)) {
-        for (const cat of categories) {
+        // P1-2: validasi SEMUA item dulu (kumpul semua error) SEBELUM ada
+        // INSERT — setengah-jalan gagal tidak meninggalkan data parsial.
+        const cleanedItems = [];
+        const itemErrors = [];
+        for (let i = 0; i < categories.length; i++) {
+          const itemResult = validateBody(categories[i], categoryInitItemSchema(i));
+          if (!itemResult.ok) {
+            itemErrors.push(...itemResult.errors);
+            continue;
+          }
+          cleanedItems.push(itemResult.value);
+        }
+        if (itemErrors.length > 0) {
+          return sendValidationError(res, { ok: false, error: itemErrors.join('; '), errors: itemErrors });
+        }
+        for (const cat of cleanedItems) {
           await turso.execute({
             sql: `INSERT INTO categories (id, user_id, name, type, icon, color, is_default, created_at)
                   VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
@@ -108,8 +209,16 @@ export function registerCategoryRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { id } = req.params;
-      const { name, type, icon, color } = req.body;
+
+      // P1-2: validasi path param :id (400 bila kosong/terlalu panjang).
+      const idCheck = validateId(req.params.id, { field: 'id' });
+      if (!idCheck.ok) return sendValidationError(res, idCheck);
+      const id = idCheck.value;
+
+      // Partial update: HANYA field yang hadir divalidasi (pola undefined-skip).
+      const result = validateBody(req.body, presentFieldsSchema(req.body, CATEGORY_UPDATE_SCHEMA));
+      if (!result.ok) return sendValidationError(res, result);
+      const { name, type, icon, color } = result.value;
 
       const updates = [];
       const args = [];
@@ -138,7 +247,11 @@ export function registerCategoryRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { id } = req.params;
+
+      // P1-2: validasi path param :id (400 bila kosong/terlalu panjang).
+      const idCheck = validateId(req.params.id, { field: 'id' });
+      if (!idCheck.ok) return sendValidationError(res, idCheck);
+      const id = idCheck.value;
 
       await turso.execute({
         sql: `DELETE FROM categories WHERE id = ? AND user_id = ? AND is_default = 0`,

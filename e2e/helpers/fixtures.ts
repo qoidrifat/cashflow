@@ -17,6 +17,12 @@
  * 131→244) dan 519 → 611 gmail logs. Angka di bawah disinkronkan ke ground
  * truth aktual per audit (regression guard tetap aktif untuk drift berikutnya).
  *
+ * VERIFIKASI 2026-08-04 (Task #33): total gmail logs diverifikasi ulang = 611
+ * (COUNT gmail_sync_logs Turso & GET /api/gmail/logs?includeSummary=1 sama-sama
+ * 611; summary 308/23/180/0). Nilai 612 yang sempat terlapor QA ternyata log
+ * seed 'e2e-review-*' sementara dari spec gmail-review yang belum ter-cleanup
+ * pada saat pengukuran — bukan drift dataset permanen. Pin tetap 611.
+ *
  * Catatan penting (regression guard):
  *  - Angka-angka ini adalah REGRESSION GUARD: menegaskan bahwa dataset migrasi
  *    tidak berubah secara tidak sengaja (mis. migrasi ulang menghilangkan data,

@@ -12,7 +12,9 @@
 import fs from 'node:fs';
 import multer from 'multer';
 import metricsService from '../services/metricsService.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 import { logger } from '../lib/logger.js';
+import { validateRequiredString, validateInt, validateBody } from '../lib/validation.js';
 import {
   getVertexState,
   isProduction,
@@ -47,10 +49,34 @@ const receiptImageUpload = multer({
   },
 });
 
+/**
+ * Batas panjang emailText untuk POST /api/gemini/extract-transaction (P1-2).
+ * 50.000 karakter = cap longgar: email transaksi riil < 5.000 karakter,
+ * dan prompt tetap di-truncate ke 8.000 karakter di bawah — cap ini hanya
+ * menolak payload raksasa (anti abuse), bukan membatasi email normal.
+ */
+const EMAIL_TEXT_MAX_LENGTH = 50_000;
+
+/** Rentang tahun monthly report: data app mulai 2026; 2020–2100 aman. */
+const REPORT_YEAR_MIN = 2020;
+const REPORT_YEAR_MAX = 2100;
+
+/** Validator objek metrics (kontrak ValidationResult lib/validation). */
+function validateMetricsObject(value, opts) {
+  const field = opts?.field || 'metrics';
+  if (value === undefined || value === null) {
+    return { ok: false, error: `${field} wajib diisi.` };
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: `${field} harus berupa objek JSON.` };
+  }
+  return { ok: true, value };
+}
+
 export function registerGeminiRoutes(app) {
   // ===================== Routes: Receipt Scan =====================
 
-  app.post('/api/ai/extract-receipt-image', receiptImageUpload.single('image'), async (req, res) => {
+  app.post('/api/ai/extract-receipt-image', requireAuth, receiptImageUpload.single('image'), async (req, res) => {
     const { geminiReady, vertexAI, primaryModel } = getVertexState();
     const requestId = createRequestId('receipt');
 
@@ -133,7 +159,7 @@ export function registerGeminiRoutes(app) {
         data: imageBase64,
       }, {
         feature: 'ocr_receipt',
-        userId: req.user?.id || null,
+        userId: req.user.id,
         metricMeta: { mimeType: safeMimeType, sizeBytes: estimatedBytes, requestId: req.id || requestId },
         // Sprint 3: cache LRU — gambar yang sama di-upload ulang (mis. retry
         // setelah parse gagal) dalam 1 jam langsung pakai hasil sebelumnya.
@@ -197,7 +223,7 @@ export function registerGeminiRoutes(app) {
 
   // ===================== Routes: Email Extraction =====================
 
-  app.post('/api/gemini/extract-transaction', async (req, res) => {
+  app.post('/api/gemini/extract-transaction', requireAuth, async (req, res) => {
     const { geminiReady, vertexAI } = getVertexState();
     const requestId = createRequestId('email');
     const { emailText, subject, sender, emailDate } = req.body;
@@ -207,6 +233,21 @@ export function registerGeminiRoutes(app) {
         requestId,
         errorCode: 'MISSING_EMAIL_TEXT',
         userMessage: 'Konten email tidak tersedia untuk diproses.',
+        finalStatus: 'skipped',
+      });
+    }
+
+    // P1-2: validasi tipe & panjang via shared library — tetap 400 dengan
+    // kontrak classified error gemini (sendGeminiError), BUKAN sendValidationError.
+    const emailTextCheck = validateRequiredString(emailText, {
+      field: 'emailText',
+      max: EMAIL_TEXT_MAX_LENGTH,
+    });
+    if (!emailTextCheck.ok) {
+      return sendGeminiError(res, 400, {
+        requestId,
+        errorCode: 'INVALID_EMAIL_TEXT',
+        userMessage: emailTextCheck.error,
         finalStatus: 'skipped',
       });
     }
@@ -222,7 +263,7 @@ export function registerGeminiRoutes(app) {
     }
 
     try {
-      const minimalEmailText = String(emailText).substring(0, 8000);
+      const minimalEmailText = emailTextCheck.value.substring(0, 8000);
 
       const prompt = buildExtractionPrompt(
         minimalEmailText,
@@ -233,7 +274,7 @@ export function registerGeminiRoutes(app) {
 
       const generated = await generateGeminiText(prompt, {
         feature: 'gmail_sync',
-        userId: req.user?.id || null,
+        userId: req.user.id,
         metricMeta: { requestId: req.id || requestId },
         // Sprint 3: cache LRU 7 hari — email yang sama di-scan ulang (sync
         // berulang/retry) hemat biaya & latency (rekomendasi AI_PLATFORM_AUDIT
@@ -277,7 +318,7 @@ export function registerGeminiRoutes(app) {
         });
       }
 
-      metricsService.recordSystemMetric({ metricName: 'gmail_sync_success', feature: 'gmail_sync' }).catch(() => {});
+      metricsService.recordSystemMetric({ metricName: 'gmail_sync_success', feature: 'gmail_sync', userId: req.user.id }).catch(() => {});
       return res.json({
         success: true,
         parsed: parsed.data,
@@ -289,7 +330,7 @@ export function registerGeminiRoutes(app) {
       });
     } catch (error) {
       const classified = classifyVertexError(error);
-      metricsService.recordSystemMetric({ metricName: 'gmail_sync_failed', feature: 'gmail_sync', metadata: { code: classified.code } }).catch(() => {});
+      metricsService.recordSystemMetric({ metricName: 'gmail_sync_failed', feature: 'gmail_sync', userId: req.user.id, metadata: { code: classified.code } }).catch(() => {});
 
       logger.error({
         requestId,
@@ -310,19 +351,28 @@ export function registerGeminiRoutes(app) {
 
   // ===================== Routes: Monthly Report =====================
 
-  app.post('/api/gemini/monthly-report', async (req, res) => {
+  app.post('/api/gemini/monthly-report', requireAuth, async (req, res) => {
     const { geminiReady, vertexAI } = getVertexState();
     const requestId = createRequestId('report');
-    const { month, year, metrics, sampleTransactions } = req.body;
+    const { sampleTransactions } = req.body;
 
-    if (!month || !year || !metrics) {
-      return res.status(400).json({
-        success: false,
-        error: 'month, year, dan metrics wajib diisi.',
-        errorCode: 'MISSING_REPORT_DATA',
+    // P1-2: validasi via shared library; respons 400 TETAP lewat jalur error
+    // gemini (kontrak classified error), errorCode lama dipertahankan.
+    const reportCheck = validateBody(req.body, {
+      month: { validate: validateInt, options: { min: 1, max: 12, required: true } },
+      year: { validate: validateInt, options: { min: REPORT_YEAR_MIN, max: REPORT_YEAR_MAX, required: true } },
+      metrics: validateMetricsObject,
+    });
+
+    if (!reportCheck.ok) {
+      return sendGeminiError(res, 400, {
         requestId,
+        errorCode: 'MISSING_REPORT_DATA',
+        userMessage: reportCheck.error,
       });
     }
+
+    const { month, year, metrics } = reportCheck.value;
 
     if (!geminiReady || !vertexAI) {
       return res.status(503).json({
@@ -345,7 +395,7 @@ export function registerGeminiRoutes(app) {
 
       const generated = await generateGeminiText(prompt, {
         feature: 'insight_generator',
-        userId: req.user?.id || null,
+        userId: req.user.id,
         metricMeta: { requestId: req.id || requestId },
       });
       const rawResponse = generated.text;

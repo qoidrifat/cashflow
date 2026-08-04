@@ -58,10 +58,12 @@ function normalizeProxyErrorCode(errorCode: unknown, httpStatus?: number): strin
     GEMINI_QUOTA_EXCEEDED: GEMINI_ERROR_CODES.QUOTA_EXCEEDED,
     GEMINI_CREDITS_DEPLETED: GEMINI_ERROR_CODES.CREDITS_DEPLETED,
     GEMINI_RATE_LIMITED: GEMINI_ERROR_CODES.RATE_LIMITED,
+    GEMINI_UNAUTHORIZED: GEMINI_ERROR_CODES.UNAUTHORIZED,
   };
 
   if (aliases[raw]) return aliases[raw];
   if (Object.values(GEMINI_ERROR_CODES).includes(raw as any)) return raw;
+  if (httpStatus === 401) return GEMINI_ERROR_CODES.UNAUTHORIZED;
   if (httpStatus === 429) return GEMINI_ERROR_CODES.RATE_LIMITED;
   if (httpStatus === 422) return GEMINI_ERROR_CODES.INVALID_JSON;
   if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
@@ -157,7 +159,9 @@ export async function extractWithGemini(
         sender: options?.sender || '',
         emailDate: options?.emailDate || new Date().toISOString().split('T')[0],
       }),
-      credentials: 'omit',
+      // Endpoint dilindungi requireAuth (Phase 1) — cookie sesi WAJIB dikirim,
+      // tanpa ini setiap request 401 dan AI scan Gmail rusak total.
+      credentials: 'include',
     });
 
     // Handle HTTP errors from proxy

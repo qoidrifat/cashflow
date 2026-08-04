@@ -39,7 +39,9 @@ export function useNotifications(filters: NotificationFilters = {}) {
     setRefetching(true);
     setError(null);
     try {
-      const next = await fetchNotifications(authUser.uid, { limit: 30 });
+      // limit 100: server dulu mengabaikan limit & mengembalikan maks 100 baris;
+      // bell badge menghitung unread dari seluruh daftar → semantik dipertahankan.
+      const next = await fetchNotifications(authUser.uid, { limit: 100 });
       setNotifications(next);
     } catch (refetchError) {
       setError(refetchError instanceof Error ? refetchError.message : 'Gagal memuat notifikasi.');

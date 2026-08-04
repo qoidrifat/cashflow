@@ -6,9 +6,12 @@
  *
  *  1. WEBHOOK (env ALERT_WEBHOOK_URL, optional): POST JSON ke URL eksternal
  *     (Slack/Discord/opsgenie/generic webhook) saat rule TRIGGERED.
- *  2. IN-APP (selalu): buat notifikasi untuk semua user admin (ADMIN_EMAILS)
+ *  2. EMAIL/SMTP (env SMTP_HOST/SMTP_USER/SMTP_PASS, optional): kirim email ke
+ *     semua admin (ADMIN_EMAILS) via nodemailer — pola sama dengan gmailNotifier.
+ *     Aktif hanya bila SEMUA var wajib di-set; ADMIN_EMAILS kosong → skip.
+ *  3. IN-APP (selalu): buat notifikasi untuk semua user admin (ADMIN_EMAILS)
  *     via tabel `notifications` + SSE `notifyUser` (bell icon realtime).
- *  3. COOLDOWN: hanya kirim bila belum pernah dinotifikasi ATAU sudah lewat
+ *  4. COOLDOWN: hanya kirim bila belum pernah dinotifikasi ATAU sudah lewat
  *     `ALERT_COOLDOWN_MINUTES` sejak `last_notified_at` — mencegah spam alert.
  *
  * PRINSIP: non-blocking & tidak pernah melempar (semua error di-swallow) —
@@ -16,6 +19,7 @@
  * evaluasi alert yang sudah berjalan.
  */
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
 import { getTurso } from '../lib/turso.js';
 import { logger } from '../lib/logger.js';
 import { getAdminEmails } from '../config/metricsConfig.js';
@@ -77,6 +81,73 @@ export function buildWebhookPayload(rule) {
       windowMinutes: rule.windowMinutes,
     },
   };
+}
+
+/**
+ * Pure helper (unit-testable): bolehkah mengirim email alert? true hanya bila
+ * SEMUA var SMTP wajib di-set (HOST/USER/PASS) DAN ada penerima (admin emails).
+ * PORT default 587; FROM fallback ke SMTP_USER — keduanya tidak wajib.
+ */
+export function shouldSendAlertEmail(env, adminEmails) {
+  const required = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'];
+  const smtpOk = required.every((k) => String(env[k] || '').trim().length > 0);
+  return smtpOk && Array.isArray(adminEmails) && adminEmails.length > 0;
+}
+
+/**
+ * Pure helper (unit-testable): payload email alert (subject + plain text).
+ * Membawa rule, metric, threshold, nilai saat ini, dan timestamp.
+ */
+export function buildAlertEmailPayload(rule) {
+  const timestamp = new Date().toISOString();
+  const summary = `${rule.metricName} ${rule.condition} ${rule.threshold}`;
+  const subject = `[CashFlow Alert] ${rule.name} — ${summary}`;
+  const text = [
+    `Alert CashFlow TRIGGERED: ${rule.name}`,
+    '',
+    `Rule      : ${rule.name}`,
+    `Metric    : ${rule.metricName}`,
+    `Kondisi   : ${rule.condition} ${rule.threshold} (window ${rule.windowMinutes}m)`,
+    `Nilai saat ini : ${rule.currentValue}`,
+    `Waktu     : ${timestamp}`,
+    '',
+    '— CashFlow Monitoring',
+  ].join('\n');
+  return { subject, text, timestamp };
+}
+
+let smtpTransporterCache = null;
+
+/** Buat transporter SMTP lazily (sekali per proses). Pola sama dengan gmailNotifier. */
+function getAlertTransporter(env) {
+  if (!smtpTransporterCache) {
+    const port = parseInt(env.SMTP_PORT || '587', 10) || 587;
+    smtpTransporterCache = nodemailer.createTransport({
+      host: String(env.SMTP_HOST).trim(),
+      port,
+      secure: port === 465,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    });
+  }
+  return smtpTransporterCache;
+}
+
+/**
+ * Kirim email alert ke semua admin (bila SMTP lengkap di-set). Error → log
+ * warn, tidak pernah throw — SMTP tidak boleh menjatuhkan alur alert.
+ */
+async function sendAlertEmail(rule) {
+  const admins = getAdminEmails();
+  if (!shouldSendAlertEmail(process.env, admins)) return;
+  const { subject, text } = buildAlertEmailPayload(rule);
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'CashFlow <no-reply@cashflow.local>';
+  try {
+    const transporter = getAlertTransporter(process.env);
+    await transporter.sendMail({ from, to: admins.join(', '), subject, text });
+    logger.info({ rule: rule.name, to: admins.length }, 'Alert email SMTP terkirim');
+  } catch (err) {
+    logger.warn({ rule: rule.name, err: err.message }, 'Alert email SMTP gagal — non-blocking');
+  }
 }
 
 /** POST JSON ke ALERT_WEBHOOK_URL (bila di-set). Error → log warn, tidak throw. */
@@ -153,8 +224,9 @@ async function notifyAdminsInApp(rule) {
 }
 
 /**
- * Kirim notifikasi untuk satu rule triggered (webhook + in-app) bila cooldown
- * sudah lewat, lalu update `last_notified_at`. Non-blocking — error di-swallow.
+ * Kirim notifikasi untuk satu rule triggered (webhook + email + in-app) bila
+ * cooldown sudah lewat, lalu update `last_notified_at`. Non-blocking — error
+ * di-swallow.
  */
 export async function notifyAlert(rule) {
   const turso = getTurso();
@@ -172,13 +244,14 @@ export async function notifyAlert(rule) {
     }
 
     await sendWebhook(rule);
+    await sendAlertEmail(rule);
     await notifyAdminsInApp(rule);
 
     await turso.execute({
       sql: `UPDATE alert_rules SET last_notified_at = ? WHERE name = ?`,
       args: [new Date().toISOString(), rule.name],
     });
-    logger.info({ rule: rule.name }, 'Alert notifikasi terkirim (webhook + in-app) + last_notified_at di-update');
+    logger.info({ rule: rule.name }, 'Alert notifikasi terkirim (webhook + email + in-app) + last_notified_at di-update');
   } catch (err) {
     logger.warn({ rule: rule.name, err: err.message }, 'Alert notify gagal — non-blocking');
   }

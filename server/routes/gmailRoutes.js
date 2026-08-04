@@ -5,7 +5,122 @@
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import { sanitizeNotificationMetadata } from '../lib/notificationGuard.js';
+import {
+  validateRequiredString,
+  validateOptionalString,
+  validateEnum,
+  validateInt,
+  validateAmount,
+  validateIsoDate,
+  validateBoolean,
+  validateId,
+  validateBody,
+  validateQuery,
+  sendValidationError,
+} from '../lib/validation.js';
 import crypto from 'node:crypto';
+
+/**
+ * Status email Gmail sync yang valid untuk field status/finalStatus pada
+ * POST /api/gmail/logs. Sumber derivasi (P1-2 Group G3):
+ *  - src/types/index.ts — union `SyncEmailStatus` (14 nilai).
+ *  - buildGmailSyncSummary di file ini & alias filter GET /api/gmail/logs.
+ *  - src/features/gmail/GmailSyncPage.tsx + e2e/helpers/gmailReview.ts
+ *    (seed needs_review → approved/rejected/duplicate).
+ */
+const GMAIL_SYNC_LOG_STATUSES = [
+  'auto_accepted',
+  'auto_skipped',
+  'auto_rejected',
+  'needs_review',
+  'pending_review',
+  'approved',
+  'rejected',
+  'skipped',
+  'duplicate',
+  'failed',
+  'retry_later',
+  'config_error',
+  'gmail_permission_required',
+  'paused_config_error',
+];
+
+/** Status sync run — sumber: src/services/gmailSyncRunService.ts (SyncRunStatus). */
+const GMAIL_SYNC_RUN_STATUSES = ['running', 'completed', 'partial_failed', 'failed', 'cancelled'];
+
+/** Batas atas counter sync run (anti payload absurd; nilai riil < 1000/run). */
+const SYNC_RUN_COUNTER_MAX = 1_000_000;
+
+/**
+ * Validator metadata log Gmail (kontrak ValidationResult dari lib/validation).
+ * Memakai ulang sanitizeNotificationMetadata (notificationGuard.js): wajib
+ * plain object, ≤8KB, ≤64 key, key prototype-pollution di-strip. Absen → {}
+ * (kompatibel dengan perilaku lama `metadata = {}`).
+ */
+function validateGmailLogMetadata(value, opts) {
+  const field = opts?.field || 'metadata';
+  const result = sanitizeNotificationMetadata(value);
+  if (!result.ok) return { ok: false, error: `${field}: ${result.error}` };
+  return { ok: true, value: result.metadata };
+}
+
+/** Skema validasi POST /api/gmail/logs (P1-2). Field di luar skema di-strip. */
+const GMAIL_LOG_BODY_SCHEMA = {
+  // Wajib: kunci unik ON CONFLICT(user_id, message_id) — semua caller riil
+  // (GmailSyncPage upsert + seed e2e gmailReview.ts) selalu mengirimnya.
+  messageId: { validate: validateRequiredString, options: { max: 191 } },
+  subject: { validate: validateOptionalString, options: { max: 500 } },
+  sender: { validate: validateOptionalString, options: { max: 320 } },
+  senderDomain: { validate: validateOptionalString, options: { max: 255 } },
+  // gmailService.getGmailMessageDate selalu menghasilkan ISO toISOString().
+  emailDate: validateIsoDate,
+  prefilterStatus: { validate: validateOptionalString, options: { max: 100 } },
+  aiCalled: validateBoolean,
+  aiParsed: validateBoolean,
+  status: { validate: validateEnum, options: { values: GMAIL_SYNC_LOG_STATUSES } },
+  finalStatus: { validate: validateEnum, options: { values: GMAIL_SYNC_LOG_STATUSES } },
+  errorMessage: { validate: validateOptionalString, options: { max: 1000 } },
+  extractedTransactionId: { validate: validateOptionalString, options: { max: 191 } },
+  // Confidence skor AI: 0..1 (confidenceScorer.ts).
+  confidenceScore: { validate: validateAmount, options: { max: 1 } },
+  syncRunId: { validate: validateOptionalString, options: { max: 191 } },
+  errorCode: { validate: validateOptionalString, options: { max: 100 } },
+  fallbackUsed: validateBoolean,
+  extractedNote: { validate: validateOptionalString, options: { max: 1000 } },
+  metadata: validateGmailLogMetadata,
+};
+
+/**
+ * Skema validasi PUT /api/gmail/settings. Default & rentang diturunkan dari
+ * GET /api/gmail/settings fallback (60 menit, 25 email, threshold 0.88).
+ *  - syncIntervalMinutes: 1 menit – 24 jam (1440).
+ *  - maxEmailsPerSync: 1 – 500.
+ *  - autoApproveThreshold: 0..1 (validateAmount menolak negatif, max 1).
+ * Catatan: caller riil (gmailSyncSettingsService.ts) juga mengirim field
+ * lastSyncedAt/lastStatus/... yang TIDAK dipakai server — di-strip tanpa
+ * error (perilaku lama: diabaikan via destructuring).
+ */
+const GMAIL_SETTINGS_BODY_SCHEMA = {
+  autoSyncEnabled: validateBoolean,
+  syncIntervalMinutes: { validate: validateInt, options: { min: 1, max: 1440 } },
+  maxEmailsPerSync: { validate: validateInt, options: { min: 1, max: 500 } },
+  autoApproveThreshold: { validate: validateAmount, options: { max: 1 } },
+  lastSyncAt: validateIsoDate,
+};
+
+/** Skema validasi PUT /api/gmail/runs/:id — hanya field yang dipakai server. */
+const GMAIL_RUN_PATCH_SCHEMA = {
+  status: { validate: validateEnum, options: { values: GMAIL_SYNC_RUN_STATUSES } },
+  completedAt: validateIsoDate,
+  totalEmails: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  processed: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  accepted: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  rejected: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  skipped: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  failed: { validate: validateInt, options: { min: 0, max: SYNC_RUN_COUNTER_MAX } },
+  errorMessage: { validate: validateOptionalString, options: { max: 1000 } },
+};
 
 /**
  * Hitung ringkasan status dari seluruh baris gmail_sync_logs.
@@ -31,15 +146,58 @@ function buildGmailSyncSummary(rows) {
   return { autoAccepted, needsReview, skippedRejected, error, total: (rows || []).length };
 }
 
+/**
+ * Parse accessTokenExpiresAt menjadi epoch milliseconds.
+ *
+ * Kolom ini INTEGER menurut DDL Better Auth, tapi adapter Kysely/SQLite
+ * menyimpan tanggal sebagai string ISO-8601 (TEXT) di praktik — contoh riil:
+ * "2026-08-04T14:14:06.143Z". `Number(...)` pada string itu = NaN, sehingga
+ * pengecekan expiry lama (yang hanya menerima angka) tidak pernah jalan dan
+ * token kedaluwarsa tetap dibagikan.
+ *
+ * Urutan parse:
+ *   - number → epoch seconds/milliseconds (>1e12 = ms, selain itu detik).
+ *   - string → Date.parse (ISO-8601); bila NaN fallback ke Number() sec/ms.
+ *   - tidak bisa diparse → NaN (caller wajib fail closed).
+ */
+export function parseAccessTokenExpiryMs(value) {
+  if (value === null || value === undefined) return null;
+  const toMs = (num) => (num > 1e12 ? num : num * 1000);
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return toMs(value);
+  }
+  const asString = String(value);
+  const parsedIso = Date.parse(asString);
+  if (Number.isFinite(parsedIso)) return parsedIso;
+  const parsedNum = Number(asString);
+  if (Number.isFinite(parsedNum)) return toMs(parsedNum);
+  return NaN;
+}
+
 export function registerGmailRoutes(app) {
   // GET /api/gmail/token — Get current Google OAuth access token for Gmail API
+  //
+  // P0-3 hardening:
+  //   - refreshToken is NEVER selected/returned — it must not leave the server.
+  //   - accessTokenExpiresAt is validated with a ~60s safety skew. If the token
+  //     is expired (or expires within the skew window) we respond
+  //     401 { error: 'token_expired' } so the client clears its cache and falls
+  //     back to re-sign-in. Server-side OAuth refresh is a follow-up (out of
+  //     scope for P0). The column is INTEGER by DDL but the Better Auth
+  //     Kysely/SQLite adapter stores ISO-8601 TEXT in practice, so parsing
+  //     handles both (see parseAccessTokenExpiryMs).
+  //   - If accessTokenExpiresAt is null/absent the token is treated as valid
+  //     (do not break legacy rows without expiry). Unparseable values FAIL
+  //     CLOSED with 401 token_expired (never serve a token of unknown age).
+  const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
   app.get('/api/gmail/token', requireAuth, async (req, res) => {
     try {
       const turso = getTurso();
       const userId = req.user.id;
 
       const result = await turso.execute({
-        sql: `SELECT accessToken, refreshToken FROM account WHERE userId = ? AND providerId = 'google' ORDER BY createdAt DESC LIMIT 1`,
+        sql: `SELECT accessToken, accessTokenExpiresAt FROM account WHERE userId = ? AND providerId = 'google' ORDER BY createdAt DESC LIMIT 1`,
         args: [userId],
       });
 
@@ -47,10 +205,21 @@ export function registerGmailRoutes(app) {
         return res.status(404).json({ error: 'Token akses Gmail belum ditemukan. Silakan berikan izin akses Gmail.' });
       }
 
-      res.json({
-        accessToken: result.rows[0].accessToken,
-        refreshToken: result.rows[0].refreshToken || null,
-      });
+      const { accessToken, accessTokenExpiresAt } = result.rows[0];
+
+      if (accessTokenExpiresAt !== null && accessTokenExpiresAt !== undefined) {
+        const expiresAtMs = parseAccessTokenExpiryMs(accessTokenExpiresAt);
+        // Fail closed: nilai tidak bisa diparse → anggap expired (401),
+        // jangan pernah membagikan token dengan masa berlaku tidak diketahui.
+        if (!Number.isFinite(expiresAtMs)) {
+          return res.status(401).json({ error: 'token_expired' });
+        }
+        if (expiresAtMs <= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
+          return res.status(401).json({ error: 'token_expired' });
+        }
+      }
+
+      res.json({ accessToken });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -181,6 +350,11 @@ export function registerGmailRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
+
+      const validation = validateBody(req.body, GMAIL_LOG_BODY_SCHEMA);
+      if (!validation.ok) return sendValidationError(res, validation);
+      const body = validation.value;
+
       const {
         messageId,
         subject = 'No Subject',
@@ -200,7 +374,7 @@ export function registerGmailRoutes(app) {
         fallbackUsed = false,
         extractedNote = null,
         metadata = {},
-      } = req.body;
+      } = body;
 
       const now = new Date().toISOString();
 
@@ -288,7 +462,10 @@ export function registerGmailRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { autoSyncEnabled, syncIntervalMinutes, maxEmailsPerSync, autoApproveThreshold, lastSyncAt } = req.body;
+
+      const validation = validateBody(req.body, GMAIL_SETTINGS_BODY_SCHEMA);
+      if (!validation.ok) return sendValidationError(res, validation);
+      const { autoSyncEnabled, syncIntervalMinutes, maxEmailsPerSync, autoApproveThreshold, lastSyncAt } = validation.value;
       const now = new Date().toISOString();
 
       await turso.execute({
@@ -324,7 +501,13 @@ export function registerGmailRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const limit = parseInt(req.query.limit || '20', 10);
+      // P1-2 quick win: clamp limit via shared validator (1..100); absen → 20
+      // (default lama). Nilai non-numerik → 400 (fail-closed).
+      const queryCheck = validateQuery(req.query, {
+        limit: { validate: validateInt, options: { min: 1, max: 100, clamp: true } },
+      });
+      if (!queryCheck.ok) return sendValidationError(res, queryCheck);
+      const limit = queryCheck.value.limit ?? 20;
 
       const result = await turso.execute({
         sql: `SELECT * FROM gmail_sync_runs WHERE user_id = ? ORDER BY started_at DESC LIMIT ?`,
@@ -362,8 +545,14 @@ export function registerGmailRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { id } = req.params;
-      const { status, completedAt, totalEmails, processed, accepted, rejected, skipped, failed, errorMessage } = req.body;
+
+      const idCheck = validateId(req.params.id, { field: 'runId' });
+      if (!idCheck.ok) return sendValidationError(res, idCheck);
+      const id = String(idCheck.value);
+
+      const validation = validateBody(req.body, GMAIL_RUN_PATCH_SCHEMA);
+      if (!validation.ok) return sendValidationError(res, validation);
+      const { status, completedAt, totalEmails, processed, accepted, rejected, skipped, failed, errorMessage } = validation.value;
 
       const updates = [];
       const args = [];

@@ -4,16 +4,17 @@
  * Regression guard untuk fix resolveAgentSearchUser (CF: Supabase JWT → req.user
  * Better Auth). Sebelum fix, route ini melempar ReferenceError (createClient tak
  * ter-import) → semua request user-scoped 500. Kini: tanpa cookie → 401,
- * dengan cookie → lolos, tab help → anonim, sync-docs → publik.
+ * dengan cookie → lolos, tab help → anonim, sync-docs → 401 (P0-2: sync-docs
+ * kini wajib autentikasi — sebelumnya publik/anonim).
  *
  * Apa yang diverifikasi (semua API-level via fixture `request`, cookie eksplisit):
  *   1. TANPA cookie:
  *      - query tab=transactions/insight/gmail/receipts → 401 (bukan 500)
  *      - answer tab=insight → 401
  *      - sync-transactions / sync-gmail-logs / sync-receipts → 401
+ *      - sync-docs → 401 (P0-2: write GCS/Discovery tak boleh anonim)
  *      - query tab=help → BUKAN 401/500 (anonim diizinkan; hasilnya 200/400/503
  *        tergantung konfigurasi Agent Search)
- *      - sync-docs → BUKAN 401 (endpoint publik)
  *   2. DENGAN cookie minted:
  *      - query tab=transactions → BUKAN 401/500
  *      - sync-transactions → BUKAN 401/500
@@ -74,7 +75,7 @@ test.describe('Auth gate /api/agent-search/* (e2e)', () => {
     }
   });
 
-  test('tanpa cookie: tab help anonim diizinkan & sync-docs publik (bukan 401/500)', async ({ request }) => {
+  test('tanpa cookie: tab help anonim diizinkan & sync-docs wajib login (401)', async ({ request }) => {
     // query tab=help → anonim (required: false) → boleh 200/400/503, DILARANG 401/500
     const helpStatus = await postAgentSearch(request, '/api/agent-search/query', {
       query: 'halo',
@@ -91,9 +92,9 @@ test.describe('Auth gate /api/agent-search/* (e2e)', () => {
     expect(answerHelp, 'answer tab=help tanpa cookie BUKAN 401').not.toBe(401);
     expect(answerHelp, 'answer tab=help tanpa cookie BUKAN 500').not.toBe(500);
 
-    // sync-docs → publik (tanpa resolveAgentSearchUser sama sekali)
+    // sync-docs → wajib autentikasi (requireAuth) setelah P0-2
     const docsStatus = await postAgentSearch(request, '/api/agent-search/sync-docs', {});
-    expect(docsStatus, 'sync-docs tanpa cookie BUKAN 401').not.toBe(401);
+    expect(docsStatus, 'sync-docs tanpa cookie harus 401').toBe(401);
   });
 
   test('dengan cookie minted: tab user-scoped & sync lolos auth (bukan 401/500)', async ({ request }) => {

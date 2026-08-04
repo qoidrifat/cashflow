@@ -1,10 +1,62 @@
 /**
  * Budget Routes for CashFlow
+ *
+ * P1-2 (Validation Layer) — Group G1: endpoint mutating divalidasi via
+ * server/lib/validation.js. Gagal validasi → 400 VALIDATION_ERROR via
+ * sendValidationError (JANGAN PERNAH 401). Bentuk respons SUKSES tidak
+ * berubah (contract-pinned di e2e/contract/contracts.ts).
+ *
+ * Sumber constraint (diturunkan dari kode existing, bukan karangan):
+ *  - categoryId/categoryName/amount/month/year wajib: kolom DB NOT NULL
+ *    (turso-schema.sql budgets) — absen hari ini → 500 dari SQLite.
+ *  - amount > 0  : CHECK DB `amount REAL NOT NULL CHECK (amount > 0)`.
+ *  - month 1-12  : CHECK DB `month BETWEEN 1 AND 12`.
+ *  - year 2000-2100 : CHECK DB `year BETWEEN 2000 AND 2100`.
  */
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import {
+  validateBody,
+  sendValidationError,
+  validateRequiredString,
+  validateInt,
+  validateId,
+} from '../lib/validation.js';
+import { validatePositiveAmount, validateClearableString, presentFieldsSchema } from './transactionRoutes.js';
 import crypto from 'node:crypto';
+
+/** Rentang month/year: SAMA PERSIS dengan CHECK DB budgets (turso-schema.sql). */
+export const BUDGET_MONTH_MIN = 1;
+export const BUDGET_MONTH_MAX = 12;
+export const BUDGET_YEAR_MIN = 2000;
+export const BUDGET_YEAR_MAX = 2100;
+
+/** Skema POST /api/budgets (di-export untuk unit test). */
+export const BUDGET_CREATE_SCHEMA = {
+  categoryId: { validate: validateRequiredString, options: { max: 191 } },
+  categoryName: { validate: validateRequiredString },
+  amount: { validate: validatePositiveAmount, options: { required: true } },
+  month: { validate: validateInt, options: { min: BUDGET_MONTH_MIN, max: BUDGET_MONTH_MAX, required: true } },
+  year: { validate: validateInt, options: { min: BUDGET_YEAR_MIN, max: BUDGET_YEAR_MAX, required: true } },
+};
+
+/** Skema PUT /api/budgets/:id — partial update (hanya field hadir). */
+export const BUDGET_UPDATE_SCHEMA = {
+  categoryId: { validate: validateClearableString, options: { max: 191 } },
+  categoryName: { validate: validateClearableString },
+  amount: { validate: validatePositiveAmount },
+  month: { validate: validateInt, options: { min: BUDGET_MONTH_MIN, max: BUDGET_MONTH_MAX } },
+  year: { validate: validateInt, options: { min: BUDGET_YEAR_MIN, max: BUDGET_YEAR_MAX } },
+};
+
+/** Skema POST /api/budgets/update-usage (month/year saja; `transactions`
+ *  sengaja dibaca langsung dari req.body — early-return Array.isArray lama
+ *  wajib dipertahankan apa adanya). */
+export const BUDGET_USAGE_SCHEMA = {
+  month: { validate: validateInt, options: { min: BUDGET_MONTH_MIN, max: BUDGET_MONTH_MAX, required: true } },
+  year: { validate: validateInt, options: { min: BUDGET_YEAR_MIN, max: BUDGET_YEAR_MAX, required: true } },
+};
 
 export function registerBudgetRoutes(app) {
   // GET /api/budgets
@@ -30,7 +82,12 @@ export function registerBudgetRoutes(app) {
       const turso = getTurso();
       const userId = req.user.id;
       const id = crypto.randomUUID();
-      const { categoryId, categoryName, amount, month, year } = req.body;
+
+      // P1-2: validasi body via shared validation library. Gagal → 400
+      // VALIDATION_ERROR. Field tak dikenal dibuang (anti mass-assignment).
+      const result = validateBody(req.body, BUDGET_CREATE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { categoryId, categoryName, amount, month, year } = result.value;
       const now = new Date().toISOString();
 
       await turso.execute({
@@ -51,8 +108,16 @@ export function registerBudgetRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { id } = req.params;
-      const { categoryId, categoryName, amount, month, year } = req.body;
+
+      // P1-2: validasi path param :id (400 bila kosong/terlalu panjang).
+      const idCheck = validateId(req.params.id, { field: 'id' });
+      if (!idCheck.ok) return sendValidationError(res, idCheck);
+      const id = idCheck.value;
+
+      // Partial update: HANYA field yang hadir divalidasi (pola undefined-skip).
+      const result = validateBody(req.body, presentFieldsSchema(req.body, BUDGET_UPDATE_SCHEMA));
+      if (!result.ok) return sendValidationError(res, result);
+      const { categoryId, categoryName, amount, month, year } = result.value;
 
       const updates = [];
       const args = [];
@@ -82,9 +147,17 @@ export function registerBudgetRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { month, year, transactions } = req.body;
+      const { transactions } = req.body ?? {};
 
+      // Perilaku lama DIPERTAHANKAN: tanpa array transaksi → no-op sukses
+      // (early-return ini ada SEBELUM validasi month/year).
       if (!Array.isArray(transactions)) return res.json({ success: true });
+
+      // P1-2: month/year wajib sesuai rentang DB — caller nyata
+      // (budgetService.updateBudgetUsage) selalu mengirim angka valid.
+      const result = validateBody(req.body, BUDGET_USAGE_SCHEMA);
+      if (!result.ok) return sendValidationError(res, result);
+      const { month, year } = result.value;
 
       const expenseTransactions = transactions.filter((t) => t.type === 'expense');
 
@@ -123,7 +196,11 @@ export function registerBudgetRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const { id } = req.params;
+
+      // P1-2: validasi path param :id (400 bila kosong/terlalu panjang).
+      const idCheck = validateId(req.params.id, { field: 'id' });
+      if (!idCheck.ok) return sendValidationError(res, idCheck);
+      const id = idCheck.value;
 
       await turso.execute({
         sql: `DELETE FROM budgets WHERE id = ? AND user_id = ?`,

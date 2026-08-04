@@ -43,10 +43,19 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run dev:server',
+      // `node server/index.js` langsung (BUKAN `npm run dev:server`): dev:server
+      // memakai --watch → restart API di tengah suite = sumber flake. Mode watch
+      // tetap tersedia untuk penggunaan interaktif.
+      command: 'node server/index.js',
       url: 'http://localhost:5181/api/health',
       reuseExistingServer: true,
       timeout: 60_000,
+      // PORT dipin eksplisit: server membaca process.env.PORT SEBELUM dotenv
+      // (env luar menang atas server/.env) — pola sama dengan server 5182.
+      env: {
+        ...process.env,
+        PORT: '5181',
+      },
     },
     {
       command: 'npm run dev',
@@ -70,6 +79,33 @@ export default defineConfig({
         RATE_LIMIT_ENABLED: 'true',
         RATE_LIMIT_AUTH_MAX: '25',
         RATE_LIMIT_GENERAL_MAX: '1000',
+      },
+    },
+    // Webhook sink (P1-4 notification-metadata-guard.spec.ts): penerima webhook
+    // gmail review agar side effect operator bisa di-assert deterministik.
+    {
+      command: 'node e2e/helpers/webhookSinkServer.mjs',
+      url: 'http://localhost:5184/sink-health',
+      reuseExistingServer: true,
+      timeout: 30_000,
+      env: {
+        ...process.env,
+        WEBHOOK_SINK_PORT: '5184',
+      },
+    },
+    // Server uji KHUSUS untuk notification-metadata-guard spec (P1-4):
+    // GMAIL_WEBHOOK_URL diarahkan ke sink 5184 sehingga trigger webhook dari
+    // POST /api/notifications teramati. Terpisah dari 5181 agar env webhook
+    // tidak memengaruhi spec lain.
+    {
+      command: 'node server/index.js',
+      url: 'http://localhost:5183/api/health',
+      reuseExistingServer: true,
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PORT: '5183',
+        GMAIL_WEBHOOK_URL: 'http://127.0.0.1:5184/hook',
       },
     },
   ],

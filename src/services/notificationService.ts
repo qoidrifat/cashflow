@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
+import { logger } from '../lib/logger';
 import { onSSE } from '../lib/sse';
 import type { AppNotification, CreateNotificationInput, NotificationType } from '../types';
 import { mapNotification } from './mappers';
@@ -24,25 +25,24 @@ export async function fetchNotifications(
   options: NotificationQueryOptions = {},
 ): Promise<AppNotification[]> {
   if (!userId) return [];
-  try {
-    const limit = options.limit || 50;
-    const rows = await apiGet<any[]>(`/api/notifications?limit=${limit}`);
-    let list = (rows || []).map(mapNotification);
-
-    if (options.type && options.type !== 'all') {
-      list = list.filter((n) => n.type === options.type);
-    }
-    if (options.unreadOnly) {
-      list = list.filter((n) => !n.read);
-    }
-    return list;
-  } catch {
-    return [];
-  }
+  const limit = options.limit || 50;
+  const offset = options.offset && options.offset > 0 ? options.offset : 0;
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (offset > 0) query.set('offset', String(offset));
+  // Filter dikirim ke server agar diterapkan SEBELUM LIMIT/OFFSET — filter
+  // client-side setelah paging memotong hasil diam-diam & memicu duplikat.
+  if (options.type && options.type !== 'all') query.set('type', options.type);
+  if (options.unreadOnly) query.set('unreadOnly', '1');
+  // Errors are propagated — callers (NotificationsPage, App, useNotifications)
+  // all handle rejection explicitly; silently returning [] hid pagination failures.
+  const rows = await apiGet<any[]>(`/api/notifications?${query.toString()}`);
+  return (rows || []).map(mapNotification);
 }
 
 export async function fetchUnreadNotificationCount(userId: string): Promise<number> {
-  const notifications = await fetchNotifications(userId, { unreadOnly: true });
+  // limit 100 matches the server's max page size (previous behavior counted
+  // up to 100 rows since the old endpoint ignored the limit param).
+  const notifications = await fetchNotifications(userId, { unreadOnly: true, limit: 100 });
   return notifications.length;
 }
 
@@ -78,8 +78,16 @@ export async function notificationExistsByDedupeKey(
   userId: string,
   dedupeKey: string,
 ): Promise<boolean> {
-  const notifications = await fetchNotifications(userId, { limit: 100 });
-  return notifications.some((n) => n.dedupeKey === dedupeKey);
+  // Gagal cek dedupe tidak boleh menolak trigger fire-and-forget
+  // (notificationTriggers dipanggil `void ...()` dari GmailSyncPage &
+  // transactionService) — degrade graceful: anggap belum ada (false).
+  try {
+    const notifications = await fetchNotifications(userId, { limit: 100 });
+    return notifications.some((n) => n.dedupeKey === dedupeKey);
+  } catch (error) {
+    logger.warn('[notificationService] dedupe check failed, assuming absent', error);
+    return false;
+  }
 }
 
 export async function adoptNotificationDedupeKey(_userId: string, _oldKey: string, _newKey: string): Promise<void> {
