@@ -283,6 +283,55 @@ Data laporan:
 ${JSON.stringify(reportData).substring(0, 12000)}`;
 }
 
+// ===================== Financial Advisor Prompt (Sprint 1.3) =====================
+
+/**
+ * Prompt AI Personal Financial Coach — output TERSTRUKTUR (bukan free text):
+ * saran pengeluaran, strategi tabungan, strategi budget, dana darurat, optimasi
+ * langganan, dan daftar aksi personal ber-prioritas. Data di-ringkas (metrics +
+ * subscriptions) — tanpa PII mentah. Caller wajib punya fallback deterministik.
+ */
+export function buildAdvisorPrompt({ metrics, subscriptions = [] }) {
+  return `Kamu adalah AI personal financial coach untuk aplikasi CashFlow Indonesia.
+
+Tugas: Beri coaching keuangan personal yang praktis berdasarkan ringkasan data pengguna.
+Gunakan bahasa Indonesia natural, singkat, dan tidak menggurui. Fokus pada tindakan yang bisa dilakukan.
+JANGAN sebut bahwa kamu punya akses rekening bank — analisis hanya dari data aplikasi.
+
+Keluarkan SATU JSON OBJECT VALID SAJA. Tidak ada markdown, tidak ada code block, tidak ada teks lain.
+
+OUTPUT SCHEMA (semua key wajib ada):
+{
+  "summary": "string, maksimal 2 kalimat",
+  "spendingAdvice": ["string", ...],
+  "savingStrategy": ["string", ...],
+  "budgetStrategy": ["string", ...],
+  "emergencyFund": {
+    "suggestion": "string, maksimal 2 kalimat",
+    "monthsCoverage": 0.0,
+    "targetAmount": 0
+  },
+  "subscriptionOptimization": ["string", ...],
+  "actionList": [
+    { "priority": "high | medium | low", "action": "string" },
+    ...
+  ]
+}
+
+ATURAN:
+1. spendingAdvice: maksimal 3 item — saran pengeluaran konkret.
+2. savingStrategy: maksimal 3 item — strategi menabung (dana darurat, auto-transfer, investasi).
+3. budgetStrategy: maksimal 3 item — saran budget per kategori (bila ada budgetUsage dengan usage tinggi).
+4. emergencyFund: suggestion + monthsCoverage (estimasi bulan) + targetAmount (nominal target dana darurat).
+5. subscriptionOptimization: maksimal 3 item — audit langganan bulanan (tidak ada = sarankan pantau transaksi berulang).
+6. actionList: maksimal 5 item, diurutkan prioritas (high dulu), action singkat & executable.
+7. Jangan gunakan trailing comma, undefined, NaN, atau null.
+8. Gunakan angka bulat untuk nominal (IDR).
+
+Data ringkasan pengguna (JSON):
+${JSON.stringify({ metrics, subscriptions }).substring(0, 9000)}`;
+}
+
 // ===================== JSON Helpers =====================
 
 export function cleanResponse(text) {

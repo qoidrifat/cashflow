@@ -490,6 +490,57 @@ export interface SubscriptionFormData {
   status: SubscriptionStatus;
 }
 
+// ===================== FINANCIAL ADVISOR (Sprint 1.3) =====================
+export type AdvisorPriority = 'high' | 'medium' | 'low';
+
+export interface AdvisorActionItem {
+  priority: AdvisorPriority;
+  action: string;
+}
+
+export interface AdvisorEmergencyFund {
+  suggestion: string;
+  /** Estimasi bulan tertutup bila saldo saat ini jadi dana darurat */
+  monthsCoverage: number;
+  /** Target dana darurat (≈ 6× pengeluaran rata-rata bulanan) */
+  targetAmount: number;
+  /** Saldo terkumpul saat ini (total wallet) */
+  currentAmount: number;
+}
+
+export interface AdvisorReport {
+  summary: string;
+  spendingAdvice: string[];
+  savingStrategy: string[];
+  budgetStrategy: string[];
+  emergencyFund: AdvisorEmergencyFund;
+  subscriptionOptimization: string[];
+  actionList: AdvisorActionItem[];
+  generatedBy: 'gemini' | 'rule-based';
+  generatedAt: string;
+}
+
+export interface AdvisorMetricsInput {
+  month: number;
+  year: number;
+  currentMonthIncome: number;
+  currentMonthExpense: number;
+  avgMonthlyIncome3m: number;
+  avgMonthlyExpense3m: number;
+  /** Pengeluaran ÷ pemasukan (0..1+; >1 = defisit) */
+  expenseRatio: number;
+  /** (Pemasukan − Pengeluaran) ÷ Pemasukan, di-clamp 0..1 */
+  savingsRate: number;
+  totalBalance: number;
+  transactionCount: number;
+  topCategory: { categoryId: string; categoryName: string; total: number } | null;
+  topMerchant: { merchant: string; total: number; count: number } | null;
+  budgetUsage: Array<{ categoryId: string; categoryName: string; amount: number; usedAmount: number; usage: number }>;
+  subscriptions: Array<{ name: string; monthlyCost: number; cycle: string }>;
+  goals: { totalTarget: number; totalCurrent: number };
+  forecastProjectedExpense: number;
+}
+
 export interface CashflowHealthScore {
   score: number;
   grade: 'excellent' | 'good' | 'fair' | 'critical';

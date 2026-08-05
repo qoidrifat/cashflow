@@ -21,6 +21,7 @@ import {
   buildExtractionPrompt,
   buildReceiptExtractionPrompt,
   buildMonthlyReportPrompt,
+  buildAdvisorPrompt,
   parseGeminiResponse,
   normalizeReceiptResult,
   generateGeminiText,
@@ -61,7 +62,70 @@ const EMAIL_TEXT_MAX_LENGTH = 50_000;
 const REPORT_YEAR_MIN = 2020;
 const REPORT_YEAR_MAX = 2100;
 
-/** Validator objek metrics (kontrak ValidationResult lib/validation). */
+/**
+ * Sanitasi defensif angka/string metrics sebelum masuk prompt AI (Sprint 1.3):
+ * nilai negatif/NaN/Infinity di-clamp ke 0, string di-cap panjangnya, dan field
+ * yang tidak dikenal dibuang — mencegah input absurd / instruksi prompt terselip
+ * di nama kategori/merchant/langganan (anti prompt-injection konten).
+ */
+function sanitizeMetrics(value) {
+  const out = {};
+  const clampMoney = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+  const clampRatio = (v, max) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(max, Number(v))) : 0);
+  const clampString = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+  for (const key of ['currentMonthIncome', 'currentMonthExpense', 'avgMonthlyIncome3m', 'avgMonthlyExpense3m', 'totalBalance', 'forecastProjectedExpense']) {
+    out[key] = clampMoney(value[key]);
+  }
+  out.expenseRatio = clampRatio(value.expenseRatio, 100);
+  out.savingsRate = clampRatio(value.savingsRate, 1);
+  out.transactionCount = clampMoney(value.transactionCount);
+  out.month = Number.isInteger(Number(value.month)) ? Math.max(1, Math.min(12, Number(value.month))) : new Date().getMonth() + 1;
+  out.year = Number.isInteger(Number(value.year)) ? Math.max(2020, Math.min(2100, Number(value.year))) : new Date().getFullYear();
+
+  if (value.topCategory && typeof value.topCategory === 'object') {
+    out.topCategory = {
+      categoryId: clampString(value.topCategory.categoryId, 64),
+      categoryName: clampString(value.topCategory.categoryName, 64) || 'Lainnya',
+      total: clampMoney(value.topCategory.total),
+    };
+  } else {
+    out.topCategory = null;
+  }
+
+  if (value.topMerchant && typeof value.topMerchant === 'object') {
+    out.topMerchant = {
+      merchant: clampString(value.topMerchant.merchant, 100) || 'Tanpa merchant',
+      total: clampMoney(value.topMerchant.total),
+      count: clampMoney(value.topMerchant.count),
+    };
+  } else {
+    out.topMerchant = null;
+  }
+
+  out.budgetUsage = Array.isArray(value.budgetUsage)
+    ? value.budgetUsage.slice(0, 50).map((b) => ({
+        categoryId: clampString(b?.categoryId, 64),
+        categoryName: clampString(b?.categoryName, 64) || 'Lainnya',
+        amount: clampMoney(b?.amount),
+        usedAmount: clampMoney(b?.usedAmount),
+        usage: clampRatio(b?.usage, 100),
+      }))
+    : [];
+
+  if (value.goals && typeof value.goals === 'object') {
+    out.goals = {
+      totalTarget: clampMoney(value.goals.totalTarget),
+      totalCurrent: clampMoney(value.goals.totalCurrent),
+    };
+  } else {
+    out.goals = { totalTarget: 0, totalCurrent: 0 };
+  }
+
+  return out;
+}
+
+/** Validator objek metrics (kontrak ValidationResult lib/validation) + sanitasi. */
 function validateMetricsObject(value, opts) {
   const field = opts?.field || 'metrics';
   if (value === undefined || value === null) {
@@ -70,7 +134,31 @@ function validateMetricsObject(value, opts) {
   if (typeof value !== 'object' || Array.isArray(value)) {
     return { ok: false, error: `${field} harus berupa objek JSON.` };
   }
-  return { ok: true, value };
+  return { ok: true, value: sanitizeMetrics(value) };
+}
+
+/**
+ * Validator array langganan untuk AI advisor (Sprint 1.3): array opsional,
+ * maksimal 100 item; tiap item hanya { name (≤120), monthlyCost (≥0) } —
+ * field lain dibuang (anti injeksi konten prompt).
+ */
+function validateSubscriptionsArray(value, opts) {
+  const field = opts?.field || 'subscriptions';
+  if (value === undefined || value === null) return { ok: true, value: [] };
+  if (!Array.isArray(value) || value.length > 100) {
+    return { ok: false, error: `${field} harus berupa array maksimal 100 item.` };
+  }
+  const cleaned = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, error: `${field} berisi item tidak valid.` };
+    }
+    cleaned.push({
+      name: typeof item.name === 'string' ? item.name.slice(0, 120) : 'Langganan',
+      monthlyCost: Number.isFinite(Number(item.monthlyCost)) ? Math.max(0, Number(item.monthlyCost)) : 0,
+    });
+  }
+  return { ok: true, value: cleaned };
 }
 
 export function registerGeminiRoutes(app) {
@@ -441,6 +529,96 @@ export function registerGeminiRoutes(app) {
         code: classified.code,
         message: error.message,
       }, 'Vertex AI monthly report error');
+
+      return res.status(classified.httpStatus).json({
+        success: false,
+        error: classified.message,
+        errorCode: classified.code,
+        retryable: classified.retryable,
+        requestId,
+        ...(!isProduction() ? { detail: error.message } : {}),
+      });
+    }
+  });
+
+  // ===================== Routes: Financial Advisor (Sprint 1.3) =====================
+
+  app.post('/api/gemini/advisor', requireAuth, async (req, res) => {
+    const { geminiReady, vertexAI } = getVertexState();
+    const requestId = createRequestId('advisor');
+
+    // P1-2 pola: validasi shared library; gagal → 400 via jalur error gemini.
+    const advisorCheck = validateBody(req.body, {
+      metrics: { validate: validateMetricsObject },
+      subscriptions: { validate: validateSubscriptionsArray },
+    });
+    if (!advisorCheck.ok) {
+      return sendGeminiError(res, 400, {
+        requestId,
+        errorCode: 'MISSING_ADVISOR_DATA',
+        userMessage: advisorCheck.error,
+      });
+    }
+    const { metrics, subscriptions = [] } = advisorCheck.value;
+
+    if (!geminiReady || !vertexAI) {
+      return res.status(503).json({
+        success: false,
+        error: 'Vertex AI Gemini belum dikonfigurasi. Periksa service account dan project.',
+        errorCode: 'VERTEX_NOT_CONFIGURED',
+        requestId,
+      });
+    }
+
+    try {
+      const prompt = buildAdvisorPrompt({ metrics, subscriptions });
+      const generated = await generateGeminiText(prompt, {
+        feature: 'financial_advisor',
+        userId: req.user.id,
+        metricMeta: { requestId: req.id || requestId },
+      });
+      const rawResponse = generated.text;
+
+      if (!rawResponse) {
+        return res.status(502).json({
+          success: false,
+          error: 'Vertex AI Gemini mengembalikan response kosong.',
+          errorCode: 'VERTEX_EMPTY_RESPONSE',
+          requestId,
+          modelUsed: generated.modelUsed,
+        });
+      }
+
+      const parsed = parseGeminiResponse(rawResponse);
+      if (!parsed.success) {
+        return res.status(422).json({
+          success: false,
+          error: `AI menghasilkan JSON coaching tidak valid: ${parsed.error}`,
+          errorCode: 'VERTEX_INVALID_JSON',
+          rawResponse,
+          cleanedResponse: parsed.cleanedResponse,
+          modelUsed: generated.modelUsed,
+          requestId,
+        });
+      }
+
+      return res.json({
+        success: true,
+        report: parsed.data,
+        rawResponse,
+        cleanedResponse: parsed.cleanedResponse,
+        modelUsed: generated.modelUsed,
+        provider: 'vertex-ai',
+        requestId,
+      });
+    } catch (error) {
+      const classified = classifyVertexError(error);
+
+      logger.error({
+        requestId,
+        code: classified.code,
+        message: error.message,
+      }, 'Vertex AI advisor error');
 
       return res.status(classified.httpStatus).json({
         success: false,

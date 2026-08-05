@@ -148,7 +148,8 @@ Detailed design: [docs/system/ARCHITECTURE.md](docs/system/ARCHITECTURE.md)
 | Gmail Review Flow | Approve/reject/duplicate detection with realtime notifications |
 | Wallet & Savings Goals | Multi-account wallet, savings goals, subscriptions |
 | AI Search (Agent) | Discovery Engine over transactions/gmail/receipts (env-flagged, default off) |
-| AI Insights & Advisor | Monthly AI report + financial advisor |
+| AI Insights & Advisor | Monthly AI report + financial health score + AI Coach (spending/saving/budget/subscription advice, emergency fund, action list) |
+| Fraud Detection | L1 rule engine on every transaction + dashboard widget + notifications (optional L2 AI scoring) |
 | Categories | Defaults seeding, CRUD, `isDefault` guard |
 | Notifications | In-app bell + realtime SSE push + webhook/SMTP channels |
 | Admin Monitoring | Feature health, AI usage, system metrics, cache stats |
@@ -182,6 +183,23 @@ Photo upload → in-memory image compression → Gemini vision extraction
 ### Monthly insights
 ```
 Aggregated monthly data → Gemini narrative report → Reports page + advisor
+```
+
+### Financial Advisor (AI Coach)
+```
+Transactions/budgets/wallets/goals/subscriptions → client-side metrics (no raw PII)
+  → POST /api/gemini/advisor (validated + sanitized) → Gemini structured JSON
+  → spending advice · saving strategy · budget strategy · subscription optimization
+  → emergency-fund coverage (6-month target) · personalized action list (priority)
+  → deterministic rule-based fallback when AI is unavailable (page never breaks)
+```
+
+### Fraud detection (rule engine → optional AI scoring)
+```
+Every transaction write → L1 rule engine (duplicate/velocity/amount-outlier/
+new-merchant/category-anomaly) → fraud_flags + notification + dashboard widget
+  → optional L2 Gemini risk scoring (FRAUD_AI_SCORING_ENABLED, default off)
+  → "Perlu dicek" chip on transactions + admin metric fraud_flag_count
 ```
 
 ### Agent Search flow
@@ -487,9 +505,12 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 **🔄 In progress**
 - `server/index.js` modularization debt (route modules per domain)
+- Sprint 1.4 AI Search enhancements (semantic filtering, suggested queries, search history)
+- Sprint 1.5–1.8 UX polish, empty states, performance audit
 
 **🔭 Future**
-- Unit tests for remaining pure helpers; CI-isolated DB seed hardening
+- Sprint 2: semantic cache L3 (embedding-aware), multi-model router architecture, cost monitoring, AI evaluation
+- Sprint 3–5: production deployment, beta & public release
 - Smart AI router + semantic cache + anomaly detection (3/6/12-month enterprise roadmap in `docs/enterprise/AI_EVOLUTION_ROADMAP.md`)
 
 ---

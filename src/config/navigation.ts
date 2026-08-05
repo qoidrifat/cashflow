@@ -17,6 +17,7 @@ import {
   Tags,
   UserCircle,
   Settings,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -45,6 +46,7 @@ export const primaryMobileNav: NavItem[] = [
  */
 export const moreMenuNav: NavItem[] = [
   { label: 'Laporan', href: '/reports', icon: BarChart3 },
+  { label: 'AI Advisor', href: '/advisor', icon: MessagesSquare },
   { label: 'Rutin', href: '/recurring', icon: RefreshCw },
   { label: 'Suite', href: '/professional', icon: BriefcaseBusiness },
   { label: 'AI Search', href: '/suite/ai-search', icon: Sparkles },

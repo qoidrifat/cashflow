@@ -12,7 +12,7 @@ export const AI_PRICING = {
 
 export const USD_TO_IDR = Number(process.env.USD_TO_IDR || 16000);
 
-export const FEATURES = ['gmail_sync', 'agent_search', 'ocr_receipt', 'insight_generator', 'fraud_detection'];
+export const FEATURES = ['gmail_sync', 'agent_search', 'ocr_receipt', 'insight_generator', 'fraud_detection', 'financial_advisor'];
 
 export const FEATURE_PROVIDER = {
   gmail_sync: 'gemini_flash',
@@ -20,6 +20,7 @@ export const FEATURE_PROVIDER = {
   insight_generator: 'gemini_flash',
   agent_search: 'vertex_search',
   fraud_detection: 'gemini_flash',
+  financial_advisor: 'gemini_flash',
 };
 
 export const ALERT_DEFAULTS = [
