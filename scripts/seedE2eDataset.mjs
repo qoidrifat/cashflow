@@ -92,30 +92,45 @@ async function main() {
 
   try {
     const seedEmail = ADMIN_EMAIL;
-    const existing = await turso.execute({ sql: 'SELECT id FROM user WHERE email = ?', args: [seedEmail] });
-    let seedUserId = existing.rows[0]?.id;
-    if (!seedUserId) {
-      seedUserId = crypto.randomBytes(16).toString('hex');
-      await turso.execute({
-        sql: `INSERT INTO user (id, name, email, emailVerified) VALUES (?, ?, ?, 1)`,
-        args: [seedUserId, 'E2E Seed Admin', seedEmail],
-      });
+
+    // ==== NORMALISASI user seed (singular + plural) ====
+    // user (singular, Better Auth) & users (plural, tabel bisnis) harus berisi
+    // user seed dengan id yang SAMA. Desync bisa terjadi bila baris singular
+    // dihapus & dibuat ulang dengan id baru (mis. cleanupTestSessions versi
+    // lama menghapus user seed) sementara plural tetap dengan id lama — state
+    // tercemar ini membuat INSERT users berikutnya gagal: "UNIQUE constraint
+    // failed: users.email" (ON CONFLICT(id) DO NOTHING tidak melindungi
+    // konflik email). Normalisasi: pilih SATU id (prioritas singular), hapus
+    // baris desync di kedua tabel + data bisnis terkait, lalu re-insert.
+    const [sing] = (await turso.execute({ sql: 'SELECT id FROM user WHERE email = ?', args: [seedEmail] })).rows;
+    const [plur] = (await turso.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [seedEmail] })).rows;
+    const seedUserId = sing?.id || plur?.id || crypto.randomBytes(16).toString('hex');
+
+    // Hapus data bisnis milik KEDUA id (sisa id lama yang desync juga dibersihkan).
+    const staleIds = [...new Set([sing?.id, plur?.id, seedUserId].filter(Boolean))];
+    for (const table of ['gmail_sync_logs', 'transactions', 'gmail_sync_runs', 'gmail_sync_settings', 'budgets', 'notifications', 'categories']) {
+      for (const uid of staleIds) {
+        await turso.execute({ sql: `DELETE FROM ${table} WHERE user_id = ?`, args: [uid] });
+      }
     }
-    // SYNC ke users (plural) — tabel bisnis (categories/transactions/budgets/...)
-    // ber-FK REFERENCES users(id), sementara Better Auth memakai user (singular).
-    // Keduanya HARUS berisi user seed dengan id yang SAMA (pola user riil di dev
-    // DB — terverifikasi: id pJV0r… ada di kedua tabel). Tanpa ini, seed di DB CI
-    // yang fresh gagal: "FOREIGN KEY constraint failed" (users kosong).
-    // Upsert idempoten: ON CONFLICT(id) DO NOTHING → aman dijalankan berulang.
+    // Hapus baris desync di kedua tabel user (semua id yang bukan seedUserId).
+    for (const uid of staleIds) {
+      if (uid !== seedUserId) {
+        await turso.execute({ sql: 'DELETE FROM user WHERE id = ?', args: [uid] });
+        await turso.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [uid] });
+      }
+    }
+
+    // Insert user seed dengan id tunggal yang konsisten di kedua tabel.
+    // ON CONFLICT(id) DO NOTHING → idempoten untuk id yang sudah benar.
+    await turso.execute({
+      sql: `INSERT INTO user (id, name, email, emailVerified) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO NOTHING`,
+      args: [seedUserId, 'E2E Seed Admin', seedEmail],
+    });
     await turso.execute({
       sql: `INSERT INTO users (id, email, name, display_name) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
       args: [seedUserId, seedEmail, 'E2E Seed Admin', 'E2E Seed Admin'],
     });
-
-    // ==== HAPUS data seed user (idempotent) ====
-    for (const table of ['gmail_sync_logs', 'transactions', 'gmail_sync_runs', 'gmail_sync_settings', 'budgets', 'notifications', 'categories']) {
-      await turso.execute({ sql: `DELETE FROM ${table} WHERE user_id = ?`, args: [seedUserId] });
-    }
 
     // ==== Kategori ====
     const catIds = {};
