@@ -175,6 +175,54 @@ export async function cleanupTestCategories(): Promise<void> {
   }
 }
 
+/**
+ * Seed fixture DETERMINISTIK ai_usage_metrics (hari ini, 3 fitur) agar chart
+ * multi-seri Tren Biaya di /admin/monitoring PASTI punya >1 garis di CI.
+ * Tanpa ini ai_usage_metrics bisa kosong (seedE2eDataset tidak mengisinya) →
+ * chart menampilkan EmptyMini dan asersi line-count tidak bermakna.
+ * Baris ditandai id prefiks 'e2e-usage-' agar aman dibersihkan.
+ */
+export async function seedAICostTrendFixtures(userId: string): Promise<void> {
+  loadEnv();
+  const turso = createClient({
+    url: process.env.TURSO_DATABASE_URL as string,
+    authToken: process.env.TURSO_AUTH_TOKEN as string,
+  });
+  try {
+    // Satu INSERT multi-VALUES → ATOMIK (reviewer): kegagalan tidak bisa
+    // menyisakan baris parsial yang membuat chart tidak konsisten.
+    await turso.execute({
+      sql: `INSERT INTO ai_usage_metrics
+            (id, user_id, feature, provider, model, prompt_tokens, completion_tokens,
+             estimated_cost_usd, estimated_cost_idr, execution_time_ms, status, error_message, metadata)
+            VALUES
+              ('e2e-usage-gmail', ?, 'gmail_sync', 'gemini_flash', 'e2e-fixture', 2000, 0, 0, 150, 120, 'success', NULL, '{}'),
+              ('e2e-usage-ocr', ?, 'ocr_receipt', 'gemini_flash', 'e2e-fixture', 800, 0, 0, 50, 120, 'success', NULL, '{}'),
+              ('e2e-usage-insight', ?, 'insight_generator', 'gemini_flash', 'e2e-fixture', 1200, 0, 0, 100, 120, 'success', NULL, '{}')`,
+      args: [userId, userId, userId],
+    });
+  } finally {
+    turso.close();
+  }
+}
+
+/** Hapus fixture ai_usage_metrics (id prefiks 'e2e-usage-') dari Turso. */
+export async function cleanupAICostTrendFixtures(): Promise<void> {
+  loadEnv();
+  const turso = createClient({
+    url: process.env.TURSO_DATABASE_URL as string,
+    authToken: process.env.TURSO_AUTH_TOKEN as string,
+  });
+  try {
+    await turso.execute({
+      sql: `DELETE FROM ai_usage_metrics WHERE id LIKE 'e2e-usage-%'`,
+      args: [],
+    });
+  } finally {
+    turso.close();
+  }
+}
+
 /** Hapus sesi E2E (userAgent='e2e-test') + user test (email 'e2e-*') dari Turso. */
 export async function cleanupTestSessions(): Promise<void> {
   loadEnv();
