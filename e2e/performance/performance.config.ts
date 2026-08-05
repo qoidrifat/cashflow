@@ -64,22 +64,35 @@ export async function measurePageTiming(
   path: string,
   cookie?: string,
 ): Promise<PageTiming> {
-  // Count URL UNIK (bukan raw request count): fetch yang di-retry (server lambat,
-  // Turso remote di runner shared CI) memunculkan request duplikat dengan URL
-  // sama → raw count membengkak artifisial (teramati CI 2026-08-05: /dashboard
-  // 63 raw vs 41 unique saat run lokal). Asset yang dimuat ulang BUKAN indikator
-  // bloat; URL unik baru (chunk/asset baru) adalah indikator sebenarnya — tetap
-  // terdeteksi. Budget request tetap valid tanpa melemahkan gate.
+  // Count URL UNIK per asset (bukan raw request count). Investigasi 2026-08-05
+  // (run CI #26/#27, +trace Playwright CI vs lokal): Vite DEV mode menyajikan 1
+  // HTTP request PER MODUL (unbundled ESM) dan modul yang di-invalidate HMR
+  // diberi query cache-busting `?t=<timestamp>` yang berubah tiap revalidate →
+  // URL "unik" palsu. Fetch yang di-retry (server/Turso remote lambat) juga
+  // memunculkan request duplikat. Semua itu BUKAN indikator bloat — yang relevan
+  // adalah jumlah ASSET unik (chunk/modul/asset baru). Karena itu:
+  //  1. Exclude infrastruktur dev: websocket (ws/wss — HMR & realtime),
+  //     @react-refresh, /node_modules/vite/ (env.mjs).
+  //  2. Strip query string (?t=, ?token=, dsb) SEBELUM dedup — file yang sama
+  //     dengan query berbeda dihitung satu kali.
+  //  3. Dedup URL bersih.
+  // Catatan: dev mode tetap ~45-65 request unik/page (bervariasi mengikuti module
+  // graph & HMR) — budget request CI 60 di-naikkan ke 80 (sama dengan default dev)
+  // karena margin 60 terbukti flaky struktural (teramati 41-65 di CI & lokal).
   let requests = 0;
   const seenUrls = new Set<string>();
   const countRequests = (req: { url(): string; resourceType(): string }): void => {
     const url = req.url();
     const rt = req.resourceType();
-    // Exclude HMR/websocket/polling — bukan bagian dari page load waterfall.
-    if (url.includes('vite') || url.includes('@vite') || rt === 'websocket') return;
+    // Infrastruktur dev / koneksi persistent — bukan bagian page load waterfall.
+    if (rt === 'websocket') return;
+    if (url.startsWith('ws://') || url.startsWith('wss://')) return;
+    if (url.includes('@react-refresh')) return;
+    if (url.includes('vite')) return; // /@vite/client, /node_modules/.vite/deps/*, /node_modules/vite/*
     if (url.includes('/api/')) return; // API diukur terpisah (apiLatency)
-    if (seenUrls.has(url)) return; // retry/duplikat — jangan hitung 2×
-    seenUrls.add(url);
+    const clean = url.split('?')[0]; // strip ?t= HMR / token
+    if (seenUrls.has(clean)) return; // retry/duplikat/revalidate — jangan hitung 2×
+    seenUrls.add(clean);
     requests++;
   };
   page.on('request', countRequests);
