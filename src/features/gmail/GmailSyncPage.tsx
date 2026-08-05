@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import {
   Mail,
@@ -62,6 +62,25 @@ import {
   shouldRunAutoSync,
 } from '../../services/gmailSyncSettingsService';
 import AutoSyncStatus from './AutoSyncStatus';
+import {
+  STATUS_CONFIG,
+  calculateStats,
+  inferMerchantFromSender,
+  inferCategoryFromSender,
+  inferPaymentMethodFromSender,
+  buildDebugInfo,
+  buildSyncEmailFromLocalParser,
+  didUseAttachmentExtraction,
+  buildAiInputForEmail,
+  normalizeTransactionType,
+  normalizePaymentMethod,
+  normalizeDate,
+  slugify,
+  delay,
+} from './gmailSyncHelpers';
+
+/** EmailCard di-load lazy (Sprint 1.9) — chunk terpisah, hanya di-fetch saat list dirender. */
+const EmailCard = lazy(() => import('./components/EmailCard').then((m) => ({ default: m.EmailCard })));
 import { calculateConfidenceScore, suggestDecision } from '../../lib/confidenceScorer';
 import { validateAndFinalize, checkPreSkipRules } from '../../lib/aiDecisionValidator';
 import {
@@ -93,20 +112,6 @@ import {
 // SyncEmail & mapLogToSyncEmail/parseMetadata dipindah ke gmailLogMapper.ts
 // (module murni, unit-testable tanpa React) — lihat import di atas.
 
-interface ProcessingStats {
-  total: number;
-  processed: number;
-  pendingReview: number;
-  approved: number;
-  rejected: number;
-  autoAcceptedCount: number;
-  autoRejected: number;
-  skipped: number;
-  duplicate: number;
-  failed: number;
-  retryLater: number;
-  configError: number;
-}
 
 // ===================== Constants =====================
 
@@ -205,25 +210,6 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
     throw error;
   }
 }
-
-// ===================== Status Config =====================
-
-const STATUS_CONFIG: Record<SyncEmailStatus, { label: string; color: string; bg: string }> = {
-  auto_accepted: { label: 'Diterima Otomatis', color: 'text-mint-500', bg: 'bg-mint-50 dark:bg-mint-500/12' },
-  auto_skipped: { label: 'Dilewati Otomatis', color: 'text-app-subtle', bg: 'bg-app-hover/60' },
-  auto_rejected: { label: 'Ditolak Otomatis', color: 'text-soft-amber', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  needs_review: { label: 'Perlu Review', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  pending_review: { label: 'Pending Review', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  approved: { label: 'Disetujui', color: 'text-mint-500', bg: 'bg-mint-50 dark:bg-mint-500/12' },
-  rejected: { label: 'Ditolak', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-500/12' },
-  skipped: { label: 'Dilewati', color: 'text-app-subtle', bg: 'bg-app-hover/80' },
-  duplicate: { label: 'Duplikat', color: 'text-soft-purple', bg: 'bg-purple-50 dark:bg-purple-500/12' },
-  failed: { label: 'Gagal Teknis', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-500/12' },
-  retry_later: { label: 'Coba Lagi Nanti', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/12' },
-  config_error: { label: 'Config Error', color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-500/12' },
-  gmail_permission_required: { label: 'Butuh Izin Gmail', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/12' },
-  paused_config_error: { label: 'Config Error', color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-500/12' },
-};
 
 // ===================== Component =====================
 
@@ -2020,6 +2006,7 @@ export default function GmailSyncPage() {
         )}
 
         {/* Email list — menampilkan hasil dari server dengan pagination 100 per halaman */}
+        <Suspense fallback={null}>
         {!logsLoading && !logsError && paginatedLogs && paginatedLogs.data.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -2127,6 +2114,7 @@ export default function GmailSyncPage() {
             <span className="text-[10px] text-app-subtle">{emails.length} email</span>
           </div>
         )}
+        </Suspense>
 
         {/* Riwayat Sync — Data dari server, tetap ada setelah pindah halaman/refresh/logout */}
         <div className="space-y-4">
@@ -2443,300 +2431,6 @@ function StatCard({ label, value, color }: StatCardProps) {
   );
 }
 
-interface EmailCardProps {
-  email: SyncEmail;
-  index: number;
-  isExpanded: boolean;
-  showDebug: boolean;
-  onToggleExpand: () => void;
-  onApprove: () => void;
-  onReject: () => void;
-  onRetry: () => void;
-  onMarkAsTransaction: () => void;
-  onParseWithFallback?: () => void;
-  onSkip?: () => void;
-  /** State + setter untuk editable note pada needs_review/pending_review */
-  noteEditState: Record<string, string>;
-  onNoteChange: (emailId: string, value: string) => void;
-}
-
-function EmailCard({
-  email,
-  index,
-  isExpanded,
-  showDebug,
-  onToggleExpand,
-  onApprove,
-  onReject,
-  onRetry,
-  onMarkAsTransaction,
-  onParseWithFallback,
-  onSkip,
-  noteEditState,
-  onNoteChange,
-}: EmailCardProps) {
-  const config = STATUS_CONFIG[email.status] || STATUS_CONFIG.failed;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.02 }}
-      data-testid={`email-card-${email.id}`}
-    >
-      <Card>
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-app-text truncate">
-                {email.subject}
-              </p>
-              {/* Status badge */}
-              <span className={cn(
-                'text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap',
-                config.color,
-                config.bg
-              )}>
-                {config.label}
-              </span>
-              {email.confidence && email.confidence >= 0.8 && (
-                <span className="text-[10px] font-medium text-mint-500 dark:text-mint-200 bg-mint-50 dark:bg-mint-500/12 px-1.5 py-0.5 rounded-full">
-                  {Math.round(email.confidence * 100)}%
-                </span>
-              )}
-              {/* Fallback badge */}
-              {email.debug?.fallbackUsed && (
-                <span className="text-[10px] font-medium text-soft-purple bg-purple-50 dark:bg-purple-500/12 px-1.5 py-0.5 rounded-full">
-                  Parsed by Fallback
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-app-subtle">{email.from}</span>
-              <span className="text-xs text-app-subtle">&middot;</span>
-              <span className="text-xs text-app-subtle">
-                {new Date(email.date).toLocaleDateString('id-ID')}
-              </span>
-            </div>
-
-            {/* Amount & merchant */}
-            {(email.amount || email.merchant) && (
-              <div className="flex items-center gap-2 mt-1">
-                {email.amount && (
-                  <p className="text-sm font-semibold text-app-text tabular-nums">
-                    Rp {email.amount.toLocaleString('id-ID')}
-                  </p>
-                )}
-                {email.merchant && (
-                  <span className="text-[10px] text-app-subtle">{email.merchant}</span>
-                )}
-                {email.category && (
-                  <span className="inline-flex items-center gap-1">
-                    <CategoryIcon
-                      name={email.category}
-                      size="sm"
-                      animated
-                      animationVariant={email.status === 'retry_later' ? 'warning' : email.status === 'pending_review' ? 'review' : email.status === 'approved' ? 'success' : 'soft'}
-                    />
-                    <span className="text-[10px] text-app-subtle">{email.category}</span>
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Reason */}
-            {/* Transaction note — editable untuk needs_review/pending_review, statis untuk auto_accepted */}
-            {(email.status === 'needs_review' || email.status === 'pending_review') && (
-              <div className="mt-1.5 space-y-1">
-                <span className="text-[10px] font-medium text-app-subtle">Catatan transaksi</span>
-                <textarea
-                  value={noteEditState[email.id] ?? email.note ?? ''}
-                  onChange={(e) => onNoteChange(email.id, e.target.value)}
-                  className="w-full rounded-lg px-2.5 py-1.5 text-[11px] app-field resize-none"
-                  rows={2}
-                  placeholder="Deskripsi singkat transaksi..."
-                />
-              </div>
-            )}
-            {email.note && email.status === 'auto_accepted' && (
-              <div className="mt-1 flex items-start gap-1.5">
-                <span className="text-[10px] font-medium text-app-subtle flex-shrink-0">Catatan:</span>
-                <p className="text-[10px] text-app-text line-clamp-2">
-                  {email.note}
-                </p>
-              </div>
-            )}
-
-            {email.reason && (
-              <p className="text-[10px] text-app-subtle mt-1 italic">
-                {email.reason}
-              </p>
-            )}
-
-            {/* Debug info (expandable) */}
-            {showDebug && email.debug && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mt-2 p-2 rounded-lg bg-app-hover/80 text-[10px] font-mono space-y-0.5"
-              >
-                <DebugRow label="Message ID" value={email.debug.gmailMessageId} />
-                <DebugRow label="Domain" value={email.debug.senderDomain} />
-                <DebugRow label="Prefilter" value={email.debug.prefilterDecision} />
-                <DebugRow label="AI Called" value={String(email.debug.aiCalled)} />
-                <DebugRow label="AI Parsed" value={String(email.debug.aiParsedSuccessful)} />
-                <DebugRow label="Amount" value={email.debug.extractedAmount !== null ? String(email.debug.extractedAmount) : '-'} />
-                <DebugRow label="Merchant" value={email.debug.extractedMerchant || '-'} />
-                <DebugRow label="Confidence" value={email.debug.confidenceScore !== null ? `${Math.round(email.debug.confidenceScore * 100)}%` : '-'} />
-                <DebugRow label="Final Status" value={email.debug.finalStatus} />
-                {email.debug.errorDetail && (
-                  <DebugRow label="Error" value={email.debug.errorDetail} />
-                )}
-                {email.debug.aiErrorCode && (
-                  <DebugRow label="Error Code" value={email.debug.aiErrorCode} />
-                )}
-                <DebugRow label="Fallback" value={email.debug.fallbackUsed ? 'Yes' : 'No'} />
-                {email.debug.skipReason && (
-                  <DebugRow label="Skip Reason" value={email.debug.skipReason} />
-                )}
-                {email.debug.matchedRule && (
-                  <DebugRow label="Matched Rule" value={email.debug.matchedRule} />
-                )}
-                {typeof email.debug.detectedPromoAmount === 'number' && (
-                  <DebugRow label="Promo Amount" value={`Rp ${email.debug.detectedPromoAmount.toLocaleString('id-ID')}`} />
-                )}
-                {email.debug.amountIgnored && (
-                  <DebugRow label="Amount Ignored" value="true" />
-                )}
-                {email.debug.rawResponse && (
-                  <DebugRow label="Raw AI" value={email.debug.rawResponse.substring(0, 200)} />
-                )}
-                {email.debug.cleanedResponse && (
-                  <DebugRow label="Cleaned" value={email.debug.cleanedResponse.substring(0, 200)} />
-                )}
-                {email.debug.modelUsed && (
-                  <DebugRow label="Model" value={email.debug.modelUsed} />
-                )}
-              </motion.div>
-            )}
-
-            {/* Expanded detail */}
-            {isExpanded && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-2 space-y-1"
-              >
-                {email.description && (
-                  <p className="text-[10px] text-app-muted leading-relaxed">
-                    {email.description}
-                  </p>
-                )}
-                {email.paymentMethod && (
-                  <p className="text-[10px] text-app-subtle">
-                    Pembayaran: {email.paymentMethod}
-                  </p>
-                )}
-                {email.transactionType && (
-                  <p className="text-[10px] text-app-subtle">
-                    Tipe: {email.transactionType === 'expense' ? 'Pengeluaran' : email.transactionType === 'income' ? 'Pemasukan' : email.transactionType}
-                  </p>
-                )}
-              </motion.div>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex flex-col items-end gap-1 ml-2 sm:ml-3">
-            {/* Expand/collapse */}
-            <button
-              onClick={onToggleExpand}
-              className="p-1 rounded-lg text-app-subtle hover:text-app-text hover:bg-app-hover transition-colors"
-              title="Lihat detail"
-            >
-              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {/* Contextual actions */}
-            {(email.status === 'pending_review' || email.status === 'needs_review') && (
-              <div className="flex gap-1">
-                <button
-                  onClick={onApprove}
-                  className="p-2 rounded-xl bg-mint-50 dark:bg-mint-900/20 text-mint-500 hover:bg-mint-100 dark:hover:bg-mint-900/40 transition-colors"
-                  title="Setujui"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onReject}
-                  className="p-2 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                  title="Tolak"
-                >
-                  <XCircle className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {(email.status === 'failed' || email.status === 'retry_later') && (
-              <div className="flex gap-1">
-                <button
-                  onClick={onRetry}
-                  className="p-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
-                  title="Coba Ekstrak Ulang"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-                {email.status === 'failed' && onParseWithFallback && (
-                  <button
-                    onClick={onParseWithFallback}
-                    className="p-2 rounded-xl bg-purple-50 dark:bg-purple-900/20 text-soft-purple hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-                    title="Parse dengan Fallback"
-                  >
-                    <CopyPlus className="w-4 h-4" />
-                  </button>
-                )}
-                {onSkip && (
-                  <button
-                    onClick={onSkip}
-                    className="p-2 rounded-xl bg-app-hover/80 text-app-subtle hover:text-app-text transition-colors"
-                    title="Tandai Dilewati"
-                  >
-                    <XCircle className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {(email.status === 'auto_rejected' || email.status === 'skipped') && (
-              <button
-                onClick={onMarkAsTransaction}
-                className="p-2 rounded-xl bg-primary-50 dark:bg-primary-900/20 text-primary-500 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors"
-                title="Tandai sebagai Transaksi"
-              >
-                <CopyPlus className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </Card>
-    </motion.div>
-  );
-}
-
-function DebugRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex gap-2">
-      <span className="text-app-subtle w-20 flex-shrink-0">{label}:</span>
-      <span className="text-app-text break-all">{value}</span>
-    </div>
-  );
-}
-
-// ===================== Batch Processing =====================
-
-/**
- * Process emails with concurrency limit
- */
 async function processBatchWithConcurrency<T>(
   items: T[],
   concurrency: number,
@@ -3163,267 +2857,3 @@ async function processSingleEmail(
   }
 }
 
-// ===================== Helper Functions =====================
-
-function inferMerchantFromSender(sender: string): string {
-  const s = sender.toLowerCase();
-  if (s.includes('tiket.com')) return 'tiket.com';
-  if (s.includes('kai')) return 'PT. KAI';
-  if (s.includes('agoda')) return 'Agoda';
-  if (s.includes('traveloka')) return 'Traveloka';
-  if (s.includes('grab')) return 'Grab';
-  if (s.includes('shopee')) return 'Shopee';
-  if (s.includes('tokopedia')) return 'Tokopedia';
-  if (s.includes('blibli')) return 'Blibli';
-  return 'Unknown';
-}
-
-function inferCategoryFromSender(sender: string): string {
-  const s = sender.toLowerCase();
-  if (s.includes('tiket') || s.includes('traveloka') || s.includes('agoda')) return 'Travel';
-  if (s.includes('kai')) return 'Transportasi';
-  if (s.includes('grab') || s.includes('gojek')) return 'Transportasi';
-  if (s.includes('shopee') || s.includes('tokopedia')) return 'Belanja';
-  return 'Lainnya';
-}
-
-function inferPaymentMethodFromSender(sender: string): string {
-  const s = sender.toLowerCase();
-  if (s.includes('tiket') || s.includes('agoda') || s.includes('traveloka')) return 'transfer-bank';
-  if (s.includes('shopee') || s.includes('tokopedia')) return 'e-wallet';
-  return 'transfer-bank';
-}
-
-function isTemporaryGeminiError(errorCode?: string): boolean {
-  return (
-    errorCode === GEMINI_ERROR_CODES.UNKNOWN ||
-    errorCode === GEMINI_ERROR_CODES.TEMPORARY_ERROR ||
-    errorCode === GEMINI_ERROR_CODES.NETWORK_ERROR ||
-    errorCode === GEMINI_ERROR_CODES.MODEL_UNAVAILABLE ||
-    errorCode === GEMINI_ERROR_CODES.EMPTY_RESPONSE ||
-    errorCode === GEMINI_ERROR_CODES.TIMEOUT ||
-    errorCode === GEMINI_ERROR_CODES.RATE_LIMITED
-  );
-}
-
-function buildDebugInfo(
-  email: { id: string; subject: string; from: string },
-  prefilterDecision: string,
-  aiCalled: boolean,
-  aiParsedSuccessful: boolean,
-  extractedAmount: number | null,
-  finalStatus: string,
-  errorDetail: string | null,
-  aiErrorCode?: string,
-  rawResponse?: string,
-  cleanedResponse?: string,
-  fallbackUsed?: boolean,
-  modelUsed?: string,
-  extra?: Pick<SyncEmailDebug, 'skipReason' | 'matchedRule' | 'detectedPromoAmount' | 'amountIgnored'>,
-): SyncEmailDebug {
-  return {
-    gmailMessageId: email.id,
-    senderDomain: extractDomain(email.from),
-    subjectClassification: email.subject.substring(0, 80),
-    prefilterDecision,
-    aiCalled,
-    aiParsedSuccessful,
-    extractedAmount,
-    extractedMerchant: null,
-    confidenceScore: null,
-    finalStatus,
-    errorDetail,
-    aiErrorCode,
-    rawResponse: rawResponse?.substring(0, 500),
-    cleanedResponse: cleanedResponse?.substring(0, 500),
-    fallbackUsed,
-    modelUsed,
-    skipReason: extra?.skipReason,
-    matchedRule: extra?.matchedRule,
-    detectedPromoAmount: extra?.detectedPromoAmount,
-    amountIgnored: extra?.amountIgnored,
-  };
-}
-
-function buildSyncEmailFromLocalParser(
-  email: {
-    id: string;
-    subject: string;
-    from: string;
-    date: string;
-    body: string;
-  },
-  localResult: LocalParserResult,
-): SyncEmail {
-  const extracted = localResult.extracted || null;
-  const amount = extracted?.amount || localResult.fallbackResult?.amount || null;
-  const status: SyncEmailStatus =
-    localResult.decision === 'auto_accept'
-      ? 'auto_accepted'
-      : localResult.decision === 'auto_reject'
-        ? 'auto_rejected'
-        : 'auto_skipped';
-
-  const noteContext: NoteContext = {
-    subject: email.subject,
-    sender: email.from,
-    merchant: extracted?.merchant || null,
-    category: extracted?.category || null,
-    amount: amount || null,
-    transactionType: normalizeTransactionType(extracted?.transaction_type) || null,
-    paymentMethod: extracted?.payment_method || null,
-    aiNote: null,
-    aiDescription: null,
-    fallbackNote: extracted?.description || localResult.reason,
-    body: email.body,
-  };
-
-  return {
-    id: email.id,
-    subject: email.subject,
-    from: email.from,
-    date: email.date,
-    body: email.body,
-    status,
-    amount: status === 'auto_accepted' ? amount : null,
-    confidence: localResult.confidence,
-    merchant: status === 'auto_accepted' ? extracted?.merchant || email.from : null,
-    category: status === 'auto_accepted' ? extracted?.category || 'Lainnya' : null,
-    paymentMethod: status === 'auto_accepted' ? extracted?.payment_method || 'Lainnya' : null,
-    transactionType: normalizeTransactionType(extracted?.transaction_type),
-    description: extracted?.description || localResult.reason,
-    note: status === 'auto_accepted' ? buildTransactionNote(noteContext) : null,
-    extracted,
-    reason: localResult.reason,
-    debug: buildDebugInfo(
-      email,
-      `local_${localResult.decision}`,
-      false,
-      false,
-      typeof amount === 'number' ? amount : null,
-      status,
-      localResult.reason,
-      localResult.errorCode,
-      undefined,
-      undefined,
-      Boolean(localResult.fallbackResult?.fallbackUsed || localResult.extracted),
-      localResult.parserSource,
-      {
-        matchedRule: localResult.matchedRule,
-        skipReason: localResult.errorCode,
-      },
-    ),
-  };
-}
-
-function didUseAttachmentExtraction(email: SyncEmail): boolean {
-  return (
-    email.debug?.aiErrorCode === 'ATTACHMENT_AMOUNT_FOUND' ||
-    email.reason?.toLowerCase().includes('dokumen lampiran') === true ||
-    email.description?.toLowerCase().includes('dokumen email') === true
-  );
-}
-
-function buildAiInputForEmail(
-  email: {
-    subject: string;
-    from: string;
-    date: string;
-    body: string;
-    fullContent?: string;
-    attachments?: Array<{ extractedText?: string }>;
-  },
-  localResult?: LocalParserResult | null,
-): string {
-  const combined = getCombinedTextForAI(email.body, email.fullContent, email.attachments);
-  const cleaned = combined
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .substring(0, 6000);
-
-  return [
-    `Subject: ${email.subject}`,
-    `Sender: ${email.from}`,
-    `Tanggal email: ${email.date}`,
-    `Alasan butuh AI: ${localResult?.reason || 'Email ambigu setelah rules lokal'}`,
-    localResult?.fallbackResult?.amount ? `Nominal kandidat parser lokal: ${localResult.fallbackResult.amount}` : '',
-    '',
-    'Isi email ringkas:',
-    cleaned,
-  ].filter(Boolean).join('\n');
-}
-
-function calculateStats(emails: SyncEmail[]): ProcessingStats {
-  const stats: ProcessingStats = {
-    total: emails.length,
-    processed: emails.length,
-    pendingReview: 0,
-    autoAcceptedCount: 0,
-    approved: 0,
-    rejected: 0,
-    autoRejected: 0,
-    skipped: 0,
-    duplicate: 0,
-    failed: 0,
-    retryLater: 0,
-    configError: 0,
-  };
-
-  for (const email of emails) {
-    switch (email.status) {
-      case 'auto_accepted': stats.autoAcceptedCount++; break;
-      case 'needs_review':
-      case 'pending_review': stats.pendingReview++; break;
-      case 'approved': stats.approved++; break;
-      case 'rejected': stats.rejected++; break;
-      case 'auto_skipped':
-      case 'skipped': stats.skipped++; break;
-      case 'auto_rejected': stats.autoRejected++; break;
-      case 'duplicate': stats.duplicate++; break;
-      case 'failed': stats.failed++; break;
-      case 'retry_later': stats.retryLater++; break;
-      case 'config_error': stats.configError++; break;
-      case 'gmail_permission_required': stats.configError++; break;
-      case 'paused_config_error': stats.configError++; break;
-    }
-  }
-
-  return stats;
-}
-
-function normalizeTransactionType(type?: TransactionType): TransactionType {
-  if (type === 'income' || type === 'expense' || type === 'transfer' || type === 'refund') return type;
-  return 'expense';
-}
-
-function normalizePaymentMethod(method?: string): PaymentMethod {
-  const normalized = (method || '').toLowerCase();
-  if (normalized.includes('qris')) return 'qris';
-  if (normalized.includes('wallet') || normalized.includes('gopay') || normalized.includes('ovo') || normalized.includes('dana')) return 'e-wallet';
-  if (normalized.includes('debit')) return 'kartu-debit';
-  if (normalized.includes('kredit') || normalized.includes('credit')) return 'kartu-kredit';
-  if (normalized.includes('transfer') || normalized.includes('bank')) return 'transfer-bank';
-  if (normalized.includes('cash')) return 'cash';
-  return 'lainnya-payment';
-}
-
-function normalizeDate(date: string): string {
-  const parsedDate = new Date(date);
-  if (Number.isNaN(parsedDate.getTime())) return new Date().toISOString().split('T')[0];
-  return parsedDate.toISOString().split('T')[0];
-}
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/&/g, 'dan')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || 'lainnya';
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
