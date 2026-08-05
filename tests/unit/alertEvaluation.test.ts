@@ -54,8 +54,18 @@ describe('ALERT_DEFAULTS (metricsConfig)', () => {
     expect(typeof monthly?.threshold).toBe('number');
   });
 
-  it('semua rule punya shape lengkap & valid', () => {
-    expect(ALERT_DEFAULTS.length).toBeGreaterThanOrEqual(5);
+  it('sinkron dengan seed SQL: 7 rule default (guard drift ALERT_DEFAULTS vs turso-schema.sql)', () => {
+    expect(ALERT_DEFAULTS).toHaveLength(7);
+    const names = ALERT_DEFAULTS.map((r) => r.name).sort();
+    expect(names).toEqual([
+      'agent_search_error_rate',
+      'ai_cost_daily',
+      'ai_cost_monthly',
+      'cache_hit_rate',
+      'fraud_flags',
+      'gmail_sync_failures',
+      'ocr_failure_rate',
+    ]);
     for (const r of ALERT_DEFAULTS) {
       expect(typeof r.name).toBe('string');
       expect(typeof r.metric_name).toBe('string');
@@ -63,6 +73,13 @@ describe('ALERT_DEFAULTS (metricsConfig)', () => {
       expect(typeof r.threshold).toBe('number');
       expect(Number(r.window_minutes) > 0).toBe(true);
     }
+  });
+
+  it('cache_hit_rate & fraud_flags mengikuti seed (lt 0.5 / gt 10, window 60)', () => {
+    const cache = ALERT_DEFAULTS.find((r) => r.name === 'cache_hit_rate');
+    expect(cache).toMatchObject({ metric_name: 'cache_hit_rate', condition: 'lt', threshold: 0.5, window_minutes: 60 });
+    const fraud = ALERT_DEFAULTS.find((r) => r.name === 'fraud_flags');
+    expect(fraud).toMatchObject({ metric_name: 'fraud_flag_count', condition: 'gt', threshold: 10, window_minutes: 60 });
   });
 });
 
