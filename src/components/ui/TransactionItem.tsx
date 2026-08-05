@@ -1,3 +1,4 @@
+import { memo, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowDownRight,
@@ -17,7 +18,7 @@ interface TransactionItemProps {
   delay?: number;
 }
 
-const typeConfig = {
+const typeConfig: Record<Transaction['type'], { icon: typeof ArrowDownRight; color: string; bg: string; label: string }> = {
   income: { icon: ArrowDownRight, color: 'text-mint-500 dark:text-mint-300', bg: 'bg-mint-50 dark:bg-mint-500/12', label: 'Pemasukan' },
   expense: { icon: ArrowUpRight, color: 'text-red-500 dark:text-red-300', bg: 'bg-red-50 dark:bg-red-500/12', label: 'Pengeluaran' },
   transfer: { icon: RefreshCw, color: 'text-primary-500 dark:text-primary-300', bg: 'bg-primary-50 dark:bg-primary-500/12', label: 'Transfer' },
@@ -31,7 +32,7 @@ const sourceLabel: Record<string, string> = {
   import: 'Import',
 };
 
-export default function TransactionItem({ transaction, onClick, delay = 0 }: TransactionItemProps) {
+function TransactionItemInner({ transaction, onClick, delay = 0 }: TransactionItemProps): ReactNode {
   const config = typeConfig[transaction.type] || typeConfig.expense;
   const isAutomatedSource = transaction.source !== 'manual';
   const label = sourceLabel[transaction.source] || transaction.source;
@@ -100,7 +101,8 @@ export default function TransactionItem({ transaction, onClick, delay = 0 }: Tra
       </div>
 
       {/* Amount */}
-      <div className="text-right">          <p className={cn(
+      <div className="text-right">
+        <p className={cn(
           'text-sm font-semibold tabular-nums',
           transaction.type === 'income' || transaction.type === 'refund'
             ? 'text-mint-600 dark:text-mint-300'
@@ -116,3 +118,12 @@ export default function TransactionItem({ transaction, onClick, delay = 0 }: Tra
     </motion.div>
   );
 }
+
+/**
+ * Sprint 1.8: React.memo — item list transaksi (dashboard + transactions page)
+ * hanya re-render saat props-nya berubah. Sebelumnya setiap SSE update
+ * (transaction:created/updated/deleted) memicu re-render SEMUA item list.
+ */
+const TransactionItem = memo(TransactionItemInner);
+
+export default TransactionItem;

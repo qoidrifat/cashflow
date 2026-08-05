@@ -46,6 +46,27 @@ export function TransactionSkeleton() {
   );
 }
 
+/**
+ * Sprint 1.8 — skeleton generik untuk list/grid kartu (pakai di Categories &
+ * Professional Suite yang sebelumnya flash EmptyState saat data async belum masuk).
+ */
+export function CardSkeleton() {
+  return (
+    <div className="rounded-[1.25rem] border border-app-border bg-app-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="h-11 w-11 shrink-0 animate-pulse rounded-2xl bg-app-hover" />
+          <div className="space-y-2">
+            <div className="h-4 w-32 animate-pulse rounded-full bg-app-hover" />
+            <div className="h-3 w-20 animate-pulse rounded-full bg-app-hover/80" />
+          </div>
+        </div>
+        <div className="h-8 w-16 animate-pulse rounded-xl bg-app-hover/80" />
+      </div>
+    </div>
+  );
+}
+
 export function ChartSkeleton() {
   return (
     <div className="rounded-2xl p-5 app-surface">

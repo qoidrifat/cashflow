@@ -20,6 +20,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
+import { CardSkeleton } from '../../components/ui/Skeleton';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
 import { getAllTransactions } from '../../services/transactionService';
@@ -113,6 +114,7 @@ export default function ProfessionalSuitePage() {
   const { addToast } = useAppStore();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [loading, setLoading] = useState(true); // Sprint 1.8: cegah flash EmptyState
   const [wallets, setWallets] = useState<WalletAccount[]>([]);
   const [goals, setGoals] = useState<SavingGoal[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -138,11 +140,14 @@ export default function ProfessionalSuitePage() {
 
   useEffect(() => {
     if (!authUser) return;
-    reloadProfessionalData().catch(() => {
-      setWallets([]);
-      setGoals([]);
-      setSubscriptions([]);
-    });
+    // Reviewer Sprint 1.8: .finally menjamin loading selalu dilepas (sukses/gagal)
+    reloadProfessionalData()
+      .catch(() => {
+        setWallets([]);
+        setGoals([]);
+        setSubscriptions([]);
+      })
+      .finally(() => setLoading(false));
     getAllTransactions(authUser.uid).then(setTransactions).catch(() => setTransactions([]));
     const unsubscribe = listenToBudgets(authUser.uid, setBudgets, () => setBudgets([]));
     return unsubscribe;
@@ -323,7 +328,9 @@ export default function ProfessionalSuitePage() {
             icon={<Landmark className="w-5 h-5" />}
             action={() => setModal('wallet')}
           >
-            {wallets.length === 0 ? (
+            {loading ? (
+              <CardSkeleton />
+            ) : wallets.length === 0 ? (
               <MiniEmpty title="Belum ada wallet" />
             ) : wallets.map((wallet) => (
               <ListRow
@@ -347,7 +354,9 @@ export default function ProfessionalSuitePage() {
             icon={<Target className="w-5 h-5" />}
             action={() => setModal('goal')}
           >
-            {goals.length === 0 ? (
+            {loading ? (
+              <CardSkeleton />
+            ) : goals.length === 0 ? (
               <MiniEmpty title="Belum ada target" />
             ) : goals.map((goal) => {
               const progress = Math.min(100, (goal.currentAmount / goal.targetAmount) * 100);
@@ -378,7 +387,9 @@ export default function ProfessionalSuitePage() {
             icon={<CreditCard className="w-5 h-5" />}
             action={() => setModal('subscription')}
           >
-            {subscriptions.length === 0 ? (
+            {loading ? (
+              <CardSkeleton />
+            ) : subscriptions.length === 0 ? (
               <MiniEmpty title="Belum ada subscription" />
             ) : subscriptions.map((subscription) => (
               <ListRow

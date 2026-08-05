@@ -7,6 +7,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
+import { CardSkeleton } from '../../components/ui/Skeleton';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
 import { addCategory, deleteCategory, initializeDefaultCategories, listenToCategories, updateCategory } from '../../services/categoryService';
@@ -20,6 +21,7 @@ export default function CategoriesPage() {
   const { authUser } = useAuthStore();
   const { addToast } = useAppStore();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'expense' | 'income'>('expense');
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -37,7 +39,14 @@ export default function CategoriesPage() {
       addToast({ type: 'warning', title: 'Kategori default belum bisa dibuat' });
     });
 
-    return listenToCategories(authUser.uid, setCategories);
+    return listenToCategories(authUser.uid, (data) => {
+      setCategories(data);
+      setLoading(false); // Sprint 1.8: jangan flash EmptyState sebelum data async masuk
+    }, (error) => {
+      // Reviewer Sprint 1.8: pastikan loading TIDAK stuck selamanya bila fetch gagal
+      setLoading(false);
+      addToast({ type: 'error', title: 'Gagal memuat kategori', message: error.message });
+    });
   }, [authUser, addToast]);
 
   const visibleCategories = useMemo(
@@ -139,7 +148,11 @@ export default function CategoriesPage() {
           ))}
         </div>
 
-        {visibleCategories.length === 0 ? (
+        {loading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => <CardSkeleton key={i} />)}
+          </div>
+        ) : visibleCategories.length === 0 ? (
           <Card>
             <EmptyState title="Belum ada kategori" description="Tambahkan kategori custom pertama kamu." />
           </Card>

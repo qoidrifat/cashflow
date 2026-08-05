@@ -467,7 +467,7 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 - Server-side pagination on transactions & Gmail logs (indexed, bounded queries)
 - LRU AI response cache + single-flight dedup (identical concurrent requests coalesce)
-- Lazy chunking via Vite (route-level code splitting)
+- Lazy chunking via Vite (route-level code splitting); recharts/d3 ter-split otomatis (385 kB tidak lagi di initial load), `React.memo` pada item transaksi, loading-state tanpa flash EmptyState
 - CI performance budget (Ubuntu runner, real measurements): page load DOM < 3000ms, API p95 < 1800ms, pagination soft/hard 6000/12000ms, ≤ 60 requests/page
 
 ---
@@ -509,7 +509,6 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 **🔄 In progress**
 - `server/index.js` modularization debt (route modules per domain)
-- Sprint 1.5–1.8 UX polish, empty states, performance audit
 
 **🔭 Future**
 - Sprint 2: semantic cache L3 (embedding-aware), multi-model router architecture, cost monitoring, AI evaluation
