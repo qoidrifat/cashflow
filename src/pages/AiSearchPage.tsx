@@ -30,6 +30,8 @@ import {
   removeRecentSearch,
   type RecentSearchEntry,
 } from '../lib/searchHistory';
+import { CATEGORY_FILTER_MAX_LENGTH, sanitizeCategoryInput } from '../lib/categoryFilter';
+import { listenToCategories } from '../services/categoryService';
 import { cn } from '../lib/utils';
 
 export default function AiSearchPage() {
@@ -49,6 +51,7 @@ export default function AiSearchPage() {
   const [suggestedQueries, setSuggestedQueries] = useState<string[]>([]);
   const [filters, setFilters] = useState<AgentSearchFilters>({});
   const [showFilters, setShowFilters] = useState(false);
+  const [userCategories, setUserCategories] = useState<string[]>([]);
 
   const activeTabMeta = useMemo(
     () => AI_SEARCH_TABS.find((tab) => tab.id === activeTab) || AI_SEARCH_TABS[0],
@@ -58,6 +61,22 @@ export default function AiSearchPage() {
   // Recent searches per-user (Sprint 1.4) — reload saat user/tab berubah.
   useEffect(() => {
     setRecentSearches(readRecentSearches(authUser?.uid));
+  }, [authUser?.uid]);
+
+  // Kategori user untuk suggestion input filter kategori (Sprint 1.9).
+  // listenToCategories: fetch + subscribe SSE category:changed; error → fallback
+  // daftar kosong (filter input tetap berfungsi sebagai free-text).
+  useEffect(() => {
+    if (!authUser?.uid) return;
+    return listenToCategories(
+      authUser.uid,
+      (categories) => {
+        setUserCategories(
+          [...new Set(categories.map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
+        );
+      },
+      () => setUserCategories([]),
+    );
   }, [authUser?.uid]);
 
   useEffect(() => {
@@ -185,6 +204,7 @@ export default function AiSearchPage() {
           onChange={setFilters}
           onApply={() => runSearch()}
           disabled={loading}
+          categories={userCategories}
         />
 
         {!hasSearched && recentSearches.length > 0 && !loading && (
@@ -320,6 +340,7 @@ function SemanticFilters({
   onChange,
   onApply,
   disabled,
+  categories,
 }: {
 
   visible: boolean;
@@ -328,6 +349,7 @@ function SemanticFilters({
   onChange: (filters: AgentSearchFilters) => void;
   onApply: () => void;
   disabled: boolean;
+  categories: string[];
 }) {
   const [datePreset, setDatePreset] = useState<'all' | 'this-month' | 'last-3-months'>('all');
 
@@ -397,19 +419,24 @@ function SemanticFilters({
             <option value="last-3-months">3 bulan terakhir</option>
           </select>
 
-          {filters.category && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-app-hover px-3 py-1.5 text-xs font-semibold text-app-text">
-              {filters.category}
-              <button
-                type="button"
-                onClick={() => onChange({ ...filters, category: undefined })}
-                className="text-app-subtle hover:text-red-500"
-                aria-label="Hapus filter kategori"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
+          <input
+            type="text"
+            value={filters.category || ''}
+            onChange={(e) => {
+              const cleaned = sanitizeCategoryInput(e.target.value);
+              onChange({ ...filters, category: cleaned || undefined });
+            }}
+            placeholder="Kategori (mis. Makanan)"
+            maxLength={CATEGORY_FILTER_MAX_LENGTH}
+            aria-label="Filter kategori"
+            list="ai-search-categories"
+            className="h-9 w-48 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none placeholder:text-app-subtle focus:border-primary-400"
+          />
+          <datalist id="ai-search-categories">
+            {categories.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
 
           <Button size="sm" variant="outline" onClick={onApply} disabled={disabled}>
             Terapkan

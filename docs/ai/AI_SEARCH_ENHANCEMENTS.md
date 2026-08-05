@@ -38,6 +38,12 @@ Optional `filters` object on `/query` & `/answer`: `{ dateFrom?, dateTo?, type?,
   (knowledge-base docs have no transaction date).
 - If Discovery rejects the filter (HTTP 400), the existing fallback path retries
   without filter and `fallbackUsed` is reported.
+- **Category filter input (Sprint 1.9):** the semantic filter panel now includes a
+  category text input with a `<datalist>` of the user's own categories (fetched
+  via `listenToCategories`, SSE `category:changed` reactive, deduped + sorted).
+  Users can type freely or pick a suggestion; input is sanitized live by
+  `src/lib/categoryFilter.ts` (`sanitizeCategoryInput` — mirror of the server
+  rule: trim + strip `"` `\` + cap 80) so the request is always valid.
 
 ### 2. Better ranking
 `rankAndExplainResults` post-processes Discovery results:
@@ -89,15 +95,15 @@ Optional `filters` object on `/query` & `/answer`: `{ dateFrom?, dateTo?, type?,
 
 ## Testing
 
-- `tests/unit/agentSearchEnhance.test.ts` — 12 tests: dedupe/re-rank/explanation
-  (incl. filter-aware explanations), suggested-queries engine-vs-fallback,
-  searchHistory (dedupe, cap, per-user isolation, corrupt storage safety).
+- `tests/unit/agentSearchEnhance.test.ts` — searchHistory coverage (dedupe, cap,
+  remove, clear, per-user isolation, corrupt storage safety, injectable factory).
+- `tests/unit/categoryFilter.test.ts` — 7 tests for `sanitizeCategoryInput`
+  (trim, strip quote/backslash, combo, cap 80, empty, valid passthrough).
 - `tests/unit/agentSearchValidation.test.ts` — updated for the new `filters: {}`
   signature + filters validation paths.
 - E2E `e2e/agent-search-auth.spec.ts` — auth gate still green (3/3).
-- Full suite: 384/384 unit · typecheck 0 · lint 0.
+- Full suite: 397/397 unit · typecheck 0 · lint 0.
 
 ## Future (Sprint 2+)
 
-- Category filter UI input (server already supports it; UI has type + date presets).
 - Suggested-query analytics dashboarding in admin monitoring.
