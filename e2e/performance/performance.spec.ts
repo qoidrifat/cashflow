@@ -11,6 +11,11 @@
  *  - Budget dev sengaja longgar (dev build + machine noise). CI bisa override
  *    via env PERF_BUDGET_* (lihat config).
  *  - API latency dihitung dari 3 sample → p50/p95 (median, bukan single run).
+ *  - Pagination diukur 3 sample → assert pada MEDIAN (bukan single-shot):
+ *    runner shared (Ubuntu CI) + Turso remote bisa spike 1x; median menyerap
+ *    noise tanpa melemahkan HARD budget (regresi orde-magnitudo tetap terdeteksi
+ *    karena SEMUA sampel ikut membengkak). Pola flaky terverifikasi 2026-08-05
+ *    (run CI 30935084524 gagal di attempt 1, retry lulus; lokal 5081ms < 12s).
  *  - Hasil ditulis ke test-results/perf/perf-*.json untuk trend CI.
  */
 import { test, expect } from 'playwright/test';
@@ -73,41 +78,52 @@ test.describe('Performance budget @perf', () => {
     }
   });
 
-  test('large dataset pagination: pindah halaman transaksi — HARD budget (regresi orde-magnitudo)', async ({ browser }) => {
-    const context = await browser.newContext();
-    // Onboarding modal (fixed inset-0 z-50) menghalangi klik tombol pagination
-    // bila tidak ditekan — pola sama dengan spec lain (authContext.suppressOnboarding).
-    await suppressOnboarding(context);
-    const page = await context.newPage();
-    await page.context().addCookies([
-      { name: 'better-auth.session_token', value: session.cookie, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' },
-    ]);
-    await page.goto('/transactions', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('load');
+  test('large dataset pagination: pindah halaman transaksi — HARD budget (median dari 3 sampel)', async ({ browser }) => {
+    // 3 sampel, context baru tiap sampel (state bersih seperti navigasi user).
+    // Assert pada MEDIAN: spike tunggal dari runner shared/Turso remote tidak
+    // menggagalkan CI, tapi regresi orde-magnitudo (N+1, index hilang) tetap
+    // terdeteksi — SEMUA sampel membengkak → median ikut melewati HARD budget.
+    const samples: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const context = await browser.newContext();
+      // Onboarding modal (fixed inset-0 z-50) menghalangi klik tombol pagination
+      // bila tidak ditekan — pola sama dengan spec lain (authContext.suppressOnboarding).
+      await suppressOnboarding(context);
+      const page = await context.newPage();
+      await page.context().addCookies([
+        { name: 'better-auth.session_token', value: session.cookie, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' },
+      ]);
+      await page.goto('/transactions', { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('load');
 
-    // Klik halaman 2 — ukur waktu sampai counter berubah
-    const t0 = Date.now();
-    await page.getByRole('button', { name: '2', exact: true }).click();
-    await page.getByText(/Menampilkan 51-100 dari \d+ transaksi/).first().waitFor({ timeout: 10_000 });
-    const paginationMs = Date.now() - t0;
+      // Klik halaman 2 — ukur waktu sampai counter berubah
+      const t0 = Date.now();
+      await page.getByRole('button', { name: '2', exact: true }).click();
+      await page.getByText(/Menampilkan 51-100 dari \d+ transaksi/).first().waitFor({ timeout: 10_000 });
+      samples.push(Date.now() - t0);
+      await context.close();
+    }
 
-    writePerfReport({ budgets: PERF_BUDGETS, paginationMs });
+    samples.sort((a, b) => a - b);
+    const medianMs = samples[Math.floor(samples.length / 2)] ?? 0;
+    const maxMs = samples[samples.length - 1] ?? 0;
+    writePerfReport({ budgets: PERF_BUDGETS, paginationMs: medianMs, paginationSamples: samples });
 
-    // HARD budget (default 8s): melebihi = regresi orde-magnitudo (mis. N+1,
-    // index hilang) → test GAGAL. Angka ini sengaja jauh di atas noise mesin dev.
+    // HARD budget (CI default 12s): median melebihi = regresi orde-magnitudo
+    // (mis. N+1, index hilang) → test GAGAL. Angka sengaja jauh di atas noise
+    // mesin dev; median-of-3 menyerap spike 1x tanpa melemahkan gate.
     expect(
-      paginationMs,
-      `pagination ${paginationMs}ms > HARD budget ${PERF_BUDGETS.paginationHardMs}ms (regresi orde-magnitudo)`,
+      medianMs,
+      `pagination median ${medianMs}ms (samples: ${samples.join(', ')}ms) > HARD budget ${PERF_BUDGETS.paginationHardMs}ms (regresi orde-magnitudo)`,
     ).toBeLessThan(PERF_BUDGETS.paginationHardMs);
 
-    // SOFT budget (default 2s): melebihi = warning di log + report JSON (bukan
-    // hard-fail) — dev build + React dev mode wajar 2-5s, noise mesin tidak boleh
-    // membatalkan CI. CI bisa mengetatkan via PERF_BUDGET_PAGINATION_SOFT_MS.
-    if (paginationMs > PERF_BUDGETS.paginationSoftMs) {
+    // SOFT budget (CI default 6s): melebihi = warning di log + report JSON
+    // (bukan hard-fail) — dev build + React dev mode wajar 3-5s, noise mesin
+    // tidak boleh membatalkan CI. CI bisa mengetatkan via PERF_BUDGET_PAGINATION_SOFT_MS.
+    if (maxMs > PERF_BUDGETS.paginationSoftMs) {
       console.warn(
-        `[perf] pagination ${paginationMs}ms > soft budget ${PERF_BUDGETS.paginationSoftMs}ms (warning — tracking, bukan hard-fail)`,
+        `[perf] pagination max ${maxMs}ms > soft budget ${PERF_BUDGETS.paginationSoftMs}ms (warning — tracking, bukan hard-fail)`,
       );
     }
-    await context.close();
   });
 });
