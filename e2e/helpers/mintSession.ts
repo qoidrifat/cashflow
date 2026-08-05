@@ -32,6 +32,28 @@ export interface MintedSession {
   userId: string;
 }
 
+/**
+ * Email user seed E2E — resolusi HARUS identik dengan scripts/seedE2eDataset.mjs
+ * (ADMIN_EMAILS[0] atau default 'e2e-seed-admin@cashflow.test'). Mint sesi &
+ * cleanup memakai email yang sama persis dengan seed agar target user
+ * deterministik di lingkungan mana pun (CI: e2e-seed-admin@…; lokal: admin dev).
+ *
+ * ⚠️ DIVERGENSI TAHU-BETUL (reviewer): seed script menghitung ADMIN_EMAIL saat
+ * module-load — SEBELUM loadEnv() — sehingga ia TIDAK pernah membaca server/.env
+ * (hanya env var proses nyata). Helper ini dipanggil SETELAH loadEnv() → di
+ * skenario lokal tanpa env ter-export, seed menarget e2e-seed-admin@… sedangkan
+ * mintSession menarget ADMIN_EMAILS dari server/.env. CI TIDAK terpengaruh
+ * (workflow selalu men-set ADMIN_EMAILS sebagai env var nyata). Untuk konsistensi
+ * penuh saat run lokal: export ADMIN_EMAILS secara eksplisit (pola verifikasi
+ * temp-DB: seed & spec memakai env yang sama).
+ */
+function resolveSeedAdminEmail(): string {
+  return (
+    (process.env.ADMIN_EMAILS || '').split(',')[0]?.trim().toLowerCase() ||
+    'e2e-seed-admin@cashflow.test'
+  );
+}
+
 /** Buat sesi Better Auth untuk userId tertentu (shared — dipakai admin & non-admin). */
 async function insertSession(turso: ReturnType<typeof createClient>, userId: string): Promise<MintedSession> {
   const token = crypto.randomBytes(24).toString('base64url').slice(0, 32);
@@ -61,7 +83,12 @@ async function insertSession(turso: ReturnType<typeof createClient>, userId: str
 /**
  * Mint sesi Better Auth yang valid dan kembalikan cookie + userId.
  * Sesi ditandai userAgent='e2e-test' agar mudah dibersihkan.
- * Memakai user pertama di tabel `user` (qoidrifat23@gmail.com = ADMIN_EMAILS).
+ *
+ * Target user = USER SEED (email ADMIN_EMAILS[0] atau default
+ * e2e-seed-admin@cashflow.test) — SAMA dengan scripts/seedE2eDataset.mjs.
+ * Resolusi by email (BUKAN `LIMIT 1`) agar deterministik walau tabel `user`
+ * berisi banyak user (mis. leftover dari spec non-admin) atau urutan row
+ * berubah — penyebab kegagalan CI #4 (mint sesi untuk user yang salah).
  */
 export async function mintSessionCookie(): Promise<MintedSession> {
   loadEnv();
@@ -72,13 +99,24 @@ export async function mintSessionCookie(): Promise<MintedSession> {
   });
 
   try {
+    const email = resolveSeedAdminEmail();
     const users = await turso.execute({
-      sql: 'SELECT id FROM user LIMIT 1',
-      args: [],
+      sql: 'SELECT id FROM user WHERE email = ?',
+      args: [email],
     });
-    const userId = users.rows[0]?.id as string | undefined;
+    let userId = users.rows[0]?.id as string | undefined;
     if (!userId) {
-      throw new Error('Tidak ada user di tabel `user` — jalankan migrasi/seed terlebih dahulu.');
+      // User seed belum ada (DB fresh tanpa seed) — buat seperti seed, termasuk
+      // sinkronisasi ke `users` (plural) yang dipakai FK tabel bisnis.
+      userId = crypto.randomBytes(16).toString('hex');
+      await turso.execute({
+        sql: `INSERT INTO user (id, name, email, emailVerified) VALUES (?, ?, ?, 1)`,
+        args: [userId, 'E2E Seed Admin', email],
+      });
+      await turso.execute({
+        sql: `INSERT INTO users (id, email, name, display_name) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+        args: [userId, email, 'E2E Seed Admin', 'E2E Seed Admin'],
+      });
     }
 
     return await insertSession(turso, userId);
@@ -236,9 +274,13 @@ export async function cleanupTestSessions(): Promise<void> {
       args: [],
     });
     // User test non-admin (dibuat mintSessionCookieForEmail) — email prefiks 'e2e-'.
+    // ⚠️ JANGAN hapus USER SEED: di CI user seed = e2e-seed-admin@cashflow.test
+    // yang juga cocok `LIKE 'e2e-%'` — menghapusnya memutus sesi & data bisnis
+    // untuk spec berikutnya (akar kegagalan CI #4: 3× E2E gagal beruntun palsu).
+    const seedEmail = resolveSeedAdminEmail();
     await turso.execute({
-      sql: `DELETE FROM user WHERE email LIKE 'e2e-%'`,
-      args: [],
+      sql: `DELETE FROM user WHERE email LIKE 'e2e-%' AND email != ?`,
+      args: [seedEmail],
     });
   } finally {
     turso.close();
