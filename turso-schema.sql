@@ -118,8 +118,25 @@ CREATE TABLE IF NOT EXISTS transactions (
   gmail_message_id TEXT,
   confidence_score REAL,
   metadata TEXT DEFAULT '{}',
+  fraud_flag TEXT,
+  fraud_score REAL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Fraud Detection Flags (Sprint 1 — Core Product; ADR-011)
+CREATE TABLE IF NOT EXISTS fraud_flags (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
+  flag_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'medium',
+  description TEXT NOT NULL DEFAULT '',
+  rule_data TEXT DEFAULT '{}',
+  risk_score REAL,
+  decision TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Budgets
@@ -350,6 +367,10 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 -- DB lama. (MONITORING_AUDIT gap #1: channel notifikasi + cooldown.)
 ALTER TABLE alert_rules ADD COLUMN last_notified_at TEXT;
 
+-- Fraud Detection (Sprint 1): kolom flag pada transaksi lama + indeks fraud_flags.
+ALTER TABLE transactions ADD COLUMN fraud_flag TEXT;
+ALTER TABLE transactions ADD COLUMN fraud_score REAL;
+
 CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules(is_active) WHERE is_active = 1;
 
 -- Seed default alert rules (idempotent via UNIQUE name). PK id di-set eksplisit
@@ -366,7 +387,9 @@ VALUES
   -- JOIN single-flight ikut mencatat miss, dan window dengan mayoritas email BARU
   -- (first-scan pasca restart) wajar rendah — alert paling bermakna saat steady-state
   -- pemrosesan berulang (gmail sync / OCR berulang), bukan saat cold-cache.
-  ('alert_cache_hit_rate', 'cache_hit_rate', 'cache_hit_rate', 'lt', 0.5, 60);
+  ('alert_cache_hit_rate', 'cache_hit_rate', 'cache_hit_rate', 'lt', 0.5, 60),
+  -- Fraud Detection (Sprint 1): lonjakan flag mencurigakan > 10 dalam 60 menit.
+  ('alert_fraud_flags', 'fraud_flags', 'fraud_flag_count', 'gt', 10, 60);
 
 -- =============================================
 -- INDEXES
@@ -377,6 +400,9 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_amount ON transactions(user_id,
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category ON transactions(user_id, category_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_source ON transactions(user_id, source);
 CREATE INDEX IF NOT EXISTS idx_transactions_gmail_msg ON transactions(user_id, gmail_message_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_created ON fraud_flags(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_status ON fraud_flags(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_tx ON fraud_flags(user_id, transaction_id);
 CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON budgets(user_id, year DESC, month DESC);
 CREATE INDEX IF NOT EXISTS idx_categories_user_name ON categories(user_id, name);
 CREATE INDEX IF NOT EXISTS idx_recurring_user_active ON recurring_transactions(user_id, active, next_due_date);

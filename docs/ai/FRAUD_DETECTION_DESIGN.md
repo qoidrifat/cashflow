@@ -1,6 +1,6 @@
 # Fraud Detection — Architecture Design
 
-> **Status:** Design only — no implementation · **Owner:** Core Engineering · **Related:** [ADR-011](../adr/ADR-011-fraud-detection.md)
+> **Status:** Implemented (L1 full + L2 behind feature flag) · **Owner:** Core Engineering · **Related:** [ADR-011](../adr/ADR-011-fraud-detection.md)
 
 ## Objective
 
@@ -79,12 +79,22 @@ Only for flagged candidates, async (non-blocking):
 ## Guardrails
 
 - No blocking of writes: flags are advisory until human review.
-- Feature flag `FRAUD_DETECTION_ENABLED`; per-rule toggles.
+- Feature flag `FRAUD_DETECTION_ENABLED` (default on); `FRAUD_AI_SCORING_ENABLED` (default off).
 - False-positive budget: rules tuned against seeded fixtures; AI scoring only on flags (≤ ~1% of transactions).
 
-## Next Steps
+## Implementation Status (Sprint 1)
 
-1. Implement L1 as a pure module + unit tests (duplicate/velocity/amount/new-merchant).
-2. Migration: `fraud_flags` table + flag on write.
-3. Wire notification + admin monitoring.
-4. Evaluate L2 behind a feature flag.
+| Item | Status | Evidence |
+|---|---|---|
+| L1 rule engine (pure) | ✅ Implemented | `server/lib/fraudEngine.js` + 13 unit tests |
+| Aggregates + wiring on write | ✅ Implemented | `server/services/fraudDetectionService.js`, hook di `POST /api/transactions` (fire-and-forget) |
+| Migration `fraud_flags` + kolom | ✅ Implemented | `turso-schema.sql` (tabel + indeks + ALTER idempotent) |
+| Notification (bell + SSE) | ✅ Implemented | dedupe `fraud:<txId>`, type `warning`, action → /transactions |
+| Admin monitoring | ✅ Implemented | metric `fraud_flag_count` + alert rule seed `fraud_flags` |
+| API | ✅ Implemented | `server/routes/fraudRoutes.js` (summary / flags / review) + E2E spec |
+| L2 AI scoring (Gemini) | ✅ Implemented (di balik flag) | `runAiScoring`, prompt-bounded, degrade ke verdict L1 |
+
+## Remaining
+
+- Tuning threshold per-rule setelah data nyata (env/konfigurasi rule).
+- UI halaman detail flag (saat ini: widget dashboard + badge transaksi + notifikasi).

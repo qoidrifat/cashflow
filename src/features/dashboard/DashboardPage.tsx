@@ -9,6 +9,8 @@ import {
   Plus,
   Mail,
   BarChart3,
+  ShieldCheck,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -16,8 +18,9 @@ import { useAppStore } from '../../store/useAppStore';
 import { listenToTransactions, calculateBalance } from '../../services/transactionService';
 import { listenToBudgets } from '../../services/budgetService';
 import { triggerBudgetOverNotification, triggerBudgetWarningNotification } from '../../services/notificationTriggers';
+import { getFraudSummary, FRAUD_RULE_LABELS, FRAUD_SEVERITY_LABELS } from '../../services/fraudService';
 import { cn, formatCurrency, getCurrentMonth, getCurrentYear } from '../../lib/utils';
-import type { Budget, BudgetStatus, Transaction } from '../../types';
+import type { Budget, BudgetStatus, FraudSummary, Transaction } from '../../types';
 import Header from '../../components/layout/Header';
 import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
@@ -25,21 +28,8 @@ import TransactionItem from '../../components/ui/TransactionItem';
 import Button from '../../components/ui/Button';
 import { StatCardSkeleton, TransactionSkeleton, ChartSkeleton } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
+import ErrorState from '../../components/ui/ErrorState';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-
-function getDashboardErrorMessage(message: string): string {
-  const normalized = message.toLowerCase();
-  if (normalized.includes('schema cache') || normalized.includes('could not find the table')) {
-    return 'Database belum siap. Pastikan server API aktif dan data sudah dimigrasi, lalu klik Coba Lagi.';
-  }
-  if (normalized.includes('permission denied') || normalized.includes('row-level security')) {
-    return 'Data tidak bisa dibaca karena policy RLS belum mengizinkan user saat ini. Pastikan policy memakai auth.uid() = user_id.';
-  }
-  if (normalized.includes('column') && normalized.includes('not')) {
-    return 'Schema database belum sesuai dengan service layer CashFlow. Pastikan migration core terbaru sudah dijalankan.';
-  }
-  return message;
-}
 
 const quickActions: Array<{
   label: string;
@@ -85,10 +75,14 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [fraudSummary, setFraudSummary] = useState<FraudSummary | null>(null);
 
-
+  useEffect(() => {
+    if (!authUser) return;
+    getFraudSummary().then(setFraudSummary);
+  }, [authUser]);
 
   useEffect(() => {
     if (!authUser) return;
@@ -102,10 +96,9 @@ export default function DashboardPage() {
         setError(null);
       },
       (err) => {
-        const message = getDashboardErrorMessage(err.message);
-        setError(message);
+        setError(err);
         setLoading(false);
-        addToast({ type: 'error', title: 'Gagal memuat data', message });
+        addToast({ type: 'error', title: 'Gagal memuat data', message: err.message });
       }
     );
 
@@ -220,15 +213,10 @@ export default function DashboardPage() {
       <div>
         <Header title="Beranda" />
         <div className="p-4 lg:p-6">
-          <EmptyState
-            icon={<TrendingUp className="w-8 h-8 text-red-400" />}
+          <ErrorState
+            error={error}
             title="Gagal Memuat Data"
-            description={error}
-            action={
-              <Button variant="primary" onClick={() => window.location.reload()}>
-                Coba Lagi
-              </Button>
-            }
+            onRetry={() => window.location.reload()}
           />
         </div>
       </div>
@@ -376,6 +364,70 @@ export default function DashboardPage() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+        </Card>
+
+        {/* Fraud Protection Widget (Sprint 1) */}
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/12 flex items-center justify-center">
+                <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-300" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-app-text">
+                  Perlindungan Fraud
+                </h3>
+                <p className="text-xs text-app-subtle">
+                  Deteksi otomatis aktivitas mencurigakan
+                </p>
+              </div>
+            </div>
+            {fraudSummary && fraudSummary.openCount > 0 && (
+              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/15 px-2.5 py-1 rounded-full">
+                {fraudSummary.openCount} perlu dicek
+              </span>
+            )}
+          </div>
+
+          {!fraudSummary ? (
+            <p className="text-sm text-app-muted">Memuat status keamanan…</p>
+          ) : fraudSummary.openCount === 0 ? (
+            <div className="flex items-center gap-2.5 text-sm text-mint-600 dark:text-mint-300">
+              <ShieldCheck className="w-5 h-5 shrink-0" />
+              <span>Tidak ada aktivitas mencurigakan. Ledger kamu aman.</span>
+            </div>
+          ) : (
+            <ul className="divide-y divide-app-border/70">
+              {fraudSummary.recent.slice(0, 3).map((flag) => (
+                <li key={flag.id} className="py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-app-text truncate">
+                      {flag.merchant || 'Transaksi'}
+                      {typeof flag.amount === 'number' && ` · ${formatCurrency(flag.amount)}`}
+                    </p>
+                    <p className="text-xs text-app-subtle mt-0.5">
+                      {FRAUD_RULE_LABELS[flag.flagType] || flag.flagType}
+                      {' · '}
+                      <span className={cn(
+                        flag.severity === 'critical' || flag.severity === 'high'
+                          ? 'text-red-500 dark:text-red-300'
+                          : 'text-amber-600 dark:text-amber-300'
+                      )}>
+                        {FRAUD_SEVERITY_LABELS[flag.severity] || flag.severity}
+                      </span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/transactions')}
+                    className="text-xs font-medium text-primary-500 hover:text-primary-600 dark:text-primary-300 shrink-0"
+                  >
+                    Lihat
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         {/* Recent Transactions */}

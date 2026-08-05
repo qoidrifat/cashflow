@@ -56,6 +56,7 @@ import { getAuth } from './lib/auth.js';
 import { authMiddleware, requireAuth } from './middleware/authMiddleware.js';
 import { registerSSERoute, closeSSEClients } from './lib/sse.js';
 import { registerTransactionRoutes } from './routes/transactionRoutes.js';
+import { registerFraudRoutes } from './routes/fraudRoutes.js';
 import { registerCategoryRoutes } from './routes/categoryRoutes.js';
 import { registerBudgetRoutes } from './routes/budgetRoutes.js';
 import { registerRecurringRoutes } from './routes/recurringRoutes.js';
@@ -337,8 +338,8 @@ app.use('/api/agent-search', security(aiLimiter));
 app.use('/api/ai/extract-receipt-image', security(receiptLimiter));
 
 // ===================== Register API Routes =====================
-registerSSERoute(app, requireAuth);
-registerTransactionRoutes(app);
+registerSSERoute(app, requireAuth);  registerTransactionRoutes(app);
+  registerFraudRoutes(app);
 registerCategoryRoutes(app);
 registerBudgetRoutes(app);
 registerRecurringRoutes(app);

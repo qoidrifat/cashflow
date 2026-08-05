@@ -26,6 +26,9 @@ interface MonthlyMetrics {
 
 const MIN_RECOMMENDATION_DELTA = 50_000;
 
+const formatRupiah = (value: number): string =>
+  `Rp ${Math.round(value).toLocaleString('id-ID')}`;
+
 function toDate(value: string): Date {
   return new Date(`${value}T00:00:00`);
 }
@@ -118,9 +121,72 @@ function getFinancialHealth(metrics: MonthlyMetrics): FinancialHealth {
   return 'sehat';
 }
 
+/**
+ * Skor kesehatan finansial 0–100 (Sprint 1.2) — deterministik dari metrik bulan
+ * berjalan, dipakai sebagai fallback bila AI tidak menghasilkan skor. Semakin
+ * rendah rasio pengeluaran & tekanan cashflow, semakin tinggi skor.
+ */
+function computeFinancialHealthScore(metrics: MonthlyMetrics): number {
+  let score = 100;
+
+  if (metrics.totalIncome === 0 && metrics.totalExpense === 0) return 70; // data kosong, netral
+  if (metrics.transactionCount === 0) score = Math.min(score, 40);
+
+  const ratio = metrics.expenseRatio;
+  if (ratio > 1) score -= 50;
+  else if (ratio >= 0.85) score -= 35;
+  else if (ratio >= 0.65) score -= 15;
+  else if (ratio >= 0.5) score -= 5;
+
+  if (metrics.netCashflow < 0) score -= 15;
+  if (metrics.topMerchant && metrics.topMerchant.count >= 3) score -= 5; // ketergantungan merchant
+
+  return Math.max(0, Math.min(100, score));
+}
+
+/** Peluang hemat (Sprint 1.2) — deterministik, di-refine oleh AI bila tersedia. */
+function buildSavingOpportunities(metrics: MonthlyMetrics): string[] {
+  const opportunities: string[] = [];
+  if (metrics.totalIncome > 0 && metrics.expenseRatio < 0.65) {
+    const surplus = metrics.totalIncome - metrics.totalExpense;
+    opportunities.push(
+      `Ada surplus ${formatRupiah(surplus)} — alihkan minimal 20% ke dana darurat atau investasi rutin.`
+    );
+  }
+  if (metrics.topMerchant && metrics.topMerchant.count >= 3) {
+    opportunities.push(
+      `Transaksi berulang di ${metrics.topMerchant.merchant} mencapai ${formatRupiah(metrics.topMerchant.total)} — cek langganan/tagihan yang bisa dinegosiasi.`
+    );
+  }
+  if (opportunities.length === 0) {
+    opportunities.push('Buat kategori tabungan agar surplus terlihat dan tidak tercampur pengeluaran.');
+  }
+  return opportunities;
+}
+
+/** Pengeluaran tidak biasa (Sprint 1.2) — deterministik, di-refine oleh AI. */
+function buildUnusualSpending(metrics: MonthlyMetrics): string[] {
+  const unusual: string[] = [];
+  if (metrics.expenseRatio >= 0.85) {
+    unusual.push(
+      `Pengeluaran ${Math.round(metrics.expenseRatio * 100)}% dari pemasukan — di atas batas sehat 65–80%.`
+    );
+  }
+  if (metrics.topMerchant && metrics.topMerchant.count >= 5) {
+    unusual.push(`Frekuensi tinggi ke ${metrics.topMerchant.merchant} (${metrics.topMerchant.count}× bulan ini) perlu ditinjau.`);
+  }
+  if (unusual.length === 0) {
+    unusual.push('Tidak ada pengeluaran yang menyimpang dari pola normal bulan ini.');
+  }
+  return unusual;
+}
+
 function buildFallbackMonthlyReport(input: MonthlyReportInput): MonthlyFinancialReport {
   const metrics = calculateMonthlyMetrics(input.transactions, input.month, input.year);
   const health = getFinancialHealth(metrics);
+  const financialHealthScore = computeFinancialHealthScore(metrics);
+  const savingOpportunities = buildSavingOpportunities(metrics);
+  const unusualSpending = buildUnusualSpending(metrics);
   const monthLabel = `${getMonthName(input.month)} ${input.year}`;
   const topCategoryText = metrics.topCategory
     ? `Pengeluaran terbesar ada di ${metrics.topCategory.categoryName}.`
@@ -154,12 +220,20 @@ function buildFallbackMonthlyReport(input: MonthlyReportInput): MonthlyFinancial
   return {
     summary: `Laporan ${monthLabel}: cashflow ${health}, dengan ${metrics.transactionCount} transaksi tercatat. ${topCategoryText}`,
     cashflowHealth: health,
+    financialHealthScore,
+    savingOpportunities,
+    unusualSpending,
     topRisks,
     recommendations,
     positiveNotes,
     generatedBy: 'rule-based',
     generatedAt: new Date().toISOString(),
   };
+}
+
+function clampScore(value: unknown, fallback: number): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.max(0, Math.min(100, Math.round(num))) : fallback;
 }
 
 function normalizeReportPayload(payload: Record<string, unknown>, fallback: MonthlyFinancialReport): MonthlyFinancialReport {
@@ -171,6 +245,10 @@ function normalizeReportPayload(payload: Record<string, unknown>, fallback: Mont
   return {
     summary: typeof payload.summary === 'string' && payload.summary.trim() ? payload.summary : fallback.summary,
     cashflowHealth: health,
+    // Sprint 1.2: skor & insight tambahan — dipakai bila ada, fallback deterministik bila tidak.
+    financialHealthScore: clampScore(payload.financialHealthScore, fallback.financialHealthScore ?? 0),
+    savingOpportunities: clampList(payload.savingOpportunities, fallback.savingOpportunities ?? []),
+    unusualSpending: clampList(payload.unusualSpending, fallback.unusualSpending ?? []),
     topRisks: clampList(payload.topRisks, fallback.topRisks),
     recommendations: clampList(payload.recommendations, fallback.recommendations),
     positiveNotes: clampList(payload.positiveNotes, fallback.positiveNotes),

@@ -36,8 +36,50 @@ export interface Transaction {
   gmailMessageId?: string;
   confidenceScore?: number;
   metadata?: Record<string, unknown>;
+  /** Fraud flag hasil L1 rule engine: 'flagged' (advisory) | 'review' (high/critical) | null */
+  fraudFlag?: 'flagged' | 'review' | 'blocked' | null;
+  /** Skor risiko 0..1 (L1 deterministik, atau L2 AI bila aktif) */
+  fraudScore?: number | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ===================== FRAUD DETECTION =====================
+export type FraudFlagType =
+  | 'duplicate'
+  | 'velocity'
+  | 'amount_outlier'
+  | 'new_merchant'
+  | 'category_anomaly';
+
+export type FraudSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type FraudDecision = 'allow' | 'review' | 'block';
+export type FraudFlagStatus = 'open' | 'reviewed' | 'dismissed';
+
+export interface FraudFlag {
+  id: string;
+  userId: string;
+  transactionId?: string;
+  flagType: FraudFlagType;
+  severity: FraudSeverity;
+  description: string;
+  ruleData?: Record<string, unknown>;
+  riskScore?: number;
+  decision?: FraudDecision;
+  status: FraudFlagStatus;
+  createdAt: string;
+  /** Field join ringan dari transaksi (opsional) */
+  merchant?: string;
+  amount?: number;
+  date?: string;
+  transactionType?: string;
+}
+
+export interface FraudSummary {
+  openCount: number;
+  totalCount: number;
+  bySeverity: Record<FraudSeverity, number>;
+  recent: FraudFlag[];
 }
 
 export interface TransactionFormData {
@@ -336,6 +378,12 @@ export type FinancialHealth = 'sehat' | 'stabil' | 'waspada' | 'kritis';
 export interface MonthlyFinancialReport {
   summary: string;
   cashflowHealth: FinancialHealth;
+  /** Skor kesehatan finansial 0–100 (Sprint 1.2 — deterministik fallback, AI optional) */
+  financialHealthScore?: number;
+  /** Peluang hemat yang bisa dieksekusi (Sprint 1.2) */
+  savingOpportunities?: string[];
+  /** Pengeluaran tidak biasa yang perlu ditinjau (Sprint 1.2) */
+  unusualSpending?: string[];
   topRisks: string[];
   recommendations: string[];
   positiveNotes: string[];

@@ -26,6 +26,7 @@
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import { runFraudDetection, isFraudDetectionEnabled } from '../services/fraudDetectionService.js';
 import {
   validateBody,
   validateQuery,
@@ -334,6 +335,26 @@ export function registerTransactionRoutes(app) {
       });
 
       notifyUser(userId, 'transaction:created', { id, date });
+
+      // Fraud Detection (Sprint 1): L1 rule engine dijalankan fire-and-forget —
+      // di luar critical path; write tidak pernah diblokir/digagalkan oleh deteksi.
+      if (isFraudDetectionEnabled()) {
+        runFraudDetection({
+          userId,
+          transaction: {
+            id,
+            type,
+            amount: Number(amount),
+            merchant,
+            categoryId,
+            categoryName,
+            date,
+            source,
+            gmailMessageId,
+          },
+        }).catch(() => {});
+      }
+
       res.json({ id });
     } catch (err) {
       res.status(500).json({ error: err.message });

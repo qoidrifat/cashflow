@@ -5,6 +5,8 @@ import {
   ShieldCheck,
   Sparkles,
   Download,
+  AlertTriangle,
+  PiggyBank,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -299,6 +301,36 @@ export default function ReportsPage() {
                           </span>
                         </div>
                         <p className="text-sm leading-relaxed text-app-text">{aiReport.summary}</p>
+                        {typeof aiReport.financialHealthScore === 'number' && (
+                          <div className="flex items-center gap-2 mt-3">
+                            <span className="text-[11px] font-semibold text-app-subtle shrink-0">
+                              Skor kesehatan
+                            </span>
+                            <div className="flex-1 h-1.5 rounded-full bg-app-hover overflow-hidden">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-all duration-700',
+                                  aiReport.financialHealthScore >= 80
+                                    ? 'bg-mint-500'
+                                    : aiReport.financialHealthScore >= 60
+                                      ? 'bg-amber-500'
+                                      : 'bg-red-500'
+                                )}
+                                style={{ width: `${Math.max(4, aiReport.financialHealthScore)}%` }}
+                              />
+                            </div>
+                            <span className={cn(
+                              'text-xs font-bold tabular-nums shrink-0',
+                              aiReport.financialHealthScore >= 80
+                                ? 'text-mint-600 dark:text-mint-300'
+                                : aiReport.financialHealthScore >= 60
+                                  ? 'text-amber-600 dark:text-amber-300'
+                                  : 'text-red-500 dark:text-red-300'
+                            )}>
+                              {aiReport.financialHealthScore}/100
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -316,6 +348,35 @@ export default function ReportsPage() {
                           <p className="text-xs font-semibold text-app-muted mb-2">Rekomendasi</p>
                           <div className="space-y-2">
                             {aiReport.recommendations.slice(0, 3).map((item) => (
+                              <p key={item} className="text-xs leading-relaxed text-app-muted">
+                                {item}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-app-border/70 bg-mint-500/[0.04] p-3">
+                          <p className="text-xs font-semibold text-mint-600 dark:text-mint-300 mb-2 flex items-center gap-1.5">
+                            <PiggyBank className="w-3.5 h-3.5" />
+                            Peluang hemat
+                          </p>
+                          <div className="space-y-2">
+                            {(aiReport.savingOpportunities ?? []).slice(0, 3).map((item) => (
+                              <p key={item} className="text-xs leading-relaxed text-app-muted">
+                                {item}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-app-border/70 bg-amber-500/[0.04] p-3">
+                          <p className="text-xs font-semibold text-amber-600 dark:text-amber-300 mb-2 flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Perlu diperhatikan
+                          </p>
+                          <div className="space-y-2">
+                            {(aiReport.unusualSpending ?? []).slice(0, 3).map((item) => (
                               <p key={item} className="text-xs leading-relaxed text-app-muted">
                                 {item}
                               </p>

@@ -1,6 +1,6 @@
 # ADR-011: Fraud Detection — Architecture (Design Phase)
 
-> **Status:** Proposed (design-only — no implementation) · **Date:** 2026-08 · **Owner:** Core Engineering · **Related:** [ADR-004](ADR-004-ai-pipeline.md), [ADR-005](ADR-005-monitoring.md)
+> **Status:** Accepted (implemented Sprint 1 — L1 full, L2 behind `FRAUD_AI_SCORING_ENABLED`) · **Date:** 2026-08 · **Owner:** Core Engineering · **Related:** [ADR-004](ADR-004-ai-pipeline.md), [ADR-005](ADR-005-monitoring.md)
 
 ## Context
 
@@ -37,9 +37,14 @@ Feature engineering (for the future model and for the rules):
 **Positive:** Layered cost (rules free, AI only on flags); observable (every flag + score stored in `system_metrics`/notification); extensible to ML later without changing the interface.
 **Negative:** Rule tuning requires threshold maintenance; AI scoring adds latency to flagged paths (mitigated: non-blocking, async review queue); requires notification UX for "review suspicious transaction" (reuses existing notification system).
 
-## Next Steps (when approved)
+## Implementation (Sprint 1 — accepted)
 
-1. Implement rule engine v1 (duplicate + velocity + amount outlier) as a pure module with unit tests.
-2. Add `fraud_flags` column/table + flag on transaction creation.
-3. Wire flagged transactions into the notification system + admin monitoring.
-4. Evaluate AI scoring with a prompt-bounded call; ship behind a feature flag.
+1. ✅ Rule engine v1 (`server/lib/fraudEngine.js` — duplicate/velocity/amount-outlier/new-merchant/category-anomaly, pure + 13 unit tests).
+2. ✅ `fraud_flags` table + `transactions.fraud_flag/fraud_score` columns (turso-schema.sql, idempotent).
+3. ✅ Wired into `POST /api/transactions` (fire-and-forget) + notification (bell/SSE, dedupe `fraud:<txId>`) + admin metric `fraud_flag_count` + alert rule seed.
+4. ✅ L2 AI scoring (`server/services/fraudDetectionService.js` → `generateGeminiText`) shipped behind `FRAUD_AI_SCORING_ENABLED` (default off); failure degrades to rule verdict.
+5. ✅ API `server/routes/fraudRoutes.js` (summary / flags / review) + E2E `e2e/fraud-detection.spec.ts` + widget dashboard + badge transaksi.
+
+## Next Steps
+
+1. Tuning threshold per-rule dari data nyata; UI halaman detail flag; ekspos skor di laporan bulanan.

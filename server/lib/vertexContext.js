@@ -270,6 +270,9 @@ ATURAN OUTPUT WAJIB:
 2. Key wajib:
    - summary: string, maksimal 2 kalimat.
    - cashflowHealth: salah satu "sehat", "stabil", "waspada", "kritis".
+   - financialHealthScore: number 0-100 (Sprint 1.2 — skor kesehatan finansial).
+   - savingOpportunities: array string, maksimal 3 item (peluang hemat konkret).
+   - unusualSpending: array string, maksimal 3 item (pengeluaran tidak biasa).
    - topRisks: array string, maksimal 4 item.
    - recommendations: array string, maksimal 4 item.
    - positiveNotes: array string, maksimal 3 item.

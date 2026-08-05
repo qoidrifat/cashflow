@@ -5,6 +5,7 @@ import {
   RefreshCw,
   Undo2,
   Mail,
+  ShieldAlert,
 } from 'lucide-react';
 import type { Transaction } from '../../types';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
@@ -74,6 +75,17 @@ export default function TransactionItem({ transaction, onClick, delay = 0 }: Tra
           {isAutomatedSource && (
             <span className="text-[10px] font-medium text-primary-500 dark:text-primary-300 bg-primary-50 dark:bg-primary-500/12 px-1.5 py-0.5 rounded-full">
               {label}
+            </span>
+          )}
+          {transaction.fraudFlag && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/15 px-1.5 py-0.5 rounded-full"
+              title={transaction.fraudFlag === 'blocked'
+                ? 'Aktivitas berisiko tinggi — segera verifikasi'
+                : 'Transaksi terdeteksi mencurigakan oleh sistem anti-fraud'}
+            >
+              <ShieldAlert className="w-3 h-3" aria-hidden="true" />
+              {transaction.fraudFlag === 'blocked' ? 'Risiko tinggi' : 'Mencurigakan'}
             </span>
           )}
         </div>
