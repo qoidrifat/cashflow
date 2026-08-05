@@ -27,6 +27,7 @@ import {
   addRecentSearch,
   clearRecentSearches,
   readRecentSearches,
+  removeRecentSearch,
   type RecentSearchEntry,
 } from '../lib/searchHistory';
 import { cn } from '../lib/utils';
@@ -196,14 +197,16 @@ export default function AiSearchPage() {
               // closure activeTab lama — fix race reviewer Sprint 1.4).
               runSearch(entry.query, undefined, entry.tab as AiSearchTab);
             }}
+            onRemove={(index) => {
+              const updated = removeRecentSearch(authUser?.uid, index);
+              if (updated) setRecentSearches(updated);
+            }}
             onClear={() => {
               clearRecentSearches(authUser?.uid);
               setRecentSearches([]);
             }}
           />
         )}
-
-
 
         <Card className="bg-app-elevated/72">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -420,10 +423,12 @@ function SemanticFilters({
 function RecentSearches({
   items,
   onPick,
+  onRemove,
   onClear,
 }: {
   items: RecentSearchEntry[];
   onPick: (entry: RecentSearchEntry) => void;
+  onRemove: (index: number) => void;
   onClear: () => void;
 }) {
   return (
@@ -433,14 +438,27 @@ function RecentSearches({
         Pencarian terakhir
       </span>
       {items.map((entry, index) => (
-        <button
+        <span
           key={`${entry.query}-${index}`}
-          type="button"
-          onClick={() => onPick(entry)}
-          className="inline-flex h-8 max-w-[260px] items-center gap-1.5 truncate rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:hover:bg-primary-500/10 dark:hover:text-primary-200"
+          className="group inline-flex h-8 max-w-[260px] items-center gap-1 truncate rounded-full border border-app-border bg-app-elevated text-xs font-semibold text-app-text transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:hover:bg-primary-500/10 dark:hover:text-primary-200"
         >
-          <span className="truncate">{entry.query}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => onPick(entry)}
+            className="min-w-0 flex-1 truncate pl-3 pr-0.5"
+            title={`Cari "${entry.query}"`}
+          >
+            <span className="truncate">{entry.query}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(index)}
+            aria-label={`Hapus "${entry.query}" dari pencarian terakhir`}
+            className="shrink-0 rounded-full p-1 text-app-subtle opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </span>
       ))}
       <button
         type="button"

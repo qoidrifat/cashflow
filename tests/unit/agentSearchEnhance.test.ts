@@ -3,7 +3,7 @@
  * Backend: rankAndExplainResults + buildSuggestedQueries (server/services/agentSearchService.js).
  * Frontend: searchHistory (src/lib/searchHistory.ts) — murni, tanpa DOM.
  */
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   rankAndExplainResults,
   buildSuggestedQueries,
@@ -11,7 +11,9 @@ import {
 import {
   addRecentSearch,
   clearRecentSearches,
+  createSearchHistory,
   readRecentSearches,
+  removeRecentSearch,
   MAX_RECENT_SEARCHES,
 } from '../../src/lib/searchHistory';
 
@@ -78,69 +80,133 @@ describe('buildSuggestedQueries (Sprint 1.4)', () => {
   });
 });
 
-// ===== searchHistory (frontend pure helpers) =====
+// ===== searchHistory (Sprint 1.9 — factory injectable storage, tanpa stub window) =====
 function mockStorage() {
   const store = new Map<string, string>();
-  const storage = {
+  return {
     getItem: vi.fn((key: string) => store.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => { store.set(key, value); }),
     removeItem: vi.fn((key: string) => { store.delete(key); }),
+    /** spy akses internal untuk assert (mis. key per-user). */
+    __dump: () => Object.fromEntries(store),
   };
-  vi.stubGlobal('window', { localStorage: storage } as unknown as Window);
-  return storage;
 }
 
-describe('searchHistory (Sprint 1.4)', () => {
-  beforeEach(() => {
-    vi.unstubAllGlobals();
-  });
+type MockStorage = ReturnType<typeof mockStorage>;
 
-  it('addRecentSearch: dedupe case-insensitive, query terbaru di atas, cap MAX', () => {
-    mockStorage();
+function makeHistory(storage: MockStorage | null) {
+  return createSearchHistory(storage as never);
+}
+
+describe('searchHistory (Sprint 1.9 — factory injectable)', () => {
+  it('add: dedupe case-insensitive, query terbaru di atas, whitespace collapse', () => {
+    const h = makeHistory(mockStorage());
     const fixed = new Date('2026-08-05T00:00:00Z');
-    addRecentSearch('u-1', 'tiket  bali', 'transactions', fixed); // whitespace collapse
-    addRecentSearch('u-1', 'TIKET BALI', 'transactions', new Date('2026-08-06T00:00:00Z')); // dedupe
-    const recent = readRecentSearches('u-1');
+    h.add('u-1', 'tiket  bali', 'transactions', fixed);
+    h.add('u-1', 'TIKET BALI', 'transactions', new Date('2026-08-06T00:00:00Z'));
+    const recent = h.read('u-1');
     expect(recent).toHaveLength(1);
     // dedupe case-insensitive; versi terbaru yang menang (case baru dipertahankan)
     expect(recent[0].query).toBe('TIKET BALI');
     expect(recent[0].at).toBe('2026-08-06T00:00:00.000Z');
   });
 
-  it('addRecentSearch: cap MAX_RECENT_SEARCHES dan urut terbaru dulu', () => {
-    mockStorage();
+  it('add: cap MAX_RECENT_SEARCHES dan urut terbaru dulu', () => {
+    const h = makeHistory(mockStorage());
     for (let i = 1; i <= MAX_RECENT_SEARCHES + 3; i++) {
-      addRecentSearch('u-1', `query-${i}`, 'help', new Date(`2026-08-${String(i).padStart(2, '0')}T00:00:00Z`));
+      h.add('u-1', `query-${i}`, 'help', new Date(`2026-08-${String(i).padStart(2, '0')}T00:00:00Z`));
     }
-    const recent = readRecentSearches('u-1');
+    const recent = h.read('u-1');
     expect(recent).toHaveLength(MAX_RECENT_SEARCHES);
-    expect(recent[0].query).toBe(`query-${MAX_RECENT_SEARCHES + 3}`); // terbaru dulu
+    expect(recent[0].query).toBe(`query-${MAX_RECENT_SEARCHES + 3}`);
   });
 
-  it('per-user isolation: riwayat user A tidak terlihat user B', () => {
-    mockStorage();
-    addRecentSearch('u-1', 'gaji', 'insight');
-    addRecentSearch('u-2', 'gojek', 'transactions');
-    expect(readRecentSearches('u-1').map((e) => e.query)).toEqual(['gaji']);
-    expect(readRecentSearches('u-2').map((e) => e.query)).toEqual(['gojek']);
+  it('per-user isolation: key menyertakan userId, riwayat A tidak terlihat B', () => {
+    const storage = mockStorage();
+    const h = makeHistory(storage);
+    h.add('u-1', 'gaji', 'insight');
+    h.add('u-2', 'gojek', 'transactions');
+    expect(h.read('u-1').map((e) => e.query)).toEqual(['gaji']);
+    expect(h.read('u-2').map((e) => e.query)).toEqual(['gojek']);
+    // dua key berbeda di storage (bukti no cross-account leak)
+    expect(Object.keys(storage.__dump())).toHaveLength(2);
   });
 
-  it('clearRecentSearches menghapus hanya untuk user terkait', () => {
-    mockStorage();
-    addRecentSearch('u-1', 'gaji', 'insight');
-    addRecentSearch('u-2', 'gojek', 'transactions');
-    clearRecentSearches('u-1');
-    expect(readRecentSearches('u-1')).toHaveLength(0);
-    expect(readRecentSearches('u-2')).toHaveLength(1);
+  it('clear: menghapus hanya untuk user terkait', () => {
+    const h = makeHistory(mockStorage());
+    h.add('u-1', 'gaji', 'insight');
+    h.add('u-2', 'gojek', 'transactions');
+    h.clear('u-1');
+    expect(h.read('u-1')).toHaveLength(0);
+    expect(h.read('u-2')).toHaveLength(1);
   });
 
-  it('data korup / tanpa storage → [] tanpa throw', () => {
-    mockStorage();
-    const storage = window.localStorage as unknown as { setItem: (k: string, v: string) => void };
+  it('remove: hapus satu entri per index (0 = paling baru), urutan sisanya dipertahankan', () => {
+    const h = makeHistory(mockStorage());
+    h.add('u-1', 'gaji', 'insight');
+    h.add('u-1', 'gojek', 'transactions');
+    h.add('u-1', 'tiket', 'receipts'); // paling baru → index 0
+    const updated = h.remove('u-1', 0);
+    expect(updated?.map((e) => e.query)).toEqual(['gojek', 'gaji']);
+    expect(h.read('u-1').map((e) => e.query)).toEqual(['gojek', 'gaji']);
+  });
+
+  it('remove: hapus entri tengah (index 1)', () => {
+    const h = makeHistory(mockStorage());
+    h.add('u-1', 'gaji', 'insight');
+    h.add('u-1', 'gojek', 'transactions');
+    h.add('u-1', 'tiket', 'receipts');
+    const updated = h.remove('u-1', 1);
+    expect(updated?.map((e) => e.query)).toEqual(['tiket', 'gaji']);
+  });
+
+  it('remove: index di luar rentang (negatif / >= length) → array tidak berubah, tanpa throw', () => {
+    const h = makeHistory(mockStorage());
+    h.add('u-1', 'gaji', 'insight');
+    expect(h.remove('u-1', -1)?.map((e) => e.query)).toEqual(['gaji']);
+    expect(h.remove('u-1', 5)?.map((e) => e.query)).toEqual(['gaji']);
+    expect(h.remove('u-1', 0)?.map((e) => e.query)).toEqual([]); // habis — masih valid
+  });
+
+  it('data korup / non-array / entri invalid → difilter tanpa throw', () => {
+    const storage = mockStorage();
+    const h = makeHistory(storage);
     storage.setItem('cashflow:ai-search:recent:u-1', '{not-json');
+    expect(h.read('u-1')).toEqual([]);
+    storage.setItem('cashflow:ai-search:recent:u-2', JSON.stringify([{ query: 42 }, { query: 'ok', tab: 'x', at: '2026-01-01T00:00:00.000Z' }]));
+    const read = h.read('u-2');
+    expect(read).toHaveLength(1); // entri invalid (query bukan string) dibuang
+    expect(read[0].query).toBe('ok');
+  });
+
+  it('storage null (SSR / diblokir) → read [], add null, remove no-op aman, clear no-op — tanpa throw', () => {
+    const h = makeHistory(null);
+    expect(h.read('u-1')).toEqual([]);
+    expect(h.add('u-1', 'gaji', 'insight')).toBeNull(); // gagal menulis → null
+    // remove: list kosong → index out-of-range → no-op, return array tidak berubah (bukan error)
+    expect(h.remove('u-1', 0)).toEqual([]);
+    expect(() => h.clear('u-1')).not.toThrow();
+  });
+
+  it('storage.setItem melempar (quota exceeded) → add/remove return null, tidak propagate error', () => {
+    // getItem mengembalikan data lama yang valid → remove index 0 VALID → setItem throw
+    const throwing = {
+      getItem: vi.fn(() => JSON.stringify([{ query: 'gaji', tab: 'insight', at: '2026-08-01T00:00:00.000Z' }])),
+      setItem: vi.fn(() => { throw new Error('QuotaExceededError'); }),
+      removeItem: vi.fn(),
+    };
+    const h = createSearchHistory(throwing);
+    expect(h.add('u-1', 'gaji', 'insight')).toBeNull();
+    expect(h.remove('u-1', 0)).toBeNull(); // valid index tapi write gagal → null
+    expect(() => h.read('u-1')).not.toThrow(); // read tetap aman
+    expect(throwing.setItem).toHaveBeenCalledTimes(2); // add + remove keduanya mencoba menulis
+  });
+
+  it('instance default (searchHistory) tetap aman tanpa window (SSR)', () => {
+    // vitest berjalan di node → typeof window undefined → safeLocalStorage null
     expect(readRecentSearches('u-1')).toEqual([]);
-    vi.unstubAllGlobals();
-    // tanpa window (SSR / test-node) → safe
-    expect(readRecentSearches('u-1')).toEqual([]);
+    expect(addRecentSearch('u-1', 'gaji', 'insight')).toBeNull();
+    expect(removeRecentSearch('u-1', 0)).toEqual([]); // list kosong → no-op aman
+    expect(() => clearRecentSearches('u-1')).not.toThrow();
   });
 });
