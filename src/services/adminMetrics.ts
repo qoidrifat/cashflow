@@ -1,7 +1,7 @@
 import { apiGet } from '../config/api';
 import type {
   AiUsageResponse, MetricsSummary, FeatureHealth, AlertStatus,
-  FeatureCallsResponse, FeatureCallStatus, AICacheStats,
+  FeatureCallsResponse, FeatureCallStatus, AICacheStats, AgentSearchEngagement,
 } from '../types/metrics';
 
 function range(from?: string, to?: string): string {
@@ -35,6 +35,11 @@ export function fetchAlerts(): Promise<{ ok: boolean; alerts: AlertStatus[] }> {
 
 export function fetchAICacheStats(): Promise<AICacheStats> {
   return apiGet<AICacheStats>('/api/admin/metrics/cache');
+}
+
+/** Sprint 1.9 — AI Search engagement: suggested queries + CTR (admin only). */
+export function fetchAgentSearchEngagement(from?: string, to?: string): Promise<AgentSearchEngagement> {
+  return apiGet<AgentSearchEngagement>(`/api/admin/metrics/agent-search-engagement${range(from, to)}`);
 }
 
 export function fetchFeatureCalls(

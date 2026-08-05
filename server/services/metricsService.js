@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import { getTurso } from '../lib/turso.js';
 import { AI_PRICING, USD_TO_IDR } from '../config/metricsConfig.js';
 import { notifyTriggeredAlerts } from './alertNotifier.js';
+import { aggregateAgentSearchEngagement, emptyAgentSearchEngagement } from '../lib/agentSearchEngagement.js';
 
 function getMetricsClient() {
   return getTurso();
@@ -338,6 +339,43 @@ export async function getSystemMetrics({ metricName, from, to, feature = null } 
 }
 
 /**
+ * Agent Search engagement over a range: counts + top suggested queries + CTR,
+ * dari system_metrics (Sprint 1.9). Query SQL ringkas (hanya kolom yang
+ * dibutuhkan), lalu agregasi via fungsi murni (lib/agentSearchEngagement.js).
+ */
+export async function getAgentSearchEngagement({ from, to } = {}) {
+  const client = getMetricsClient();
+  if (!client) return emptyAgentSearchEngagement();
+
+  const clamped = clampRange({ from, to });
+  const clauses = ['metric_name IN (?, ?, ?)'];
+  const args = ['agent_search_count', 'agent_search_click', 'agent_search_suggestion_used'];
+  if (clamped.from) { clauses.push('created_at >= ?'); args.push(toDbTime(clamped.from)); }
+  if (clamped.to) { clauses.push('created_at <= ?'); args.push(toDbTime(clamped.to)); }
+
+  try {
+    // LIMIT 5000: dashboard default 7 hari (~700+/hari aman). Untuk window
+    // 90-hari pada DB sangat aktif, baris tertua bisa terpotong → undercount
+    // (trade-off disengaja: dashboard ringkas vs presisi ekstrem).
+    const { rows } = await client.execute({
+      sql: `SELECT metric_name, metric_value, metadata
+            FROM system_metrics
+            WHERE ${clauses.join(' AND ')}
+            ORDER BY created_at DESC
+            LIMIT 5000`,
+      args,
+    });
+    return aggregateAgentSearchEngagement({
+      countRows: rows.filter((r) => r.metric_name === 'agent_search_count'),
+      clickRows: rows.filter((r) => r.metric_name === 'agent_search_click'),
+      suggestionRows: rows.filter((r) => r.metric_name === 'agent_search_suggestion_used'),
+    });
+  } catch {
+    return emptyAgentSearchEngagement();
+  }
+}
+
+/**
  * Feature health: success rate, failure count, avg time, total calls (H-1: SQL
  * aggregate — tidak transfer semua rows). Output shape tidak berubah.
  */
@@ -643,6 +681,8 @@ export default {
   getAIUsageSummary,
   getCostTrend,
   getSystemMetrics,
+  aggregateAgentSearchEngagement,
+  getAgentSearchEngagement,
   getFeatureHealth,
   getFeatureCalls,
   sanitizeErrorMessage,

@@ -103,3 +103,29 @@ export interface AICacheStats {
   /** Jumlah request single-flight yang sedang berjalan (dedup konkuren). */
   inflight: number;
 }
+
+export interface AgentSearchTabCount {
+  tab: string;
+  count: number;
+}
+
+export interface SuggestedQueryStat {
+  query: string;
+  count: number;
+}
+
+/** Sprint 1.9 — AI Search engagement dari system_metrics (count/click/suggestion_used). */
+export interface AgentSearchEngagement {
+  ok: boolean;
+  /** Jumlah pencarian (denominator CTR). */
+  searches: number;
+  /** Klik hasil pencarian. */
+  clicks: number;
+  /** Suggested query yang dipakai user. */
+  suggestionsUsed: number;
+  /** Click-through rate = clicks ÷ searches (0..1). */
+  ctr: number;
+  topSuggestedQueries: SuggestedQueryStat[];
+  clicksByTab: AgentSearchTabCount[];
+  suggestionsByTab: AgentSearchTabCount[];
+}

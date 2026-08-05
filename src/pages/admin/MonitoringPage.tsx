@@ -7,6 +7,7 @@ import {
 import {
   DollarSign, Cpu, Activity, Clock, AlertTriangle, CheckCircle2,
   RefreshCw, ShieldAlert, Database, Zap, XCircle, Trash2,
+  MousePointerClick, Sparkles, TrendingUp,
 } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
@@ -14,9 +15,11 @@ import Button from '../../components/ui/Button';
 import { useAuthStore } from '../../store/useAuthStore';
 import {
   fetchMetricsSummary, fetchAiUsage, fetchFeatureHealth, fetchAlerts, fetchAICacheStats,
+  fetchAgentSearchEngagement,
 } from '../../services/adminMetrics';
 import type {
   MetricsSummary, CostTrendPoint, FeatureHealth, AlertStatus, AICacheStats,
+  AgentSearchEngagement, AgentSearchTabCount,
 } from '../../types/metrics';
 import { cn } from '../../lib/utils';
 
@@ -45,6 +48,7 @@ export default function MonitoringPage() {
   const [health, setHealth] = useState<FeatureHealth[]>([]);
   const [alerts, setAlerts] = useState<AlertStatus[]>([]);
   const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
+  const [engagement, setEngagement] = useState<AgentSearchEngagement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
 
@@ -52,20 +56,22 @@ export default function MonitoringPage() {
     setLoading(true);
     setError(null);
     try {
-      // Panel cache bersifat observability bonus — kegagalan endpoint-nya tidak boleh
-      // menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
-      const [summaryRes, usageRes, healthRes, alertsRes, cacheRes] = await Promise.all([
+      // Panel cache & engagement bersifat observability bonus — kegagalan endpoint-nya
+      // tidak boleh menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
+      const [summaryRes, usageRes, healthRes, alertsRes, cacheRes, engagementRes] = await Promise.all([
         fetchMetricsSummary(),
         fetchAiUsage(),
         fetchFeatureHealth(),
         fetchAlerts(),
         fetchAICacheStats().catch(() => null),
+        fetchAgentSearchEngagement().catch(() => null),
       ]);
       setSummary(summaryRes);
       setTrend(usageRes.trend || []);
       setHealth(healthRes.health || []);
       setAlerts(alertsRes.alerts || []);
       setCacheStats(cacheRes);
+      setEngagement(engagementRes);
     } catch (err) {
       const typed = err as Error & { code?: string };
       setError({ code: typed.code, message: typed.message || 'Gagal memuat data monitoring.' });
@@ -216,6 +222,83 @@ export default function MonitoringPage() {
               )}
             </Card>
 
+            {/* AI Search Engagement (Sprint 1.9) — suggested queries + CTR */}
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-app-text">AI Search Engagement</h3>
+                <span className="text-[11px] text-app-subtle font-medium">7 hari · klik hasil & suggestion</span>
+              </div>
+              {!engagement || (engagement.searches === 0 && engagement.clicks === 0 && engagement.suggestionsUsed === 0) ? (
+                <EmptyMini message="Belum ada data engagement AI Search pada rentang ini." />
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-4 text-center mb-5">
+                    <CacheStat icon={<MousePointerClick className="h-3.5 w-3.5 text-primary-500" />} label="Klik Hasil" value={String(engagement.clicks)} />
+                    <CacheStat icon={<Sparkles className="h-3.5 w-3.5 text-mint-500" />} label="Suggestion Dipakai" value={String(engagement.suggestionsUsed)} />
+                    <CacheStat icon={<TrendingUp className="h-3.5 w-3.5 text-amber-500" />} label="CTR" value={`${Math.round(engagement.ctr * 100)}%`} />
+                  </div>
+                  {engagement.searches > 0 && (
+                    <p className="text-[11px] text-app-subtle mb-1">
+                      CTR = klik hasil ÷ {engagement.searches} pencarian · suggestion = suggested query yang dipakai user.
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+                    {/* Top suggested queries */}
+                    <div>
+                      <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">Top Suggested Queries</p>
+                      {engagement.topSuggestedQueries.length === 0 ? (
+                        <p className="text-xs text-app-muted">Belum ada suggested query yang dipakai.</p>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {engagement.topSuggestedQueries.map((q, i) => {
+                            const max = engagement.topSuggestedQueries[0].count || 1;
+                            return (
+                              <div key={q.query} className="flex items-center gap-2.5">
+                                <span className="w-4 shrink-0 text-right text-[11px] font-bold text-app-subtle">{i + 1}</span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="truncate text-xs font-medium text-app-text">{q.query}</p>
+                                    <span className="shrink-0 text-[11px] font-bold text-app-subtle">{q.count}×</span>
+                                  </div>
+                                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-app-hover">
+                                    <div
+                                      className="h-full rounded-full bg-primary-500 transition-all"
+                                      style={{ width: `${Math.round((q.count / max) * 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Per-tab breakdown */}
+                    <div>
+                      <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">Per Tab</p>
+                      {engagement.clicksByTab.length === 0 && engagement.suggestionsByTab.length === 0 ? (
+                        <p className="text-xs text-app-muted">Belum ada aktivitas per tab.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {mergeTabCounts(engagement.clicksByTab, engagement.suggestionsByTab).map((row) => (
+                            <div key={row.tab} className="flex items-center justify-between border-t border-app-border first:border-t-0 py-1.5">
+                              <p className="text-xs font-medium capitalize text-app-text">{row.tab}</p>
+                              <div className="flex items-center gap-3 text-[11px] text-app-subtle">
+                                <span><span className="font-bold text-primary-500">{row.clicks}</span> klik</span>
+                                <span><span className="font-bold text-mint-500">{row.suggestions}</span> suggestion</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </Card>
+
             {/* Feature health cards */}
             <div>
               <h3 className="text-sm font-bold text-app-text mb-3 px-1">Kesehatan Fitur</h3>
@@ -328,4 +411,23 @@ function EmptyMini({ message }: { message: string }) {
       <p className="text-sm text-app-muted">{message}</p>
     </div>
   );
+}
+
+/** Gabungkan klik & suggestion per tab jadi satu baris (urut total aktivitas desc). */
+function mergeTabCounts(
+  clicks: AgentSearchTabCount[],
+  suggestions: AgentSearchTabCount[],
+): Array<{ tab: string; clicks: number; suggestions: number }> {
+  const merged = new Map<string, { clicks: number; suggestions: number }>();
+  for (const c of clicks) {
+    merged.set(c.tab, { clicks: c.count, suggestions: 0 });
+  }
+  for (const s of suggestions) {
+    const existing = merged.get(s.tab) || { clicks: 0, suggestions: 0 };
+    existing.suggestions = s.count;
+    merged.set(s.tab, existing);
+  }
+  return [...merged.entries()]
+    .map(([tab, v]) => ({ tab, ...v }))
+    .sort((a, b) => b.clicks + b.suggestions - (a.clicks + a.suggestions));
 }

@@ -125,6 +125,20 @@ export function registerAdminMetricsRoutes(app) {
     }
   });
 
+  // GET /api/admin/metrics/agent-search-engagement — suggested queries + CTR
+  // (Sprint 1.9). Agregasi dari system_metrics agent_search_count/_click/
+  // _suggestion_used; CTR = klik hasil ÷ jumlah pencarian.
+  app.get('/api/admin/metrics/agent-search-engagement', async (req, res) => {
+    try {
+      await resolveAdmin(req);
+      const { from, to } = parseDateRange(req);
+      const result = await metricsService.getAgentSearchEngagement({ from, to });
+      return res.json({ ok: true, ...result });
+    } catch (error) {
+      return sendAdminError(res, error);
+    }
+  });
+
   // GET /api/admin/metrics/summary — today/week/month + per-feature
   app.get('/api/admin/metrics/summary', async (req, res) => {
     try {

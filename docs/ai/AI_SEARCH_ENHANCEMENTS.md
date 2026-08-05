@@ -85,6 +85,23 @@ Optional `filters` object on `/query` & `/answer`: `{ dateFrom?, dateTo?, type?,
   `agent_search_suggestion_used`) with tab + capped query (≤200 chars) metadata.
   Anonymous allowed (help tab is anonymous); no raw PII stored.
 
+### 7. Admin monitoring dashboard (Sprint 1.9)
+`GET /api/admin/metrics/agent-search-engagement` (admin-gated) exposes:
+
+- **Counts:** `searches` (`agent_search_count`), `clicks`
+  (`agent_search_click`), `suggestionsUsed` (`agent_search_suggestion_used`).
+- **CTR:** `clicks ÷ searches` — % pencarian yang berujung klik hasil.
+- **Top suggested queries:** 8 teratas dari metadata.query suggestion_used.
+- **Per-tab breakdown:** `clicksByTab` + `suggestionsByTab`.
+
+Implemented as `server/lib/agentSearchEngagement.js` (pure aggregation,
+unit-tested — no DB) + `metricsService.getAgentSearchEngagement` (single SQL
+`IN` query, 3 metric names, 90-day clamp). UI: "AI Search Engagement" card in
+`/admin/monitoring` (stat tiles + ranked list + per-tab rows), loaded as a
+non-critical fetch (failure never drops the dashboard). E2E
+`e2e/agent-search-engagement.spec.ts` covers the auth gate, response shape and
+panel render.
+
 ## Security
 
 - Filter injection: whitelists + regex + character stripping at **both** route and
@@ -106,4 +123,4 @@ Optional `filters` object on `/query` & `/answer`: `{ dateFrom?, dateTo?, type?,
 
 ## Future (Sprint 2+)
 
-- Suggested-query analytics dashboarding in admin monitoring.
+- (Sprint 2) Semantic cache L3, multi-model router, cost monitoring dashboard.
