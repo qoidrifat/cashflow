@@ -27,6 +27,16 @@ static-import chunk itu → browser memaksa fetch + eval 385 kB.
 | recharts di initial load | **385 kB / 112 gzip** | **0 kB** (lazy — hanya saat halaman chart dibuka) |
 | Entry bundle | 102.20 kB | 101.96 kB |
 
+**Regression guard (`tests/unit/bundleEntryGuard.test.ts`, Sprint 1.9):** unit test
+menganalisis **output build** (`dist/assets`) — entry chunk tidak boleh (a)
+kehilangan chunk chart terpisah, (b) meng-inline kode recharts (marker
+`recharts`/`CartesianGrid`), atau (c) static-import chunk chart; plus positive
+control preload wiring. Bila dist belum ada (CI menjalankan unit SEBELUM build)
+test membangun on-demand dengan `NODE_ENV=production` (hash entry identik dengan
+build CI — tanpa override, env `NODE_ENV=test` dari vitest fork menghasilkan
+bundle berbeda) dan hook timeout 300s. Terverifikasi: 4/4 pass, negatif-test
+(injeksi marker ke entry) gagal sesuai desain, unit suite 421/421.
+
 ### P1: re-render semua item transaksi saat SSE update (FIXED)
 `TransactionItem` dibungkus `React.memo` — item di dashboard & transactions page hanya
 re-render saat props-nya berubah (sebelumnya: setiap event SSE `transaction:*`
