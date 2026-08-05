@@ -143,3 +143,20 @@ Applied in `.github/workflows/e2e.yml`:
 - [x] **Node 24 active** — logs show `v24.18.0` in quality & e2e jobs
 - [x] **Playwright browser cache works** — `Cache hit` in e2e and 4 hits in visual job (cross-job reuse)
 - [x] **Pages green** — built-in workflow run `30977074398` (ba13285) = success (was failure on every push before `.nojekyll`)
+
+---
+
+## 10. P5 Follow-up — Composite Actions & Reusable Workflows Assessment (2026-08-05)
+
+**Question:** should the repeated `checkout → setup-node → npm ci (root) → npm ci (server) → playwright install` block (×3 jobs: e2e, visual, performance) become a composite action or reusable workflow?
+
+**Assessment (evidence-first):**
+
+| Factor | Finding |
+|---|---|
+| Duplication | ~8 steps repeated in 3 jobs — real, but each job is an **isolated runner**: no actual install work is duplicated at runtime (each job installs once regardless) |
+| Gain from extraction | Cosmetic (YAML reduction) + single-source-of-truth for the block; **no wall-clock savings** because runners are isolated |
+| Risk | Refactor touches the exact steps that keep CI green (Node 24 + caches + Playwright browser key); a mistake breaks all 3 jobs at once; the 3× stability gate only tolerates flakes, not config errors |
+| Cost/benefit | Low ROI at 5 jobs. The Playwright cache key + `npm ci` split (root vs server) is already the subtle part — hiding it behind a composite would reduce visibility |
+
+**Decision: do NOT extract now.** Recorded as debt (section 8 item 2). Re-evaluate when a 6th job is added or when Dependabot forces input changes that must be applied in many places at once.

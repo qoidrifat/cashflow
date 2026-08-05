@@ -35,10 +35,12 @@ vi.mock('../../server/config/metricsConfig.js', () => ({
 
 vi.mock('../../server/lib/aiCache.js', () => ({
   getAICacheStats: vi.fn(() => ({ hits: 0, misses: 0 })),
+  clearAICache: vi.fn(),
 }));
 
 import { registerAdminMetricsRoutes } from '../../server/routes/adminMetricsRoutes.js';
 import metricsService from '../../server/services/metricsService.js';
+import { clearAICache } from '../../server/lib/aiCache.js';
 
 // ---------------------------------------------------------------------------
 // Harness: fake app + req/res tiruan.
@@ -65,6 +67,7 @@ function createApp() {
   const routes: Record<string, Handler> = {};
   const app = {
     get: (path: string, handler: Handler) => { routes[path] = handler; },
+    post: (path: string, handler: Handler) => { routes[path] = handler; },
     invoke: async (path: string, req: { user?: unknown; query?: Record<string, unknown>; params?: Record<string, string> }) => {
       const handler = routes[path];
       if (!handler) throw new Error(`Route tidak terdaftar: ${path}`);
@@ -86,6 +89,32 @@ const SYSTEM = '/api/admin/metrics/system';
 const AI_USAGE = '/api/admin/metrics/ai-usage';
 const FEATURE_HEALTH = '/api/admin/metrics/feature-health';
 const FEATURE_CALLS = '/api/admin/metrics/feature/:feature/calls';
+const CACHE_CLEAR = '/api/admin/metrics/cache/clear';
+
+describe('POST /api/admin/metrics/cache/clear (invalidation AI cache)', () => {
+  beforeEach(() => {
+    (clearAICache as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  it('admin → 200 + clearAICache dipanggil', async () => {
+    const res = await app.invoke(CACHE_CLEAR, { user: ADMIN_USER });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, cleared: true });
+    expect(clearAICache).toHaveBeenCalledTimes(1);
+  });
+
+  it('non-admin → 403 dan clearAICache TIDAK dipanggil', async () => {
+    const res = await app.invoke(CACHE_CLEAR, { user: NON_ADMIN_USER });
+    expect(res.statusCode).toBe(403);
+    expect(clearAICache).not.toHaveBeenCalled();
+  });
+
+  it('tanpa user → 401', async () => {
+    const res = await app.invoke(CACHE_CLEAR, {});
+    expect(res.statusCode).toBe(401);
+    expect(clearAICache).not.toHaveBeenCalled();
+  });
+});
 
 /** Bentuk domain error admin metrics yang wajib dipenuhi setiap 400 validasi. */
 function expectAdmin400Shape(res: FakeRes) {

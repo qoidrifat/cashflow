@@ -1,7 +1,8 @@
 # CashFlow — Documentation Map
 
-> **Status:** Approved · **Version:** 1.1 · **Owner:** Core Engineering · **Last Updated:** 2026-08-05
+> **Status:** Approved · **Version:** 1.2 · **Owner:** Core Engineering · **Last Updated:** 2026-08-05
 > **2026-08-05 (sync audit):** 11 file one-off/duplikat di root docs/ di-archive ke `archive/root/` (lihat [audit/DOCUMENTATION_SYNC_AUDIT.md](audit/DOCUMENTATION_SYNC_AUDIT.md)); `docs/ci/` ditambahkan.
+> **2026-08-05 (Phase-2):** `docs/gmail-sync/` (19) + `docs/transactions/` (5) di-archive (self-declared "ARSIP HISTORIS" — era Supabase/Firebase); `docs/ai/` + `docs/deployment/` dibuat; ADR 008–011; `server/Dockerfile` + `/api/ready`; cache AI L2 + invalidation admin.
 > **Related:** [README](../README.md) · This file is the **single navigation hub** for all documentation.
 
 ---
@@ -26,14 +27,14 @@
 
 ## 2. Complete Tree & Folder Responsibilities
 
-**219 `.md` files** in `docs/` (2026-08-05): 127 active + 91 archived + 1 root.
+**219 `.md` files** in `docs/` (2026-08-05): 111 active + 107 archived + 1 root.
 
 | Folder | Real docs | Status | Responsibility |
 |---|---|---|---|
-| `docs/adr/` | 8 | 🟢 Active | Architecture Decision Records (001–007) + index |
+| `docs/adr/` | 12 | 🟢 Active | Architecture Decision Records (001–011) + index |
 | `docs/architecture/` | 7 | 🟢 Active | Architecture & implementation audits (system report, code quality, gap analysis, compliance matrix) |
 | `docs/audit/` | 5 | 🟢 Active | Feature completion matrix, gap analysis, implementation priorities/status, **doc sync audit** |
-| `docs/security/` | 4 | 🟢 Active | Security audit + secret/GCP key rotation checklists |
+| `docs/security/` | 5 | 🟢 Active | Security audit + secret/GCP key rotation checklists + secret reference audit |
 | `docs/performance/` | 2 | 🟢 Active | Performance audit + index |
 | `docs/e2e/` | 11 | 🟢 Active | Playwright E2E strategy, coverage, stability, CI pipeline |
 | `docs/enterprise/` | 13 | 🟢 Active | Enterprise modernization audit + roadmap + backup runbook |
@@ -41,17 +42,19 @@
 | `docs/google-cloud/` | 3 | 🟢 Active | GCP / Agent Builder / Discovery Engine setup |
 | `docs/meta/` | 8 | 🟢 Active | Documentation system itself (this layer) + documentation-consistency audit |
 | `docs/repository/` | 12 | 🟢 Active | Repository curation & GitHub publication prep (audit, security, readiness, commit guide) |
-| `docs/ci/` | 1 | 🟢 Active | CI/CD migration report (GitHub Actions upgrade, 2026-08-05) |
+| `docs/ci/` | 1 | 🟢 Active | CI/CD migration report (GitHub Actions upgrade, 2026-08-05) + P5 composite-actions assessment |
+| `docs/ai/` | 2 | 🟢 Active | AI architecture: semantic cache (multi-layer) + fraud detection design |
+| `docs/deployment/` | 1 | 🟢 Active | Production readiness audit + deploy runbook (Docker / reverse proxy) |
 | `docs/review/` | 6 | 🟢 Active | Phase-1 hardening review (root-cause, security, perf, code, readiness, final) |
 | `docs/assets/` | 4 + 21 PNG | 🟢 Active | Screenshots (21) + canonical Mermaid diagrams |
-| `docs/gmail-sync/` | 19 | 🟡 Historical ref | Gmail sync checklists + troubleshooting (self-declared historical — see INDEX) |
-| `docs/transactions/` | 5 | 🟡 Historical ref | Transactions feature checklists |
+| ~~`docs/gmail-sync/`~~ | 19 | ⚫ Archived | Gmail sync checklists (era Supabase/Firebase — self-declared "ARSIP HISTORIS", archived 2026-08-05) |
+| ~~`docs/transactions/`~~ | 5 | ⚫ Archived | Transactions feature checklists (same era — archived 2026-08-05) |
 | `docs/mobile/` | 4 | 🟡 Historical ref | Mobile UI fix checklists |
 | `docs/ui/` | 4 | 🟡 Historical ref | UI polish checklists |
 | `docs/ai-pipeline/` | 3 | 🟡 Historical ref | Early AI pipeline audits |
 | `docs/implementation/` | 2 | 🟡 Historical ref | Baseline & P0 implementation reports |
 | `docs/testing/` | 1 | 🟡 Historical ref | Baseline testing report |
-| `docs/archive/` | 91 | ⚫ Archived | `root/` (18) · `workflow-reviews/` · `feature-docs/` + `ARCHIVE.md` policy |
+| `docs/archive/` | 107 | ⚫ Archived | `root/` (18) · `gmail-sync/` (19) · `transactions/` (5) · `workflow-reviews/` · `feature-docs/` + `ARCHIVE.md` policy |
 | `docs/` root | 1 | 🟢 | `DOCUMENTATION_MAP.md` (this file — single navigation hub) |
 
 ---
@@ -87,15 +90,16 @@ README.md (entry point)
 | Monitoring | system, adr-005, enterprise/MONITORING_AUDIT | archive/workflow-reviews |
 | Testing | e2e (10) | — |
 | Security/Perf | security/, performance/, enterprise | archive |
-| Gmail | README, adr-007, gmail-sync (18) | archive |
+| Gmail | README, adr-007, archive/gmail-sync (19) | archive |
 
 ---
 
 ## 5. Status Summary
 
 - **2026-08-05 sync audit:** ✅ 11 obsolete/duplicate docs at root archived (`archive/root/`); only the canonical hub remains at root. Full evidence & classification: [audit/DOCUMENTATION_SYNC_AUDIT.md](audit/DOCUMENTATION_SYNC_AUDIT.md)
+- **2026-08-05 Phase-2:** ✅ `gmail-sync/` (19) + `transactions/` (5) archived (git mv — history utuh, self-declared historical); `docs/ai/` + `docs/deployment/` created; ADR-008..011
 - **Navigation:** ✅ every folder has `INDEX.md` (35)
-- **Why-decisions:** ✅ 7 ADRs
+- **Why-decisions:** ✅ 11 ADRs
 - **Current-state:** ✅ `docs/system/` (4)
 - **Historical:** ✅ archived (63 files — 62 docs + `ARCHIVE.md` policy; nothing deleted)
 - **Governance:** ✅ `docs/meta/` (7) — audit, structure, naming, style, cleanup, quality, consistency

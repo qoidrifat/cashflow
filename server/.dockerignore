@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+!.env.example
+*.log
+*.db
+*.sqlite
+test-results
+playwright-report
+google-*.json
+*service-account*.json
+.git

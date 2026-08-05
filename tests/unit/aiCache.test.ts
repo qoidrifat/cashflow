@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildAICacheKey,
+  normalizePromptText,
   getCachedAICache,
   setCachedAICache,
   clearAICache,
@@ -39,6 +40,64 @@ describe('buildAICacheKey', () => {
     expect(buildAICacheKey({ ...base, models: ['m1'] })).not.toBe(
       buildAICacheKey({ ...base, models: ['m1', 'm2'] }),
     );
+  });
+});
+
+describe('normalizePromptText (L2 — prompt normalization)', () => {
+  it('CRLF/CR dinormalisasi ke LF', () => {
+    expect(normalizePromptText('a\r\nb\rc')).toBe('a\nb\nc');
+  });
+
+  it('trailing whitespace per baris dihapus', () => {
+    expect(normalizePromptText('a   \nb\n')).toBe('a\nb');
+  });
+
+  it('baris kosong berlebih dikolaps (3+ → 2)', () => {
+    expect(normalizePromptText('a\n\n\n\nb')).toBe('a\n\nb');
+  });
+
+  it('trim ujung prompt', () => {
+    expect(normalizePromptText('  halo  ')).toBe('halo');
+  });
+
+  it('non-string dikembalikan apa adanya', () => {
+    expect(normalizePromptText(undefined)).toBeUndefined();
+    expect(normalizePromptText(null)).toBeNull();
+  });
+});
+
+describe('buildAICacheKey dengan prompt normalization', () => {
+  it('prompt yang hanya beda formatting → key SAMA (hit rate naik)', () => {
+    const base = { feature: 'gmail_sync', models: ['m1'], config: {} };
+    const k1 = buildAICacheKey({
+      ...base,
+      contents: [{ role: 'user', parts: [{ text: 'Email sama' }] }],
+    });
+    const k2 = buildAICacheKey({
+      ...base,
+      contents: [{ role: 'user', parts: [{ text: 'Email sama\r\n  \n\n\n' }] }],
+    });
+    expect(k1).toBe(k2);
+  });
+
+  it('konten berbeda TETAP berbeda setelah normalisasi (tanpa false-positive)', () => {
+    const base = { feature: 'gmail_sync', models: ['m1'], config: {} };
+    const k1 = buildAICacheKey({ ...base, contents: [{ role: 'user', parts: [{ text: 'satu' }] }] });
+    const k2 = buildAICacheKey({ ...base, contents: [{ role: 'user', parts: [{ text: 'dua' }] }] });
+    expect(k1).not.toBe(k2);
+  });
+
+  it('inlineData (base64) TIDAK dinormalisasi — harus exact', () => {
+    const base = { feature: 'ocr_receipt', models: ['m1'], config: {} };
+    const k1 = buildAICacheKey({
+      ...base,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }] }],
+    });
+    const k2 = buildAICacheKey({
+      ...base,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'BBBB' } }] }],
+    });
+    expect(k1).not.toBe(k2);
   });
 });
 
@@ -104,5 +163,21 @@ describe('LRU cache', () => {
     expect(getCachedAICache('x')).toBeUndefined();
     setCachedAICache('y', CONTENT_A, -1);
     expect(getCachedAICache('y')).toBeUndefined();
+  });
+
+  it('clearAICache menghapus store + reset statistik (invalidation admin)', () => {
+    const key = buildAICacheKey({ feature: 'f', models: ['m'], contents: [], config: {} });
+    setCachedAICache(key, CONTENT_A, 60_000);
+    expect(getCachedAICache(key)).toEqual(CONTENT_A);
+    clearAICache();
+    // Statistik di-cek SEBELUM lookup berikutnya (lookup akan menambah misses)
+    const statsAfterClear = getAICacheStats();
+    expect(statsAfterClear.size).toBe(0);
+    expect(statsAfterClear.hits).toBe(0);
+    expect(statsAfterClear.misses).toBe(0);
+    expect(statsAfterClear.sets).toBe(0);
+    expect(statsAfterClear.evictions).toBe(0);
+    // Store memang kosong → lookup berikutnya = miss baru
+    expect(getCachedAICache(key)).toBeUndefined();
   });
 });

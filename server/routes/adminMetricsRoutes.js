@@ -25,7 +25,7 @@
  */
 import metricsService from '../services/metricsService.js';
 import { getAdminEmails, FEATURES } from '../config/metricsConfig.js';
-import { getAICacheStats } from '../lib/aiCache.js';
+import { getAICacheStats, clearAICache } from '../lib/aiCache.js';
 import { validateInt, validateOptionalString, validateQuery } from '../lib/validation.js';
 
 /**
@@ -222,6 +222,21 @@ export function registerAdminMetricsRoutes(app) {
       const total = stats.hits + stats.misses;
       const hitRate = total > 0 ? Math.round((stats.hits / total) * 1000) / 1000 : 0;
       return res.json({ ok: true, ...stats, hitRate });
+    } catch (error) {
+      return sendAdminError(res, error);
+    }
+  });
+
+  // POST /api/admin/metrics/cache/clear — invalidasi AI response cache (ops/admin)
+  // AI_SEMANTIC_CACHE (P2): lapisan invalidation eksplisit untuk skenario
+  // prompt/schema berubah atau kualitas hasil menurun. Semua statistik di-reset
+  // bersama store (clearAICache). Wajib admin — pola resolveAdmin yang sama.
+  app.post('/api/admin/metrics/cache/clear', async (req, res) => {
+    try {
+      await resolveAdmin(req);
+      const before = getAICacheStats();
+      clearAICache();
+      return res.json({ ok: true, cleared: true, before });
     } catch (error) {
       return sendAdminError(res, error);
     }

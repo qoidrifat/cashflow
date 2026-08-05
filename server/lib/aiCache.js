@@ -44,12 +44,58 @@ const inflight = new Map();
 
 const stats = { hits: 0, misses: 0, sets: 0, evictions: 0 };
 
-/** Hash deterministik dari payload request AI (feature + model + contents + config). */
+/**
+ * Normalisasi teks prompt untuk cache key (L2 — prompt normalization).
+ *
+ * Menerapkan normalisasi yang aman secara SEMANTIK: tidak mengubah isi prompt,
+ * hanya menghapus noise formatting yang tidak memengaruhi hasil model:
+ *   - CRLF/CR → LF (portabilitas lintas OS)
+ *   - trailing whitespace per baris
+ *   - kolaps 3+ baris kosong → 2 (margin email/struk sering beda jumlah baris)
+ *   - trim ujung prompt
+ *
+ * Karena hanya whitespace-level, dua prompt yang "berbeda penampilan" tetapi
+ * identik secara semantik kini berbagi cache key → hit rate naik tanpa risiko
+ * false-positive untuk konten berbeda. Prompt yang dikirim ke model TIDAK
+ * berubah — hanya key yang dinormalisasi.
+ *
+ * @returns {string} teks ternormalisasi (non-string dikembalikan apa adanya)
+ */
+export function normalizePromptText(text) {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Hash deterministik dari payload request AI (feature + model + contents + config).
+ *
+ * L2 (prompt normalization): part TEXT dinormalisasi sebelum di-hash sehingga
+ * prompt yang hanya beda formatting (whitespace/CRLF) berbagi key. Part
+ * inlineData (base64 gambar) TIDAK dinormalisasi — harus exact agar OCR identik.
+ */
 export function buildAICacheKey({ feature, models, contents, config }) {
+  const normalizedContents = Array.isArray(contents)
+    ? contents.map((part) => {
+      if (part && Array.isArray(part.parts)) {
+        return {
+          ...part,
+          parts: part.parts.map((p) => (
+            p && typeof p.text === 'string' ? { ...p, text: normalizePromptText(p.text) } : p
+          )),
+        };
+      }
+      return part;
+    })
+    : contents;
+
   const payload = {
     f: feature || null,
     m: Array.isArray(models) ? models : [],
-    c: contents,
+    c: normalizedContents,
     cfg: config || {},
   };
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');

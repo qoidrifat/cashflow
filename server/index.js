@@ -226,7 +226,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: rateKeyGen,
   message: rlMessage('Terlalu banyak request. Coba lagi nanti.'),
-  skip: (req) => req.path === '/api/health',
+  skip: (req) => req.path === '/api/health' || req.path === '/api/ready',
 });
 
 // Auth limiter: HANYA request mutasi (POST). GET session-check adalah read-only
