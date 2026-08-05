@@ -79,7 +79,7 @@ CashFlow repository contains **133 markdown files** across **26 documentation fo
 | Doc | Finding | Action |
 |---|---|---|
 | `GMAIL_SYNC_SETUP_GUIDE.md`, `ANALISIS_FITUR_CASHFLOW.md`, `PROJECT_AGENT_ALIGNMENT_AUDIT.md`, `DARK_MODE_READABILITY_AUDIT.md`, `SETUP_GEMINI_SERVER.md`, `docs/CF-052-REVIEW-PLAN.md` | Legacy era (Firebase/Supabase), **zero active references** (verified) | ✅ Archived |
-| `docs/notification-database-schema.md` | Referenced by `.kiro/specs/notification-system/tasks.md` | Keep at `docs/` root |
+| `docs/notification-database-schema.md` | Referenced by `.kiro/specs/notification-system/tasks.md` | ✅ Archived → `archive/root/` (2026-08-05 — self-declared "ARSIP HISTORIS (SUPERSEDED)") |
 | `docs/gmail-sync/*` (18) | Historical checklists; `GMAIL_SYNC_TROUBLESHOOTING.md` still useful | Keep, marked Historical reference |
 
 ---

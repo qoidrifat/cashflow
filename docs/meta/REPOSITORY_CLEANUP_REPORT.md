@@ -23,7 +23,7 @@
 | Supabase/Firebase mentions in archived docs | `docs/archive/*` | Leave (historical truth); add `Deprecated` banner only when edited | Low |
 | `docs/gmail-sync/` (18 checklists) | active | Mark Historical reference (done in INDEX); migrate to `guides/` in Phase 2 | Medium |
 | `docs/transactions/`, `docs/mobile/`, `docs/ui/`, `docs/ai-pipeline/` | active | Same — historical; archive in Phase 2 | Medium |
-| `docs/notification-database-schema.md` | `docs/` root | Keep (referenced by `.kiro/specs/notification-system/tasks.md`); move to `database/` in Phase 2 | Low |
+| `docs/notification-database-schema.md` | `docs/` root | ✅ Archived → `archive/root/` (2026-08-05 — self-declared superseded); rekomendasi Phase 2 batal | Low |
 | `task-list.md` (root) | active | Keep as task tracker; consider moving to `docs/meta/` or GitHub Projects | Low |
 | Hardcoded root-doc paths (`GMAIL_SYNC_SETUP_GUIDE.md`, `SETUP_GEMINI_SERVER.md`, …) di `server/services/agentSearchService.js` `syncCashFlowDocs()` | code | **Stale setelah archive move** — harmless (`existsSync` memfilter; dokumen tetap terindeks via walk `docs/` rekursif). Rekomendasi: hapus blok `rootDocs` saat refactor Phase 2 | Low |
 | Duplicate images (none found) | — | 21 screenshots are unique (validated) | — |

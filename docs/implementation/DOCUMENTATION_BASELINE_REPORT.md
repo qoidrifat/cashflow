@@ -82,8 +82,8 @@ The following reports from the 2026-08-04 synchronization are part of this basel
 
 | Document | Content |
 |---|---|
-| [docs/DOCUMENTATION_SYNC_REPORT.md](../DOCUMENTATION_SYNC_REPORT.md) | Full synchronization report for 2026-08-04 |
-| [docs/CHANGE_SUMMARY.md](../CHANGE_SUMMARY.md) | Change-by-change summary of the documentation fixes |
+| [docs/DOCUMENTATION_SYNC_REPORT.md](../archive/root/DOCUMENTATION_SYNC_REPORT.md) | Full synchronization report for 2026-08-04 (archived 2026-08-05 — historical) |
+| [docs/CHANGE_SUMMARY.md](../archive/root/CHANGE_SUMMARY.md) | Change-by-change summary of the documentation fixes (archived 2026-08-05 — historical) |
 | [docs/audit/DOCUMENTATION_DRIFT_REPORT.md](../audit/DOCUMENTATION_DRIFT_REPORT.md) | Drift findings between docs and implementation |
 | [docs/audit/IMPLEMENTATION_PRIORITY.md](../audit/IMPLEMENTATION_PRIORITY.md) | Prioritized implementation gaps derived from the audits |
 

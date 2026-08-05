@@ -34,7 +34,7 @@ This review focuses on **release-blocking issues** and **consistency drift** for
 | `docs/ui/` | 3 | Historical UI checklists |
 | `docs/repository/` | 12 | Repository curation & GitHub prep (this task) |
 | `docs/archive/` | 63 | workflow-reviews 43 · feature-docs 13 · root 6 (+ `ARCHIVE.md` policy) |
-| `docs/` root | 2 | `DOCUMENTATION_MAP.md` + `notification-database-schema.md` |
+| `docs/` root | 1 | `DOCUMENTATION_MAP.md` (hub canonical; `notification-database-schema.md` → archive 2026-08-05) |
 
 ---
 
