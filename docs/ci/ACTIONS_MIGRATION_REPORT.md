@@ -138,4 +138,8 @@ Applied in `.github/workflows/e2e.yml`:
 - [x] YAML parse: `python -c "yaml.safe_load(...)"` → valid, 5 jobs, `NODE_VERSION: 24`
 - [x] No `@v4` action references remain (grep: checkout v4 = 0, setup-node v4 = 0, upload-artifact v4 = 0)
 - [x] `.nojekyll` present at repo root
-- [ ] CI run: zero Node-20 warnings, all jobs green, Pages green — **to be confirmed after push**
+- [x] **CI run `30977003715` (commit `ba13285`) = SUCCESS** — all 5 jobs green
+- [x] **Zero Node-20 deprecation warnings** — verified in job logs: `quality_warning_node20: 0`, `e2e_warning_node20: 0` (was 4 warnings per run before)
+- [x] **Node 24 active** — logs show `v24.18.0` in quality & e2e jobs
+- [x] **Playwright browser cache works** — `Cache hit` in e2e and 4 hits in visual job (cross-job reuse)
+- [x] **Pages green** — built-in workflow run `30977074398` (ba13285) = success (was failure on every push before `.nojekyll`)
