@@ -64,13 +64,22 @@ export async function measurePageTiming(
   path: string,
   cookie?: string,
 ): Promise<PageTiming> {
+  // Count URL UNIK (bukan raw request count): fetch yang di-retry (server lambat,
+  // Turso remote di runner shared CI) memunculkan request duplikat dengan URL
+  // sama → raw count membengkak artifisial (teramati CI 2026-08-05: /dashboard
+  // 63 raw vs 41 unique saat run lokal). Asset yang dimuat ulang BUKAN indikator
+  // bloat; URL unik baru (chunk/asset baru) adalah indikator sebenarnya — tetap
+  // terdeteksi. Budget request tetap valid tanpa melemahkan gate.
   let requests = 0;
+  const seenUrls = new Set<string>();
   const countRequests = (req: { url(): string; resourceType(): string }): void => {
     const url = req.url();
     const rt = req.resourceType();
     // Exclude HMR/websocket/polling — bukan bagian dari page load waterfall.
     if (url.includes('vite') || url.includes('@vite') || rt === 'websocket') return;
     if (url.includes('/api/')) return; // API diukur terpisah (apiLatency)
+    if (seenUrls.has(url)) return; // retry/duplikat — jangan hitung 2×
+    seenUrls.add(url);
     requests++;
   };
   page.on('request', countRequests);
