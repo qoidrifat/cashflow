@@ -32,7 +32,11 @@ permissions:
 
 env:
   CI: 'true'
-  NODE_VERSION: '20'
+  # Node 20 EOL (Apr 2026) & runner default kini Node 24 — bump 20 → 24
+  # (2026-08-05, audit CI): seluruh toolchain (Vite 5+, Playwright, vitest,
+  # better-auth, @libsql) terverifikasi jalan di Node 24 (dev lokal v24.15.0;
+  # full stack validation lulus). Setup Node action v5 menargetkan node24.
+  NODE_VERSION: '24'
   VITE_AGENT_SEARCH_ENABLED: 'false'
   VITE_AI_SEARCH_ROUTE_ENABLED: 'true'
 
@@ -46,10 +50,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -101,7 +105,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -151,10 +155,10 @@ jobs:
       E2E_PINNED_GMAIL_LOGS_TOTAL: '519'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -169,6 +173,16 @@ jobs:
       - name: Install dependencies (server)
         working-directory: server
         run: npm ci
+
+      # Cache binary browser Playwright (~/.cache/ms-playwright) antar job
+      # (e2e → visual → perf) — hindari download ulang ~1-2 menit per job.
+      # Key berbasis hash package-lock (root) → invalidate otomatis saat versi
+      # Playwright berubah. Aman: bila cache miss/corrupt, install tetap jalan.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -214,7 +228,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: playwright-report/
@@ -225,7 +239,7 @@ jobs:
       # gate). Dipakai untuk menyelidiki mengapa sebuah test flaky.
       - name: Upload stability-gate per-attempt artifacts (flake forensics)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: stability-attempt-artifacts
           path: |
@@ -236,7 +250,7 @@ jobs:
 
       - name: Upload test artifacts — traces · screenshots · videos (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: test-results/
@@ -266,10 +280,10 @@ jobs:
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -280,6 +294,16 @@ jobs:
       - name: Install dependencies (server)
         working-directory: server
         run: npm ci
+
+      # Cache binary browser Playwright (~/.cache/ms-playwright) antar job
+      # (e2e → visual → perf) — hindari download ulang ~1-2 menit per job.
+      # Key berbasis hash package-lock (root) → invalidate otomatis saat versi
+      # Playwright berubah. Aman: bila cache miss/corrupt, install tetap jalan.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -302,7 +326,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-visual
           path: playwright-report/
@@ -311,7 +335,7 @@ jobs:
       # Diff screenshot (actual vs baseline) untuk debugging visual — hanya saat gagal.
       - name: Upload screenshot diffs (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: visual-diffs
           path: |
@@ -364,10 +388,10 @@ jobs:
       PERF_BUDGET_PAGINATION_HARD_MS: '12000'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -378,6 +402,16 @@ jobs:
       - name: Install dependencies (server)
         working-directory: server
         run: npm ci
+
+      # Cache binary browser Playwright (~/.cache/ms-playwright) antar job
+      # (e2e → visual → perf) — hindari download ulang ~1-2 menit per job.
+      # Key berbasis hash package-lock (root) → invalidate otomatis saat versi
+      # Playwright berubah. Aman: bila cache miss/corrupt, install tetap jalan.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -408,7 +442,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-perf
           path: playwright-report/
@@ -417,7 +451,7 @@ jobs:
       # Perf report JSON (test-results/perf/perf-*.json) → trend historis.
       - name: Upload perf report JSON (always)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: perf-reports
           path: test-results/perf/
