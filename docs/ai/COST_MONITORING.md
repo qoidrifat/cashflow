@@ -76,10 +76,14 @@ Response (Sprint 2 — `cacheByFeature` + `trendByFeature` ditambahkan, additive
   (`src/utils/featureRanking.ts`, di-unit-test).
 - **Tabel "Cost per Fitur"** — kolom: Fitur (calls · token) · **Latency** ·
   **Cache Hit** · Biaya · Sukses.
-- **Tren Biaya** — line chart harian dengan **filter fitur** (dropdown):
+- **Tren Biaya** — line chart harian dengan **filter fitur** (dropdown) +
+  **toggle metrik Biaya / Token / Calls** (`costIdr`/`tokens`/`calls` — keduanya
+  sudah disediakan endpoint, tanpa request tambahan):
   "Semua Fitur" = **line chart multi-seri** satu garis per fitur
-  (`/trendByFeature` → pivot `pivotTrendByFeature`); pilih satu fitur = garis
-  tunggal dari `/trend?feature=...` (backed `getCostTrend` + param `feature`).
+  (`/trendByFeature` → pivot `pivotTrendByFeature(points, metric)`); pilih satu
+  fitur = garis tunggal dari `/trend?feature=...` (dataKey = metrik terpilih,
+  warna berbeda per metrik). Format tooltip/axis mengikuti metrik
+  (`formatTrendValue`).
 - **AI Response Cache** — hit rate global LRU (`/cache`).
 - `FEATURE_LABELS` mencakup 6 fitur: gmail_sync, agent_search, ocr_receipt,
   insight_generator, fraud_detection, financial_advisor.

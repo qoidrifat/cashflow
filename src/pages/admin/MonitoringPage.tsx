@@ -21,7 +21,7 @@ import type {
   MetricsSummary, AIUsageSummary, CostTrendPoint, CostTrendByFeaturePoint,
   FeatureHealth, AlertStatus, AICacheStats, AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
 } from '../../types/metrics';
-import { activeTrendFeatures, pivotTrendByFeature } from '../../utils/costTrendPivot';
+import { activeTrendFeatures, pivotTrendByFeature, type TrendMetric } from '../../utils/costTrendPivot';
 import { topFeatureEntries, type FeatureRankRow } from '../../utils/featureRanking';
 import { cn } from '../../lib/utils';
 
@@ -44,6 +44,34 @@ const PERIOD_OPTIONS = [
 /** Palet warna seri per fitur (line chart multi-seri cost per fitur). */
 const FEATURE_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6'];
 
+/** Sprint 2 — toggle metrik chart Tren Biaya: Biaya / Token / Calls. */
+const TREND_METRICS: Array<{ key: TrendMetric; label: string }> = [
+  { key: 'costIdr', label: 'Biaya' },
+  { key: 'tokens', label: 'Token' },
+  { key: 'calls', label: 'Calls' },
+];
+
+/** Warna garis untuk seri tunggal per metrik (multi-seri tetap FEATURE_COLORS). */
+const TREND_METRIC_COLORS: Record<TrendMetric, string> = {
+  costIdr: '#10b981',
+  tokens: '#6366f1',
+  calls: '#f59e0b',
+};
+
+/** Label seri tunggal per metrik (paralel dengan TREND_METRIC_COLORS). */
+const TREND_METRIC_LABELS: Record<TrendMetric, string> = {
+  costIdr: 'Biaya',
+  tokens: 'Token',
+  calls: 'Calls',
+};
+
+/** Format nilai tooltip/axis sesuai metrik terpilih. */
+function formatTrendValue(metric: TrendMetric, value: number): string {
+  if (metric === 'costIdr') return formatIdr(value);
+  if (metric === 'tokens') return formatTokens(value);
+  return String(value);
+}
+
 function formatIdr(value: number): string {
   return 'Rp ' + Math.round(value).toLocaleString('id-ID');
 }
@@ -55,15 +83,16 @@ function formatTokens(value: number): string {
 }
 
 /**
- * Line chart multi-seri: cost per fitur per hari (Sprint 2). Mem-pivot baris
- * per-(hari, fitur) menjadi satu baris per hari + satu seri per fitur, lalu
- * menggambar satu Line per fitur dengan warna dari FEATURE_COLORS.
+ * Line chart multi-seri: satu seri per fitur untuk metrik terpilih (Sprint 2).
+ * Mem-pivot baris per-(hari, fitur) menjadi satu baris per hari + satu kolom
+ * per fitur (metrik: costIdr/tokens/calls), lalu satu Line per fitur dengan
+ * warna dari FEATURE_COLORS.
  */
-function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[]): React.ReactNode {
+function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[], metric: TrendMetric = 'costIdr'): React.ReactNode {
   if (!points || points.length === 0) {
-    return <EmptyMini message="Belum ada data biaya pada rentang ini." />;
+    return <EmptyMini message="Belum ada data pada rentang ini." />;
   }
-  const pivoted = pivotTrendByFeature(points);
+  const pivoted = pivotTrendByFeature(points, metric);
   const features = activeTrendFeatures(points);
   return (
     <div className="h-56">
@@ -71,9 +100,9 @@ function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[]): React.ReactN
         <LineChart data={pivoted} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
           <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
-          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" tickFormatter={(v) => formatTrendValue(metric, Number(v) || 0)} />
           <Tooltip
-            formatter={(value, name) => [formatIdr(Number(value) || 0), String(name)]}
+            formatter={(value, name) => [formatTrendValue(metric, Number(value) || 0), String(name)]}
             contentStyle={{ borderRadius: 12, fontSize: 12 }}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -105,6 +134,8 @@ export default function MonitoringPage() {
   const [trendByFeature, setTrendByFeature] = useState<CostTrendByFeaturePoint[]>([]);
   // Filter Tren Biaya: 'all' = multi-seri per fitur, selain itu = fitur tunggal.
   const [trendFeature, setTrendFeature] = useState<string>('all');
+  // Metrik chart Tren Biaya (Sprint 2): biaya / token / calls.
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('costIdr');
   const [health, setHealth] = useState<FeatureHealth[]>([]);
   const [alerts, setAlerts] = useState<AlertStatus[]>([]);
   const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
@@ -311,6 +342,26 @@ export default function MonitoringPage() {
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h3 className="text-sm font-bold text-app-text">Tren Biaya ({periodDays} Hari)</h3>
                 <div className="flex items-center gap-1">
+                  {/* Toggle metrik chart: Biaya / Token / Calls */}
+                  <div className="flex items-center gap-1 rounded-xl bg-app-hover p-1">
+                    {TREND_METRICS.map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => setTrendMetric(m.key)}
+                        disabled={loading}
+                        aria-pressed={trendMetric === m.key}
+                        className={cn(
+                          'rounded-lg px-3 py-1.5 text-xs font-bold transition',
+                          trendMetric === m.key
+                            ? 'bg-white text-app-text shadow-sm dark:bg-slate-800'
+                            : 'text-app-subtle hover:text-app-text',
+                        )}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
                   <select
                     value={trendFeature}
                     onChange={(e) => setTrendFeature(e.target.value)}
@@ -326,21 +377,28 @@ export default function MonitoringPage() {
                 </div>
               </div>
               {trendFeature === 'all'
-                ? renderMultiSeriesTrend(trendByFeature)
+                ? renderMultiSeriesTrend(trendByFeature, trendMetric)
                 : trend.length === 0
-                  ? <EmptyMini message="Belum ada data biaya pada rentang ini." />
+                  ? <EmptyMini message="Belum ada data pada rentang ini." />
                   : (
                     <div className="h-56">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={trend} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
                           <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
-                          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+                          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" tickFormatter={(v) => formatTrendValue(trendMetric, Number(v) || 0)} />
                           <Tooltip
-                            formatter={(value) => formatIdr(Number(value) || 0)}
+                            formatter={(value) => formatTrendValue(trendMetric, Number(value) || 0)}
                             contentStyle={{ borderRadius: 12, fontSize: 12 }}
                           />
-                          <Line type="monotone" dataKey="costIdr" stroke="#10b981" strokeWidth={2} dot={false} name="Biaya" />
+                          <Line
+                            type="monotone"
+                            dataKey={trendMetric}
+                            stroke={TREND_METRIC_COLORS[trendMetric]}
+                            strokeWidth={2}
+                            dot={false}
+                            name={TREND_METRIC_LABELS[trendMetric]}
+                          />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>

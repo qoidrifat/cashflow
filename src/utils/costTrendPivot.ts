@@ -2,10 +2,15 @@
  * Sprint 2 — pivot cost trend per fitur jadi baris multi-seri untuk Recharts.
  *
  * MURNI (tanpa React/DB) agar bisa di-unit-test: mengubah kumpulan baris
- * [{ date, feature, costIdr }] menjadi [{ date, [feature]: costIdr }] — satu
+ * [{ date, feature, <metric> }] menjadi [{ date, [feature]: <metric> }] — satu
  * kolom per fitur (diisi 0 bila fitur tidak aktif di hari itu).
+ *
+ * `metric` menentukan kolom yang dipivot (Sprint 2 — toggle Biaya/Token/Calls):
+ * 'costIdr' (default) | 'tokens' | 'calls'.
  */
 import type { CostTrendByFeaturePoint } from '../types/metrics';
+
+export type TrendMetric = 'costIdr' | 'tokens' | 'calls';
 
 export interface TrendRow {
   date: string;
@@ -23,17 +28,21 @@ export function activeTrendFeatures(points: CostTrendByFeaturePoint[]): string[]
 
 /**
  * Pivot baris per-(hari, fitur) menjadi satu baris per hari dengan satu kolom
- * per fitur. Biaya per fitur dalam sehari dijumlahkan (bulat 2 desimal).
- * Urut tanggal naik; hari yang tidak punya data untuk fitur tertentu diisi 0
- * (recharts Line membutuhkan dataKey hadir agar seri kontinu).
+ * per fitur untuk metrik terpilih. Nilai per fitur dalam sehari dijumlahkan
+ * (bulat 2 desimal — integers tokens/calls tidak terpengaruh). Urut tanggal
+ * naik; hari yang tidak punya data untuk fitur tertentu diisi 0 (recharts Line
+ * membutuhkan dataKey hadir agar seri kontinu).
  */
-export function pivotTrendByFeature(points: CostTrendByFeaturePoint[]): TrendRow[] {
+export function pivotTrendByFeature(
+  points: CostTrendByFeaturePoint[],
+  metric: TrendMetric = 'costIdr',
+): TrendRow[] {
   const byDate = new Map<string, TrendRow>();
   const allFeatures = new Set<string>();
   for (const p of points) {
     const row = byDate.get(p.date) || { date: p.date };
     const prev = Number(row[p.feature] ?? 0);
-    row[p.feature] = Math.round((prev + (Number(p.costIdr) || 0)) * 100) / 100;
+    row[p.feature] = Math.round((prev + (Number(p[metric]) || 0)) * 100) / 100;
     byDate.set(p.date, row);
     if (p.feature) allFeatures.add(p.feature);
   }
