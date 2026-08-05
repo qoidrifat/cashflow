@@ -117,76 +117,23 @@ export function initGemini() {
 // ===================== Prompt Builders =====================
 
 export function buildExtractionPrompt(emailText, subject, sender, emailDate) {
-  return `Kamu adalah AI financial transaction extractor untuk aplikasi CashFlow Indonesia.
+  return `Kamu adalah AI financial transaction extractor CashFlow. Tentukan apakah email berisi transaksi finansial NYATA, lalu keluarkan SATU JSON OBJECT valid — tanpa markdown, code block, atau teks lain.
 
-Tugas: Baca email pengguna dan tentukan apakah email berisi transaksi keuangan nyata.
-Keluarkan SATU JSON OBJECT VALID SAJA. Tidak ada teks lain.
+TRANSAKSI VALID: pembayaran aktual (invoice, struk, e-ticket), transfer masuk/keluar, pembelian berhasil, top up, refund/cashback yang benar-benar diterima, QRIS/VA/kartu/e-wallet/bank berhasil, info bank dengan aktivitas finansial aktual.
 
-DEFINISI TRANSAKSI VALID:
-- Pembayaran aktual (invoice, receipt, struk, e-ticket)
-- Transfer masuk/keluar aktual
-- Pembelian berhasil
-- Top up berhasil
-- Refund/pengembalian dana berhasil
-- Cashback yang benar-benar diterima
-- QRIS/VA/kartu/e-wallet/bank berhasil
-- Informasi transaksi bank yang memuat aktivitas finansial aktual
+BUKAN TRANSAKSI (is_transaction=false): promo/diskon/kupon/newsletter; iklan/survei; login alert/notifikasi keamanan; artikel/digest/lowongan; cashback promo BELUM diterima ("cashback hingga/s/d/sampai/up to/dapatkan", "promo cashback", "ajukan KTA", "buka deposito"); nominal promo maksimum; aktivasi/welcome card; COD belum dibayar.
 
-BUKAN TRANSAKSI (is_transaction = false):
-- Promo, diskon, kupon, newsletter
-- Iklan, rekomendasi produk, survei
-- Login alert, notifikasi keamanan
-- Artikel, digest, lowongan kerja
-- Cashback promosi yang belum diterima
-- Email promo cashback seperti "cashback hingga", "cashback s/d", "cashback sampai", "cashback up to", "dapatkan cashback", "promo cashback", "ajukan KTA", atau "buka deposito, cashback"
-- Nominal yang muncul sebagai nilai maksimum promo cashback, bukan uang yang sudah diterima
-- Aktivasi kartu, request card berhasil, welcome email, bluSpending dibuat
-- Pembayaran COD yang belum dilakukan
+ATURAN:
+1. Hanya SATU JSON OBJECT. Tanpa trailing comma, undefined, NaN (pakai null). Semua key wajib ada. Tanpa | dalam value.
+2. amount: number tanpa Rp/titik/koma atau null. date: YYYY-MM-DD (default ${emailDate}). confidence_score: 0.0-1.0.
+3. is_transaction=false → reason wajib menjelaskan kenapa.
+4. Cashback promo → output persis: {"is_transaction":false,"transaction_type":null,"amount":null,"currency":"IDR","date":null,"merchant":null,"category":null,"payment_method":null,"description":null,"confidence_score":0,"reason":"Email promo cashback, bukan transaksi cashback aktual","decision":"auto_reject"}
+5. Cashback aktual hanya bila email menyatakan diterima/masuk/cair/dikreditkan.
 
-ATURAN OUTPUT WAJIB:
-1. Output hanya SATU JSON OBJECT. Tidak ada markdown, tidak ada code block, tidak ada teks lain.
-2. Jangan gunakan tanda | dalam value. Pilih satu value.
-3. Jangan gunakan trailing comma.
-4. Jangan gunakan undefined. Gunakan null jika data tidak ditemukan.
-5. Jangan gunakan NaN. Gunakan null.
-6. Semua key WAJIB ada.
-7. amount: number tanpa Rp/titik/koma atau null jika tidak ditemukan.
-8. date: format YYYY-MM-DD. Jika tanggal tidak ditemukan, gunakan ${emailDate}.
-9. confidence_score: number antara 0.0 dan 1.0.
-10. Jika is_transaction = false, reason WAJIB menjelaskan kenapa.
-11. Jika email promo cashback, output wajib:
-{"is_transaction":false,"transaction_type":null,"amount":null,"currency":"IDR","date":null,"merchant":null,"category":null,"payment_method":null,"description":null,"confidence_score":0,"reason":"Email promo cashback, bukan transaksi cashback aktual","decision":"auto_reject"}
-12. Cashback aktual boleh transaksi hanya jika email menyatakan cashback berhasil diterima, masuk, cair, atau dikreditkan.
-
-decision WAJIB diisi:
-- "auto_accept": hanya jika sangat yakin transaksi valid
-- "auto_skip": email finansial tapi bukan transaksi aktual
-- "auto_reject": promo/newsletter/marketing/diskon/cashback promo
-- "needs_review": jika konteks ambigu
-
-Jangan auto_accept jika:
-- Email mengandung promo/cashback maksimum
-- Email aktivasi kartu atau welcome
-- Nominal tidak ditemukan
-- Sender baru/tidak dikenal
-- Pembayaran COD belum dilakukan
-- Ragu-ragu
+decision: auto_accept (sangat yakin valid), auto_skip (finansial tapi bukan transaksi), auto_reject (promo/marketing), needs_review (ambigu). Jangan auto_accept jika: promo/cashback maksimum, aktivasi/welcome, nominal tak ditemukan, sender baru/tak dikenal, COD belum dibayar, atau ragu.
 
 OUTPUT SCHEMA:
-{
-  "is_transaction": true,
-  "transaction_type": "income | expense | transfer | refund | null",
-  "amount": 0,
-  "currency": "IDR",
-  "date": "YYYY-MM-DD",
-  "merchant": "string | null",
-  "category": "string | null",
-  "payment_method": "string | null",
-  "description": "string | null",
-  "confidence_score": 0.0,
-  "reason": "string | null",
-  "decision": "auto_accept | auto_skip | auto_reject | needs_review"
-}
+{"is_transaction":true,"transaction_type":"income | expense | transfer | refund | null","amount":0,"currency":"IDR","date":"YYYY-MM-DD","merchant":"string | null","category":"string | null","payment_method":"string | null","description":"string | null","confidence_score":0.0,"reason":"string | null","decision":"auto_accept | auto_skip | auto_reject | needs_review"}
 
 Sender: ${sender}
 Subject: ${subject}
@@ -197,60 +144,23 @@ ${emailText}`;
 export function buildReceiptExtractionPrompt(userHint = {}) {
   const defaultDate = new Date().toISOString().split('T')[0];
 
-  return `Kamu adalah AI financial transaction extractor untuk aplikasi CashFlow Indonesia.
+  return `Kamu adalah AI financial transaction extractor CashFlow. Baca gambar bukti transaksi dan ekstrak datanya. Keluarkan SATU JSON OBJECT valid — tanpa markdown, code block, atau teks lain.
 
-Tugas: Baca gambar bukti transaksi dan ekstrak data transaksinya.
-Keluarkan SATU JSON OBJECT VALID SAJA. Tidak ada teks lain, tidak ada markdown, tidak ada code block.
+BUKTI VALID: struk, invoice/faktur, kuitansi, nota, bukti transfer bank/mobile banking, pembayaran QRIS/e-wallet, screenshot sukses transaksi, tagihan lunas.
+BUKAN TRANSAKSI: selfie/foto orang, pemandangan, KTP/identitas, screenshot chat tanpa bukti bayar, promo/iklan, menu tanpa total harga, halaman web tanpa info pembayaran.
 
-DEFINISI BUKTI TRANSAKSI VALID:
-- Struk belanja
-- Invoice/faktur pembayaran
-- Kuitansi/receipt pembayaran
-- Nota pembelian
-- Bukti transfer bank/mobile banking
-- Bukti pembayaran QRIS/e-wallet
-- Screenshot bukti bayar/sukses transaksi
-- Tagihan/bill yang sudah dibayar
-
-BUKAN TRANSAKSI:
-- Foto selfie/orang
-- Pemandangan/gambar tidak relevan
-- KTP/identitas
-- Screenshot chat tanpa bukti bayar
-- Gambar promo/iklan
-- Menu makanan tanpa total harga
-- Halaman website tanpa informasi pembayaran
-
-ATURAN EKSTRAKSI:
-1. Cari nominal TOTAL/GRAND TOTAL/TOTAL BAYAR/JUMLAH/NOMINAL/DIBAYAR/AMOUNT.
-2. Jangan gunakan subtotal, PPN, service charge, diskon, atau uang kembalian sebagai amount utama.
-3. Jika banyak nominal dan tidak yakin total, decision "needs_review" dan risk_flags berisi "multiple_amounts_found".
-4. amount: number tanpa Rp/titik/koma/spasi atau null.
-5. date: YYYY-MM-DD. Jika tidak ada tanggal, gunakan ${defaultDate} dan risk_flags "date_inferred".
-6. merchant: nama toko/merchant dari header struk. Bisa null.
-7. category: tebak kategori paling sesuai.
-8. payment_method: salah satu "cash", "qris", "transfer-bank", "e-wallet", "kartu-debit", "kartu-kredit", "lainnya-payment".
-9. note: deskripsi singkat Bahasa Indonesia.
-10. confidence_score: 0.0 sampai 1.0.
-11. decision: "auto_accept" jika confidence >= 0.88 dan data jelas, "needs_review" jika ragu, "auto_skip" jika bukan transaksi.
-12. transaction_type: "expense" untuk pembayaran/pembelian, "income" untuk penerimaan uang.
+ATURAN:
+1. Amount utama = TOTAL/GRAND TOTAL/TOTAL BAYAR/JUMLAH/NOMINAL/DIBAYAR/AMOUNT. Jangan pakai subtotal/PPN/service charge/diskon/kembalian.
+2. Banyak nominal & tak yakin total → decision needs_review + risk_flags ["multiple_amounts_found"].
+3. amount: number tanpa Rp/titik/koma/spasi atau null. date: YYYY-MM-DD (default ${defaultDate}; bila tanggal diinfer, tambah risk_flags "date_inferred").
+4. merchant dari header struk (bisa null). category: tebak paling sesuai.
+5. payment_method: cash | qris | transfer-bank | e-wallet | kartu-debit | kartu-kredit | lainnya-payment.
+6. note: deskripsi singkat Bahasa Indonesia. confidence_score: 0.0-1.0.
+7. decision: auto_accept jika confidence >= 0.88 & data jelas; needs_review jika ragu; auto_skip jika bukan transaksi.
+8. transaction_type: expense (pembayaran/pembelian) | income (penerimaan uang).
 
 OUTPUT WAJIB:
-{
-  "decision": "auto_accept | needs_review | auto_skip",
-  "is_transaction": true,
-  "transaction_type": "expense | income | null",
-  "amount": 0,
-  "currency": "IDR",
-  "date": "YYYY-MM-DD",
-  "merchant": "string | null",
-  "category": "string | null",
-  "payment_method": "cash | qris | transfer-bank | e-wallet | kartu-debit | kartu-kredit | lainnya-payment",
-  "note": "string",
-  "confidence_score": 0.0,
-  "reason": "string | null",
-  "risk_flags": []
-}
+{"decision":"auto_accept | needs_review | auto_skip","is_transaction":true,"transaction_type":"expense | income | null","amount":0,"currency":"IDR","date":"YYYY-MM-DD","merchant":"string | null","category":"string | null","payment_method":"cash | qris | transfer-bank | e-wallet | kartu-debit | kartu-kredit | lainnya-payment","note":"string","confidence_score":0.0,"reason":"string | null","risk_flags":[]}
 
 ${userHint.paymentMethod ? `Petunjuk: Metode pembayaran default: ${userHint.paymentMethod}.` : ''}
 ${userHint.category ? `Petunjuk: Kategori default: ${userHint.category}.` : ''}
