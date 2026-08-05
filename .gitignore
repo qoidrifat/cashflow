@@ -48,3 +48,6 @@ skills-lock.json
 task-list.md
 public/logout-debug-viewport.png
 *.tsbuildinfo
+
+# Verifikasi visual lokal (screenshot bukti sementara)
+tmp-verify/

@@ -70,6 +70,10 @@ Response (Sprint 2 — `cacheByFeature` + `trendByFeature` ditambahkan, additive
 - **Period selector** `7 Hari / 30 Hari / 90 Hari` — memuati ulang
   `ai-usage`, `feature-health`, dan `agent-search-engagement` dengan rentang
   `from`/`to` dinamis (tile Hari Ini tetap dari `/summary`).
+- **"Ringkasan per Fitur (7 Hari)"** — tile **Top Biaya** & **Top Token**
+  (teratas dari `summary.features`, urut menurun) dengan **mini bar** relatif
+  terhadap pemuncak; ranking via fungsi murni `topFeatureEntries`
+  (`src/utils/featureRanking.ts`, di-unit-test).
 - **Tabel "Cost per Fitur"** — kolom: Fitur (calls · token) · **Latency** ·
   **Cache Hit** · Biaya · Sukses.
 - **Tren Biaya** — line chart harian dengan **filter fitur** (dropdown):

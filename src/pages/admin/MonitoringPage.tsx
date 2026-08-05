@@ -22,6 +22,7 @@ import type {
   FeatureHealth, AlertStatus, AICacheStats, AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
 } from '../../types/metrics';
 import { activeTrendFeatures, pivotTrendByFeature } from '../../utils/costTrendPivot';
+import { topFeatureEntries, type FeatureRankRow } from '../../utils/featureRanking';
 import { cn } from '../../lib/utils';
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -243,6 +244,32 @@ export default function MonitoringPage() {
               <MetricCard icon={<Activity className="h-4 w-4" />} label="Calls Hari Ini" value={String(summary.today.calls)} accent="text-amber-500" />
               <MetricCard icon={<Clock className="h-4 w-4" />} label="Avg Time" value={`${summary.today.avgTimeMs} ms`} accent="text-blue-500" />
             </div>
+
+            {/* Per-feature summary tiles (Sprint 2): biaya & token teratas 7 hari */}
+            <Card>
+              <h3 className="text-sm font-bold text-app-text mb-1">Ringkasan per Fitur (7 Hari)</h3>
+              <p className="text-[11px] text-app-subtle mb-3">Biaya & token teratas dari summary.features — mini bar relatif terhadap pemuncak.</p>
+              {Object.keys(summary.features).length === 0 ? (
+                <EmptyMini message="Belum ada penggunaan AI pada 7 hari terakhir." />
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <FeatureRankList
+                    title="Top Biaya"
+                    rows={topFeatureEntries(summary.features, 'costIdr')}
+                    valueKey="costIdr"
+                    barClass="bg-mint-500"
+                    formatValue={formatIdr}
+                  />
+                  <FeatureRankList
+                    title="Top Token"
+                    rows={topFeatureEntries(summary.features, 'tokens')}
+                    valueKey="tokens"
+                    barClass="bg-primary-500"
+                    formatValue={formatTokens}
+                  />
+                </div>
+              )}
+            </Card>
 
             {/* AI Response Cache panel (Sprint 3 LRU) */}
             {cacheStats && (
@@ -534,6 +561,48 @@ function MetricCard({ icon, label, value, accent }: { icon: React.ReactNode; lab
       <p className="text-[10px] text-app-subtle font-medium">{label}</p>
       <p className="text-lg font-black text-app-text mt-0.5">{value}</p>
     </Card>
+  );
+}
+
+/**
+ * Tile ringkasan per fitur: daftar ber-urut dengan mini bar (pola sama dengan
+ * Top Suggested Queries). `max` = nilai pemuncak — bar proporsional terhadapnya.
+ */
+function FeatureRankList({ title, rows, valueKey, barClass, formatValue }: {
+  title: string;
+  rows: FeatureRankRow[];
+  valueKey: 'costIdr' | 'tokens';
+  barClass: string;
+  formatValue: (v: number) => string;
+}) {
+  const max = rows.length > 0 ? rows[0][valueKey] || 1 : 1;
+  return (
+    <div>
+      <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-app-muted">Belum ada data.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {rows.map((row, i) => (
+            <div key={row.feature} className="flex items-center gap-2.5">
+              <span className="w-4 shrink-0 text-right text-[11px] font-bold text-app-subtle">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-xs font-medium text-app-text">{FEATURE_LABELS[row.feature] || row.feature}</p>
+                  <span className="shrink-0 text-[11px] font-bold text-app-text">{formatValue(row[valueKey])}</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-app-hover">
+                  <div
+                    className={cn('h-full rounded-full transition-all', barClass)}
+                    style={{ width: `${Math.round((row[valueKey] / max) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
