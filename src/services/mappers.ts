@@ -30,6 +30,8 @@ export function mapTransaction(row: any): Transaction {
     source: row.source || 'manual',
     gmailMessageId: row.gmail_message_id || undefined,
     confidenceScore: row.confidence_score === null ? undefined : Number(row.confidence_score),
+    fraudFlag: row.fraud_flag || null,
+    fraudScore: row.fraud_score === null || row.fraud_score === undefined ? null : Number(row.fraud_score),
     metadata: row.metadata || {},
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
