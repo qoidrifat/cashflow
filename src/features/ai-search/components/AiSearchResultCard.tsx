@@ -21,9 +21,11 @@ function actionFor(tab: AiSearchTab, result: AgentSearchResult) {
 export default function AiSearchResultCard({
   result,
   tab,
+  onOpen,
 }: {
   result: AgentSearchResult;
   tab: AiSearchTab;
+  onOpen?: () => void;
 }) {
   const action = actionFor(tab, result);
   const title = valueText(result.title) || valueText(result.merchant) || valueText(result.subject) || 'Hasil AI Search';
@@ -88,10 +90,22 @@ export default function AiSearchResultCard({
             {result.sender_domain && <span className="rounded-full bg-app-hover px-2.5 py-1">{String(result.sender_domain)}</span>}
             {result.payment_method && <span className="rounded-full bg-app-hover px-2.5 py-1">{String(result.payment_method)}</span>}
           </div>
+
+          {Array.isArray(result.explanation) && result.explanation.length > 0 && (
+            <p className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-app-subtle">
+              <span className="font-semibold">Mengapa muncul:</span>
+              {result.explanation.map((reason) => (
+                <span key={reason} className="rounded-full bg-app-hover px-2 py-0.5">
+                  {reason}
+                </span>
+              ))}
+            </p>
+          )}
         </div>
 
         <Link
           to={action.href}
+          onClick={onOpen}
           className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-xl border border-app-border px-3 text-sm font-semibold text-app-text transition-colors hover:bg-app-hover"
         >
           {action.label}

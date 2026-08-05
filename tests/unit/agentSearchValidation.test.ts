@@ -279,6 +279,7 @@ describe('success path tidak berubah', () => {
       query: 'halo dunia',
       tab: 'help',
       userId: null,
+      filters: {},
     });
   });
 

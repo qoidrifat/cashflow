@@ -147,7 +147,7 @@ Detailed design: [docs/system/ARCHITECTURE.md](docs/system/ARCHITECTURE.md)
 | Gmail Sync | Client-driven inbox scan, AI classification, needs-review queue |
 | Gmail Review Flow | Approve/reject/duplicate detection with realtime notifications |
 | Wallet & Savings Goals | Multi-account wallet, savings goals, subscriptions |
-| AI Search (Agent) | Discovery Engine over transactions/gmail/receipts (env-flagged, default off) |
+| AI Search (Agent) | Discovery Engine over transactions/gmail/receipts (env-flagged, default off) — semantic filters, suggested queries, recent searches, result explanations |
 | AI Insights & Advisor | Monthly AI report + financial health score + AI Coach (spending/saving/budget/subscription advice, emergency fund, action list) |
 | Fraud Detection | L1 rule engine on every transaction + dashboard widget + notifications (optional L2 AI scoring) |
 | Categories | Defaults seeding, CRUD, `isDefault` guard |
@@ -204,8 +204,12 @@ new-merchant/category-anomaly) → fraud_flags + notification + dashboard widget
 
 ### Agent Search flow
 ```
-Query → Discovery Engine (transactions / gmail logs / receipts data stores)
+Query (+ optional semantic filters: date range / type / category)
+  → Discovery Engine (transactions / gmail logs / receipts data stores)
   → embeddings + reranking → grounded answer with sources
+  → re-rank + deterministic per-result explanation (why this matched)
+  → suggested queries (engine relatedQuestions + per-tab fallback)
+  → recent searches (per-user) + click/suggestion analytics
   (JSONL documents staged via Cloud Storage and imported into data stores)
 ```
 
@@ -505,7 +509,6 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 **🔄 In progress**
 - `server/index.js` modularization debt (route modules per domain)
-- Sprint 1.4 AI Search enhancements (semantic filtering, suggested queries, search history)
 - Sprint 1.5–1.8 UX polish, empty states, performance audit
 
 **🔭 Future**

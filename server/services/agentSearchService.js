@@ -15,6 +15,11 @@ const VALID_TABS = new Set(['help', 'transactions', 'insight', 'gmail', 'receipt
 const USER_SCOPED_TABS = new Set(['transactions', 'insight', 'gmail', 'receipts']);
 const SENSITIVE_KEY_PATTERN = /(token|refresh|secret|service_role|api[_-]?key|private[_-]?key|jwt|authorization|credential|base64|image|body|raw|signed_url|public_url)/i;
 
+/** Sprint 1.4: whitelist tipe transaksi untuk semantic filter (anti injeksi). */
+const VALID_TRANSACTION_TYPES = new Set(['expense', 'income', 'refund', 'transfer']);
+/** Sprint 1.4: tanggal filter harus YYYY-MM-DD murni (anti injeksi). */
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 function envFlag(value) {
   return String(value || '').toLowerCase() === 'true';
 }
@@ -553,14 +558,7 @@ function buildServingConfigPath(config) {
   return `projects/${config.projectId}/locations/${config.location}/collections/${config.collection}/engines/${config.engineId}/servingConfigs/${config.servingConfigId}`;
 }
 
-function buildFilter(tab, userId) {
-  const filters = [];
-  if (tab === 'help') filters.push('type: ANY("knowledge_base")');
-  if (tab === 'transactions' || tab === 'insight') filters.push('user_id_hash: ANY("' + hashUserId(userId) + '")');
-  if (tab === 'gmail') filters.push('user_id_hash: ANY("' + hashUserId(userId) + '")');
-  if (tab === 'receipts') filters.push('user_id_hash: ANY("' + hashUserId(userId) + '")');
-  return filters.join(' AND ');
-}
+
 
 function extractDocumentPayload(result) {
   const document = result.document || {};
@@ -572,6 +570,117 @@ function extractDocumentPayload(result) {
     snippet: Array.isArray(snippets) ? snippets.map((item) => item.snippet || item.htmlSnippet || '').filter(Boolean).join(' ') : '',
     ...data,
   });
+}
+
+function buildFilter(tab, userId, filters = {}) {
+  const filterParts = [];
+  if (tab === 'help') filterParts.push('type: ANY("knowledge_base")');
+  if (USER_SCOPED_TABS.has(tab)) filterParts.push(`user_id_hash: ANY("${hashUserId(userId)}")`);
+
+  // Sprint 1.4 — semantic filters (date range / type / category).
+  // Gmail logs tidak punya kolom type/category → hanya rentang tanggal (email_date).
+  if (tab !== 'help') {
+    const dateField = tab === 'gmail' ? 'email_date' : 'transaction_date';
+    if (filters?.type && VALID_TRANSACTION_TYPES.has(filters.type) && tab !== 'gmail') {
+      filterParts.push(`type: ANY("${filters.type}")`);
+    }
+    if (filters?.category && tab !== 'gmail') {
+      const safeCategory = String(filters.category).replace(/["\\]/g, '').trim().slice(0, 80);
+      if (safeCategory) filterParts.push(`category: ANY("${safeCategory}")`);
+    }
+    if (filters?.dateFrom && DATE_ONLY_PATTERN.test(filters.dateFrom)) {
+      filterParts.push(`${dateField} >= "${filters.dateFrom}"`);
+    }
+    if (filters?.dateTo && DATE_ONLY_PATTERN.test(filters.dateTo)) {
+      filterParts.push(`${dateField} <= "${filters.dateTo}"`);
+    }
+  }
+  return filterParts.join(' AND ');
+}
+
+/**
+ * Sprint 1.4 — re-rank + explanation deterministik per hasil (stabil).
+ * Dedupe by id/title; hasil dengan token query yang cocok di judul/merchant/
+ * kategori/subjek naik ke atas (JS sort stabil → urutan asli Discovery dipertahankan
+ * untuk skor sama). Setiap hasil diberi `explanation[]` berbahasa Indonesia
+ * (mengapa hasil ini relevan) — gratis, deterministik, tanpa panggilan AI tambahan.
+ */
+export function rankAndExplainResults(results, query, tab, filters = {}) {
+  const seen = new Set();
+  const queryTokens = cleanText(query, 120).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  const ranked = [];
+
+  for (const result of results || []) {
+    const id = result.id || result.title || [result.merchant, result.subject, result.amount].join('|');
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const haystack = [result.title, result.merchant, result.category, result.subject, result.note, result.snippet]
+      .map((v) => String(v || '').toLowerCase())
+      .join(' ');
+    const matchedTokens = queryTokens.filter((t) => haystack.includes(t));
+
+    const explanation = [];
+    if (matchedTokens.length > 0) {
+      explanation.push(`kata kunci: ${matchedTokens.slice(0, 3).join(', ')}`);
+    }
+    if (filters?.type && result.type === filters.type) explanation.push(`tipe ${filters.type}`);
+    if (
+      filters?.category && result.category &&
+      String(result.category).toLowerCase() === String(filters.category).toLowerCase()
+    ) {
+      explanation.push('kategori cocok');
+    }
+    if (filters?.dateFrom || filters?.dateTo) {
+      const date = String(result.transaction_date || result.email_date || '').slice(0, 10);
+      if (date && (!filters.dateFrom || date >= filters.dateFrom) && (!filters.dateTo || date <= filters.dateTo)) {
+        explanation.push('dalam rentang tanggal');
+      }
+    }
+    if (result.user_id_hash) explanation.push('data milik kamu');
+
+    ranked.push({ ...result, relevance: matchedTokens.length, explanation: explanation.slice(0, 4) });
+  }
+
+  ranked.sort((a, b) => b.relevance - a.relevance);
+  return ranked;
+}
+
+/**
+ * Sprint 1.4 — suggested queries: pakai relatedQuestions dari Discovery Engine
+ * bila tersedia (≥2), fallback template deterministik per tab bila kosong.
+ * Selalu return maksimal 4 string bersih, tanpa duplikat dengan query asli.
+ */
+const TAB_SUGGESTION_TEMPLATES = {
+  help: (q) => [`Bagaimana cara ${q} di CashFlow?`, `Panduan lengkap ${q}`, `Cara mengaktifkan ${q}`, `Apa saja yang perlu diketahui tentang ${q}?`],
+  transactions: (q) => [`Transaksi ${q} bulan ini`, `Total pengeluaran ${q}`, `Kapan terakhir transaksi ${q}?`, `Transaksi ${q} lebih dari Rp100.000`],
+  insight: (q) => [`Kategori terbesar untuk ${q}`, `Tren ${q} 3 bulan terakhir`, `Rata-rata pengeluaran ${q} per bulan`, `Berapa total ${q} tahun ini?`],
+  gmail: (q) => [`Email gagal dari ${q}`, `Email ${q} yang perlu review`, `Status sync terakhir ${q}`, `Duplikat dari ${q}`],
+  receipts: (q) => [`Struk ${q} bulan ini`, `Bukti transaksi ${q}`, `Scan receipt ${q} terakhir`, `Total dari bukti ${q}`],
+};
+
+export function buildSuggestedQueries(query, tab, relatedQuestions = [], resultCount = 0) {
+  const safeTab = VALID_TABS.has(tab) ? tab : 'help';
+  const cleanQuery = cleanText(query, 120);
+  const engineQuestions = (Array.isArray(relatedQuestions) ? relatedQuestions : [])
+    .filter((q) => typeof q === 'string' && q.trim().length >= 3)
+    .map((q) => cleanText(q, 140))
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (engineQuestions.length >= 2) return engineQuestions;
+
+  const templates = (TAB_SUGGESTION_TEMPLATES[safeTab] || TAB_SUGGESTION_TEMPLATES.help)(cleanQuery);
+  const seen = new Set([cleanQuery.toLowerCase()]);
+  const fallback = [];
+  for (const suggestion of templates) {
+    const key = suggestion.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fallback.push(suggestion);
+    if (fallback.length === 4) break;
+  }
+  return fallback;
 }
 
 /**
@@ -617,7 +726,7 @@ async function discoveryRequest(pathSuffix, data) {
   return response.data;
 }
 
-export async function queryAgentSearch({ query, tab = 'help', userId }) {
+export async function queryAgentSearch({ query, tab = 'help', userId, filters = {} }) {
   const safeTab = assertValidTab(tab);
   assertUserForTab(safeTab, userId);
   const safeQuery = cleanText(query, 500);
@@ -626,7 +735,7 @@ export async function queryAgentSearch({ query, tab = 'help', userId }) {
     error.code = 'AGENT_SEARCH_INVALID_REQUEST';
     throw error;
   }
-  const filter = buildFilter(safeTab, userId);
+  const filter = buildFilter(safeTab, userId, filters);
   const payload = {
     query: safeQuery,
     pageSize: 10,
@@ -661,7 +770,9 @@ export async function queryAgentSearch({ query, tab = 'help', userId }) {
   const rawCount = data?.totalSize ?? (Array.isArray(data?.results) ? data.results.length : 0);
   const rawResults = (data?.results || []).map(extractDocumentPayload);
   const fieldPresentCount = rawResults.filter((r) => r.user_id_hash !== undefined && r.user_id_hash !== null && r.user_id_hash !== '').length;
-  const results = filterOwnedResults(rawResults, safeTab, userId, { serverFilterApplied });
+  const ownedResults = filterOwnedResults(rawResults, safeTab, userId, { serverFilterApplied });
+  // Sprint 1.4 — re-rank + explanation deterministik per hasil (di luar owner-filter).
+  const results = rankAndExplainResults(ownedResults, safeQuery, safeTab, filters);
 
   // Observability (no PII): pinpoint where results vanish.
   logger.info({
@@ -679,24 +790,27 @@ export async function queryAgentSearch({ query, tab = 'help', userId }) {
     ok: true,
     results,
     answer: null,
+    suggestedQueries: buildSuggestedQueries(safeQuery, safeTab, [], results.length),
     diagnostics: {
       tab: safeTab,
       resultCount: results.length,
       rawCount,
       fallbackUsed,
       userIdHashRetrievable: fieldPresentCount > 0,
+      filtersApplied: Object.keys(filters || {}).filter((k) => filters[k]).join(',') || null,
     },
   };
 }
 
-export async function answerAgentSearch({ query, tab = 'help', userId }) {
+export async function answerAgentSearch({ query, tab = 'help', userId, filters = {} }) {
   const safeTab = assertValidTab(tab);
   assertUserForTab(safeTab, userId);
-  const searchResponse = await queryAgentSearch({ query, tab: safeTab, userId });
+  const searchResponse = await queryAgentSearch({ query, tab: safeTab, userId, filters });
 
   let answer = null;
+  let relatedQuestions = [];
   try {
-    const filter = buildFilter(safeTab, userId);
+    const filter = buildFilter(safeTab, userId, filters);
     const data = await discoveryRequest(':answer', {
       query: { text: cleanText(query, 500) },
       relatedQuestionsSpec: { enable: true },
@@ -713,6 +827,15 @@ export async function answerAgentSearch({ query, tab = 'help', userId }) {
         },
       },
     });
+    // Sprint 1.4 — terkadang Discovery meletakkan relatedQuestions di level
+    // answer (relatedQuestions array of string) atau di top-level response.
+    const rawRelated = data?.relatedQuestions
+      || data?.answer?.relatedQuestions
+      || data?.relatedQuestionsSpec?.relatedQuestions
+      || [];
+    relatedQuestions = Array.isArray(rawRelated)
+      ? rawRelated.map((q) => (typeof q === 'string' ? q : q?.text || q?.question || '')).filter(Boolean)
+      : [];
     answer = {
       text: cleanText(data.answer?.answerText || data.answer?.answer || '', 3000),
       citations: data.answer?.citations || [],
@@ -730,6 +853,7 @@ export async function answerAgentSearch({ query, tab = 'help', userId }) {
   return {
     ...searchResponse,
     answer,
+    suggestedQueries: buildSuggestedQueries(cleanText(query, 500), safeTab, relatedQuestions, searchResponse.results.length),
   };
 }
 

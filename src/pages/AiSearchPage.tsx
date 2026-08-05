@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { DatabaseZap, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import { Clock3, DatabaseZap, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -16,11 +16,19 @@ import {
   answerAgentSearch,
   checkAgentSearchHealth,
   syncAgentSearch,
+  trackAgentSearchEvent,
   type AgentSearchAnswer,
+  type AgentSearchFilters,
   type AgentSearchHealth,
   type AgentSearchResult,
   type AiSearchTab,
 } from '../features/ai-search/services/agentSearchClient';
+import {
+  addRecentSearch,
+  clearRecentSearches,
+  readRecentSearches,
+  type RecentSearchEntry,
+} from '../lib/searchHistory';
 import { cn } from '../lib/utils';
 
 export default function AiSearchPage() {
@@ -36,11 +44,20 @@ export default function AiSearchPage() {
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [notSynced, setNotSynced] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<RecentSearchEntry[]>([]);
+  const [suggestedQueries, setSuggestedQueries] = useState<string[]>([]);
+  const [filters, setFilters] = useState<AgentSearchFilters>({});
+  const [showFilters, setShowFilters] = useState(false);
 
   const activeTabMeta = useMemo(
     () => AI_SEARCH_TABS.find((tab) => tab.id === activeTab) || AI_SEARCH_TABS[0],
     [activeTab],
   );
+
+  // Recent searches per-user (Sprint 1.4) — reload saat user/tab berubah.
+  useEffect(() => {
+    setRecentSearches(readRecentSearches(authUser?.uid));
+  }, [authUser?.uid]);
 
   useEffect(() => {
     checkAgentSearchHealth()
@@ -53,31 +70,41 @@ export default function AiSearchPage() {
       }));
   }, []);
 
-  const runSearch = async () => {
-    if (query.trim().length < 2) return;
-    setLoading(true);
-    setError(null);
-    setHasSearched(true);
-    try {
-      const response = await answerAgentSearch(query.trim(), activeTab);
-      setResults(response.results || []);
-      setAnswer(response.answer || null);
-      // Distinguish "not synced" (no raw docs at all) from "no match"
-      const isUserTab = activeTab !== 'help';
-      const rawCount = response.diagnostics?.rawCount ?? 0;
-      setNotSynced(isUserTab && (response.results?.length ?? 0) === 0 && rawCount === 0);
-    } catch (err) {
-      const typed = err as Error & { code?: string };
-      setResults([]);
-      setAnswer(null);
-      setError({
-        code: typed.code,
-        message: typed.message || 'AI Search gagal memproses request.',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const runSearch = useCallback(
+    async (queryOverride?: string, filtersOverride?: AgentSearchFilters, tabOverride?: AiSearchTab) => {
+      const safeTab = tabOverride ?? activeTab;
+      const safeQuery = (queryOverride ?? query).trim();
+      const safeFilters = filtersOverride ?? filters;
+      if (safeQuery.length < 2) return;
+      setLoading(true);
+      setError(null);
+      setHasSearched(true);
+      try {
+        const response = await answerAgentSearch(safeQuery, safeTab, safeFilters);
+        setResults(response.results || []);
+        setAnswer(response.answer || null);
+        setSuggestedQueries(response.suggestedQueries || []);
+        // Recent searches: simpan (dedupe otomatis), reload state.
+        setRecentSearches(addRecentSearch(authUser?.uid, safeQuery, safeTab) || readRecentSearches(authUser?.uid));
+        // Distinguish "not synced" (no raw docs at all) from "no match"
+        const isUserTab = safeTab !== 'help';
+        const rawCount = response.diagnostics?.rawCount ?? 0;
+        setNotSynced(isUserTab && (response.results?.length ?? 0) === 0 && rawCount === 0);
+      } catch (err) {
+        const typed = err as Error & { code?: string };
+        setResults([]);
+        setAnswer(null);
+        setSuggestedQueries([]);
+        setError({
+          code: typed.code,
+          message: typed.message || 'AI Search gagal memproses request.',
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [activeTab, authUser?.uid, filters, query],
+  );
 
   const runSync = async (scope: 'docs' | 'transactions' | 'gmail-logs' | 'receipts') => {
     setSyncing(scope);
@@ -136,6 +163,7 @@ export default function AiSearchPage() {
             setError(null);
             setResults([]);
             setAnswer(null);
+            setSuggestedQueries([]);
             setHasSearched(false);
             setNotSynced(false);
           }}
@@ -146,8 +174,36 @@ export default function AiSearchPage() {
           placeholder={activeTabMeta.placeholder}
           loading={loading}
           onChange={setQuery}
-          onSubmit={runSearch}
+          onSubmit={() => runSearch()}
         />
+
+        <SemanticFilters
+          visible={showFilters}
+          onToggle={() => setShowFilters((v) => !v)}
+          filters={filters}
+          onChange={setFilters}
+          onApply={() => runSearch()}
+          disabled={loading}
+        />
+
+        {!hasSearched && recentSearches.length > 0 && !loading && (
+          <RecentSearches
+            items={recentSearches}
+            onPick={(entry) => {
+              setQuery(entry.query);
+              setActiveTab(entry.tab as AiSearchTab);
+              // tabOverride memastikan query dijalankan di tab entri (bukan
+              // closure activeTab lama — fix race reviewer Sprint 1.4).
+              runSearch(entry.query, undefined, entry.tab as AiSearchTab);
+            }}
+            onClear={() => {
+              clearRecentSearches(authUser?.uid);
+              setRecentSearches([]);
+            }}
+          />
+        )}
+
+
 
         <Card className="bg-app-elevated/72">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -197,7 +253,17 @@ export default function AiSearchPage() {
           </div>
         )}
 
-        {!loading && <AiAnswerCard answer={answer} />}
+        {!loading && (
+          <AiAnswerCard
+            answer={answer}
+            suggestedQueries={hasSearched ? suggestedQueries : []}
+            onSuggestionPick={(suggestion) => {
+              setQuery(suggestion);
+              trackAgentSearchEvent('suggestion_used', suggestion, activeTab);
+              runSearch(suggestion);
+            }}
+          />
+        )}
 
         {!loading && !error && (
           <div className={cn('space-y-3', answer ? 'pt-1' : '')}>
@@ -209,7 +275,13 @@ export default function AiSearchPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.035 }}
                 >
-                  <AiSearchResultCard result={result} tab={activeTab} />
+                  <AiSearchResultCard
+                    result={result}
+                    tab={activeTab}
+                    onOpen={() => {
+                      trackAgentSearchEvent('click', query, activeTab, result.id);
+                    }}
+                  />
                 </motion.div>
               ))
             ) : (
@@ -234,6 +306,149 @@ function StatusPill({ label, active }: { label: string; active: boolean }) {
     >
       <span className={cn('h-2 w-2 rounded-full', active ? 'bg-mint-500' : 'bg-amber-500')} />
       {label}
+    </div>
+  );
+}
+
+function SemanticFilters({
+  visible,
+  onToggle,
+  filters,
+  onChange,
+  onApply,
+  disabled,
+}: {
+
+  visible: boolean;
+  onToggle: () => void;
+  filters: AgentSearchFilters;
+  onChange: (filters: AgentSearchFilters) => void;
+  onApply: () => void;
+  disabled: boolean;
+}) {
+  const [datePreset, setDatePreset] = useState<'all' | 'this-month' | 'last-3-months'>('all');
+
+  // Sinkronkan preset lokal dengan filter eksternal: jika dateFrom dihapus dari
+  // luar (mis. chip kategori di-clear → onChange menyebar), kembalikan ke 'all'.
+  useEffect(() => {
+    if (!filters.dateFrom && datePreset !== 'all') setDatePreset('all');
+  }, [filters.dateFrom, datePreset]);
+
+  const applyPreset = (preset: 'all' | 'this-month' | 'last-3-months') => {
+    setDatePreset(preset);
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1; // 1..12
+    if (preset === 'all') {
+      onChange({ ...filters, dateFrom: undefined, dateTo: undefined });
+      return;
+    }
+    if (preset === 'this-month') {
+      const dateFrom = `${y}-${String(m).padStart(2, '0')}-01`;
+      onChange({ ...filters, dateFrom, dateTo: undefined });
+      return;
+    }
+    // last-3-months: 3 bulan terakhir termasuk bulan berjalan
+    const cursor = new Date(y, m - 4, 1); // month 3 ke belakang (0-indexed)
+    const dateFrom = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-01`;
+    onChange({ ...filters, dateFrom, dateTo: undefined });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          'inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-colors',
+          visible || Object.values(filters).some(Boolean)
+            ? 'border-primary-300 bg-primary-50 text-primary-700 dark:border-primary-400/30 dark:bg-primary-500/10 dark:text-primary-200'
+            : 'border-app-border text-app-muted hover:bg-app-hover',
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        Filter
+      </button>
+
+      {visible && (
+        <>
+          <select
+            value={filters.type || ''}
+            onChange={(e) => onChange({ ...filters, type: (e.target.value || undefined) as AgentSearchFilters['type'] })}
+            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400"
+          >
+            <option value="">Semua tipe</option>
+            <option value="expense">Pengeluaran</option>
+            <option value="income">Pemasukan</option>
+            <option value="refund">Refund</option>
+            <option value="transfer">Transfer</option>
+          </select>
+
+          <select
+            value={datePreset}
+            onChange={(e) => applyPreset(e.target.value as 'all' | 'this-month' | 'last-3-months')}
+            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400"
+          >
+            <option value="all">Semua waktu</option>
+            <option value="this-month">Bulan ini</option>
+            <option value="last-3-months">3 bulan terakhir</option>
+          </select>
+
+          {filters.category && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-app-hover px-3 py-1.5 text-xs font-semibold text-app-text">
+              {filters.category}
+              <button
+                type="button"
+                onClick={() => onChange({ ...filters, category: undefined })}
+                className="text-app-subtle hover:text-red-500"
+                aria-label="Hapus filter kategori"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+
+          <Button size="sm" variant="outline" onClick={onApply} disabled={disabled}>
+            Terapkan
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RecentSearches({
+  items,
+  onPick,
+  onClear,
+}: {
+  items: RecentSearchEntry[];
+  onPick: (entry: RecentSearchEntry) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-app-subtle">
+        <Clock3 className="h-3.5 w-3.5" />
+        Pencarian terakhir
+      </span>
+      {items.map((entry, index) => (
+        <button
+          key={`${entry.query}-${index}`}
+          type="button"
+          onClick={() => onPick(entry)}
+          className="inline-flex h-8 max-w-[260px] items-center gap-1.5 truncate rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:hover:bg-primary-500/10 dark:hover:text-primary-200"
+        >
+          <span className="truncate">{entry.query}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onClear}
+        className="text-[11px] font-semibold text-app-subtle underline-offset-2 hover:text-red-500 hover:underline"
+      >
+        Bersihkan
+      </button>
     </div>
   );
 }

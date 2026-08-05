@@ -1,8 +1,16 @@
-import { BrainCircuit, FileText } from 'lucide-react';
+import { BrainCircuit, FileText, Lightbulb } from 'lucide-react';
 import Card from '../../../components/ui/Card';
 import type { AgentSearchAnswer } from '../services/agentSearchClient';
 
-export default function AiAnswerCard({ answer }: { answer: AgentSearchAnswer | null }) {
+export default function AiAnswerCard({
+  answer,
+  suggestedQueries = [],
+  onSuggestionPick,
+}: {
+  answer: AgentSearchAnswer | null;
+  suggestedQueries?: string[];
+  onSuggestionPick?: (suggestion: string) => void;
+}) {
   if (!answer?.text && !answer?.warning) return null;
 
   return (
@@ -29,6 +37,24 @@ export default function AiAnswerCard({ answer }: { answer: AgentSearchAnswer | n
               </span>
             )}
           </div>
+          {suggestedQueries.length > 0 && onSuggestionPick && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-app-border pt-4">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-app-subtle">
+                <Lightbulb className="h-3.5 w-3.5" />
+                Coba tanyakan
+              </span>
+              {suggestedQueries.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => onSuggestionPick(suggestion)}
+                  className="inline-flex h-8 max-w-[280px] items-center truncate rounded-full border border-mint-200 bg-white/60 px-3 text-xs font-semibold text-mint-700 transition-colors hover:border-mint-300 hover:bg-mint-50 dark:border-mint-400/20 dark:bg-mint-500/10 dark:text-mint-200 dark:hover:bg-mint-500/20"
+                >
+                  <span className="truncate">{suggestion}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </Card>
