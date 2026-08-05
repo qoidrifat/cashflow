@@ -155,10 +155,11 @@ test.describe('API contract — schema drift detection (e2e)', () => {
     );
   });
 
-  // Sprint 2 Cost Monitoring: ai-usage kini wajib memuat cacheByFeature[]
-  // (cache-hit per fitur) di samping summary + trend — drift di sini berarti
-  // dashboard Cost Monitoring kehilangan kolom data.
-  test('Admin AI usage contract (ok, summary, trend[], cacheByFeature[])', async ({ request }) => {
+  // Sprint 2 Cost Monitoring: ai-usage kini wajib memuat trendByFeature[]
+  // (cost trend per fitur — multi-seri) + cacheByFeature[] (cache-hit per fitur)
+  // di samping summary + trend — drift di sini berarti dashboard Cost Monitoring
+  // kehilangan data grafik/kolom.
+  test('Admin AI usage contract (ok, summary, trend[], trendByFeature[], cacheByFeature[])', async ({ request }) => {
     await checkContract(
       request,
       adminAiUsageContract,

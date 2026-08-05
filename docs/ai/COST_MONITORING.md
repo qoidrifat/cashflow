@@ -31,7 +31,7 @@ per juta token (gemini_flash input 0.075 / output 0.30 USD; `USD_TO_IDR` default
 ## Endpoint API (admin-only)
 
 ### `GET /api/admin/metrics/ai-usage?from&to&feature`
-Response (Sprint 2 — `cacheByFeature` ditambahkan, additive):
+Response (Sprint 2 — `cacheByFeature` + `trendByFeature` ditambahkan, additive):
 
 ```jsonc
 {
@@ -42,12 +42,19 @@ Response (Sprint 2 — `cacheByFeature` ditambahkan, additive):
       "calls": 0, "avgTimeMs": 0, "successRate": 1 } }
   },
   "trend": [{ "date": "2026-08-01", "costIdr": 0, "tokens": 0, "calls": 0 }],
+  "trendByFeature": [{ "date": "2026-08-01", "feature": "gmail_sync",
+    "costIdr": 0, "tokens": 0, "calls": 0 }],
   "cacheByFeature": [{ "feature": "gmail_sync", "hits": 10, "misses": 5, "hitRate": 0.667 }]
 }
 ```
 
+- `feature` query (whitelist `FEATURES`) memfilter `summary` **dan** `trend` —
+  dasar grafik Tren Biaya fitur tunggal.
 - `summary.features.*.avgTimeMs` — **latency rata-rata per fitur** (Sprint 2;
   sebelumnya hanya ada di agregat keseluruhan).
+- `trendByFeature` — cost trend **per fitur** (satu baris per hari+fitur, SQL
+  `GROUP BY day, feature`) untuk line chart multi-seri; frontend mem-pivot via
+  `src/utils/costTrendPivot.ts` (murni, di-unit-test).
 - `cacheByFeature` — cache-hit per fitur dari `system_metrics` (`hitRate` = 1.0
   bila belum ada aktivitas cache = sehat). Dikelompokkan via fungsi murni
   `aggregateCacheHitByFeature` (di-unit-test, tanpa DB).
@@ -65,7 +72,10 @@ Response (Sprint 2 — `cacheByFeature` ditambahkan, additive):
   `from`/`to` dinamis (tile Hari Ini tetap dari `/summary`).
 - **Tabel "Cost per Fitur"** — kolom: Fitur (calls · token) · **Latency** ·
   **Cache Hit** · Biaya · Sukses.
-- **Tren Biaya** — line chart harian (`/trend`), label mengikuti periode.
+- **Tren Biaya** — line chart harian dengan **filter fitur** (dropdown):
+  "Semua Fitur" = **line chart multi-seri** satu garis per fitur
+  (`/trendByFeature` → pivot `pivotTrendByFeature`); pilih satu fitur = garis
+  tunggal dari `/trend?feature=...` (backed `getCostTrend` + param `feature`).
 - **AI Response Cache** — hit rate global LRU (`/cache`).
 - `FEATURE_LABELS` mencakup 6 fitur: gmail_sync, agent_search, ocr_receipt,
   insight_generator, fraud_detection, financial_advisor.
@@ -74,8 +84,10 @@ Response (Sprint 2 — `cacheByFeature` ditambahkan, additive):
 
 - Unit test `tests/unit/cacheHitByFeature.test.ts` — agregasi murni (grouping,
   divide-by-zero, urutan, fallback `unknown`).
+- Unit test `tests/unit/costTrendPivot.test.ts` — pivot multi-seri (grouping,
+  penjumlahan, zero-fill hari kosong, urutan tanggal, `activeTrendFeatures`).
 - Contract test `adminAiUsageContract` (`e2e/contract/contract-check.spec.ts`) —
-  drift `cacheByFeature` / `summary` memblokir merge otomatis.
+  drift `trendByFeature` / `cacheByFeature` / `summary` memblokir merge otomatis.
 - Per-feature `avgTimeMs` bersifat **additive** — kontrak `/summary`
   (today/week/month) tidak berubah.
 
@@ -85,9 +97,9 @@ Response (Sprint 2 — `cacheByFeature` ditambahkan, additive):
 flowchart LR
   A[vertexContext.js] -->|recordAIUsage| B[(ai_usage_metrics)]
   A -->|recordSystemMetric ai_cache_hit/_miss| C[(system_metrics)]
-  B --> D[metricsService.getAIUsageSummary / getCostTrend]
+  B --> D[metricsService.getAIUsageSummary / getCostTrend / getCostTrendByFeature]
   C --> E[metricsService.getCacheHitByFeature]
   D --> F[GET /api/admin/metrics/ai-usage]
   E --> F
-  F --> G[MonitoringPage — Cost per Fitur + Tren]
+  F --> G[MonitoringPage — Cost per Fitur + Tren (filter fitur & multi-seri)]
 ```

@@ -26,6 +26,15 @@ export interface CostTrendPoint {
   calls: number;
 }
 
+/** Sprint 2 — cost trend per fitur (satu baris per hari+fitur) untuk multi-seri. */
+export interface CostTrendByFeaturePoint {
+  date: string;
+  feature: string;
+  costIdr: number;
+  tokens: number;
+  calls: number;
+}
+
 export interface PeriodSummary {
   costIdr: number;
   tokens: number;
@@ -71,6 +80,8 @@ export interface AiUsageResponse {
   ok: boolean;
   summary: AIUsageSummary;
   trend: CostTrendPoint[];
+  /** Cost trend per fitur (Sprint 2) — untuk line chart multi-seri. */
+  trendByFeature: CostTrendByFeaturePoint[];
   /** Cache-hit per fitur (Sprint 2) — dari ai_cache_hit/_miss di system_metrics. */
   cacheByFeature: CacheByFeature[];
 }

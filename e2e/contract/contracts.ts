@@ -185,17 +185,20 @@ export const adminAiUsageContract: Contract = {
     if (b.ok !== true) return false;
     if (!isObject(b.summary)) return false;
     if (!isArray(b.trend)) return false;
-    // Sprint 2 Cost Monitoring: cache-hit per fitur wajib ada (boleh kosong).
+    // Sprint 2 Cost Monitoring: cache-hit & cost-trend per fitur wajib ada (boleh kosong).
+    if (!isArray(b.trendByFeature)) return false;
     if (!isArray(b.cacheByFeature)) return false;
     const summary = b.summary as Record<string, unknown>;
     if (!isNumber(summary.costIdr) || !isNumber(summary.tokens) || !isNumber(summary.calls)) return false;
     if (!isNumber(summary.avgTimeMs)) return false;
+    const trendByFeature = b.trendByFeature as Record<string, unknown>[];
+    if (!trendByFeature.every((t) => isString(t.date) && isString(t.feature) && isNumber(t.costIdr))) return false;
     const cache = b.cacheByFeature as Record<string, unknown>[];
     return cache.every(
       (c) => isString(c.feature) && isNumber(c.hits) && isNumber(c.misses) && isNumber(c.hitRate),
     );
   },
-  describe: () => 'ok:true, summary{costIdr,tokens,calls,avgTimeMs}, trend[], cacheByFeature[]{feature,hits,misses,hitRate}',
+  describe: () => 'ok:true, summary{costIdr,tokens,calls,avgTimeMs}, trend[], trendByFeature[]{date,feature,costIdr}, cacheByFeature[]{feature,hits,misses,hitRate}',
 };
 
 export const adminCacheContract: Contract = {

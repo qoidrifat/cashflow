@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
 import {
   DollarSign, Cpu, Activity, Clock, AlertTriangle, CheckCircle2,
@@ -18,9 +18,10 @@ import {
   fetchAgentSearchEngagement,
 } from '../../services/adminMetrics';
 import type {
-  MetricsSummary, AIUsageSummary, CostTrendPoint, FeatureHealth, AlertStatus, AICacheStats,
-  AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
+  MetricsSummary, AIUsageSummary, CostTrendPoint, CostTrendByFeaturePoint,
+  FeatureHealth, AlertStatus, AICacheStats, AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
 } from '../../types/metrics';
+import { activeTrendFeatures, pivotTrendByFeature } from '../../utils/costTrendPivot';
 import { cn } from '../../lib/utils';
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -39,6 +40,9 @@ const PERIOD_OPTIONS = [
   { label: '90 Hari', days: 90 },
 ] as const;
 
+/** Palet warna seri per fitur (line chart multi-seri cost per fitur). */
+const FEATURE_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6'];
+
 function formatIdr(value: number): string {
   return 'Rp ' + Math.round(value).toLocaleString('id-ID');
 }
@@ -49,6 +53,46 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+/**
+ * Line chart multi-seri: cost per fitur per hari (Sprint 2). Mem-pivot baris
+ * per-(hari, fitur) menjadi satu baris per hari + satu seri per fitur, lalu
+ * menggambar satu Line per fitur dengan warna dari FEATURE_COLORS.
+ */
+function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[]): React.ReactNode {
+  if (!points || points.length === 0) {
+    return <EmptyMini message="Belum ada data biaya pada rentang ini." />;
+  }
+  const pivoted = pivotTrendByFeature(points);
+  const features = activeTrendFeatures(points);
+  return (
+    <div className="h-56">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={pivoted} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+          <Tooltip
+            formatter={(value, name) => [formatIdr(Number(value) || 0), String(name)]}
+            contentStyle={{ borderRadius: 12, fontSize: 12 }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {features.map((f, i) => (
+            <Line
+              key={f}
+              type="monotone"
+              dataKey={f}
+              stroke={FEATURE_COLORS[i % FEATURE_COLORS.length]}
+              strokeWidth={2}
+              dot={false}
+              name={FEATURE_LABELS[f] || f}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export default function MonitoringPage() {
   const { authUser } = useAuthStore();
   const navigate = useNavigate();
@@ -57,6 +101,9 @@ export default function MonitoringPage() {
   // Fitur". TERPISAH dari `summary` (/summary — bucket fixed today/week/month).
   const [usageSummary, setUsageSummary] = useState<AIUsageSummary | null>(null);
   const [trend, setTrend] = useState<CostTrendPoint[]>([]);
+  const [trendByFeature, setTrendByFeature] = useState<CostTrendByFeaturePoint[]>([]);
+  // Filter Tren Biaya: 'all' = multi-seri per fitur, selain itu = fitur tunggal.
+  const [trendFeature, setTrendFeature] = useState<string>('all');
   const [health, setHealth] = useState<FeatureHealth[]>([]);
   const [alerts, setAlerts] = useState<AlertStatus[]>([]);
   const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
@@ -65,6 +112,8 @@ export default function MonitoringPage() {
   const [periodDays, setPeriodDays] = useState<number>(7);
   // Lookup cache-hit per fitur (Sprint 2) untuk kolom "Cache Hit" di tabel cost.
   const cacheByFeatureMap = new Map(cacheByFeature.map((c) => [c.feature, c]));
+  // Nama fitur yang punya data pada periode aktif (opsi dropdown Tren Biaya).
+  const availableFeatures = Object.keys(usageSummary?.features || {});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
 
@@ -80,7 +129,7 @@ export default function MonitoringPage() {
       // tidak boleh menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
       const [summaryRes, usageRes, healthRes, alertsRes, cacheRes, engagementRes] = await Promise.all([
         fetchMetricsSummary(),
-        fetchAiUsage(from, to),
+        fetchAiUsage(from, to, trendFeature !== 'all' ? trendFeature : undefined),
         fetchFeatureHealth(from, to),
         fetchAlerts(),
         fetchAICacheStats().catch(() => null),
@@ -89,6 +138,7 @@ export default function MonitoringPage() {
       setSummary(summaryRes);
       setUsageSummary(usageRes.summary || null);
       setTrend(usageRes.trend || []);
+      setTrendByFeature(usageRes.trendByFeature || []);
       setCacheByFeature(usageRes.cacheByFeature || []);
       setHealth(healthRes.health || []);
       setAlerts(alertsRes.alerts || []);
@@ -100,11 +150,22 @@ export default function MonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, [periodDays]);
+  }, [periodDays, trendFeature]);
 
   useEffect(() => {
     if (authUser?.uid) void loadAll();
   }, [authUser?.uid, loadAll]);
+
+  // Fix UX (review): bila fitur yang dipilih hilang dari data periode baru (mis.
+  // tidak ada aktivitas di 90 hari), reset ke 'all' agar select tidak menampilkan
+  // value yang tidak ada di daftar opsi (chart kembali multi-seri).
+  useEffect(() => {
+    if (trendFeature !== 'all' && usageSummary && !availableFeatures.includes(trendFeature)) {
+      setTrendFeature('all');
+    }
+    // availableFeatures dihitung per render dari usageSummary — cukup dua dep ini.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usageSummary, trendFeature]);
 
   return (
     <div>
@@ -218,27 +279,45 @@ export default function MonitoringPage() {
               </Card>
             )}
 
-            {/* Cost trend chart */}
+            {/* Cost trend chart — Sprint 2: filter fitur + multi-seri per fitur */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-3">Tren Biaya ({periodDays} Hari)</h3>
-              {trend.length === 0 ? (
-                <EmptyMini message="Belum ada data biaya pada rentang ini." />
-              ) : (
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trend} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
-                      <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
-                      <Tooltip
-                        formatter={(value) => formatIdr(Number(value) || 0)}
-                        contentStyle={{ borderRadius: 12, fontSize: 12 }}
-                      />
-                      <Line type="monotone" dataKey="costIdr" stroke="#10b981" strokeWidth={2} dot={false} name="Biaya" />
-                    </LineChart>
-                  </ResponsiveContainer>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-sm font-bold text-app-text">Tren Biaya ({periodDays} Hari)</h3>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={trendFeature}
+                    onChange={(e) => setTrendFeature(e.target.value)}
+                    disabled={loading}
+                    aria-label="Filter fitur pada grafik tren biaya"
+                    className="rounded-xl bg-app-hover px-3 py-1.5 text-xs font-bold text-app-text transition hover:bg-app-border/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                  >
+                    <option value="all">Semua Fitur</option>
+                    {availableFeatures.map((f) => (
+                      <option key={f} value={f}>{FEATURE_LABELS[f] || f}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+              </div>
+              {trendFeature === 'all'
+                ? renderMultiSeriesTrend(trendByFeature)
+                : trend.length === 0
+                  ? <EmptyMini message="Belum ada data biaya pada rentang ini." />
+                  : (
+                    <div className="h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={trend} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+                          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
+                          <Tooltip
+                            formatter={(value) => formatIdr(Number(value) || 0)}
+                            contentStyle={{ borderRadius: 12, fontSize: 12 }}
+                          />
+                          <Line type="monotone" dataKey="costIdr" stroke="#10b981" strokeWidth={2} dot={false} name="Biaya" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
             </Card>
 
             {/* Per-feature cost breakdown (Sprint 2: + latency & cache hit per fitur) */}

@@ -330,14 +330,16 @@ export async function getCacheHitByFeature({ from, to } = {}) {
 
 /**
  * Daily cost trend over a date range (H-1: SQL GROUP BY hari — bukan agregat JS).
- * Output: [{ date, costIdr, tokens, calls }] diurutkan naik.
+ * Dukung filter `feature` (Sprint 2 — chart Tren Biaya per fitur): saat feature
+ * diisi, hanya baris fitur itu yang diagregasi. Output: [{ date, costIdr,
+ * tokens, calls }] diurutkan naik.
  */
-export async function getCostTrend({ from, to } = {}) {
+export async function getCostTrend({ from, to, feature = null } = {}) {
   const client = getMetricsClient();
   if (!client) return [];
 
   const clamped = clampRange({ from, to });
-  const { where, args } = buildUsageWhere({ from: clamped.from, to: clamped.to });
+  const { where, args } = buildUsageWhere({ from: clamped.from, to: clamped.to, feature });
   try {
     const { rows } = await client.execute({
       sql: `SELECT substr(created_at, 1, 10) AS day,
@@ -351,6 +353,44 @@ export async function getCostTrend({ from, to } = {}) {
     });
     return rows.map((r) => ({
       date: String(r.day),
+      costIdr: Math.round((Number(r.cost_idr) || 0) * 100) / 100,
+      tokens: Number(r.tokens) || 0,
+      calls: Number(r.calls) || 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Daily cost trend PER FITUR (Sprint 2 — line chart multi-seri): satu baris per
+ * (hari, fitur) sehingga frontend bisa mem-pivot jadi beberapa seri garis.
+ * SQL GROUP BY day, feature — tidak transfer baris mentah; aman karena window
+ * di-clamp (≤ 90 hari × ≤ 6 fitur = ≤ 540 baris). Opsional filter `feature`
+ * (dipakai route saat mode fitur tunggal — hindari fetch semua fitur). Output:
+ * [{ date, feature, costIdr, tokens, calls }] urut tanggal naik, fitur naik.
+ */
+export async function getCostTrendByFeature({ from, to, feature = null } = {}) {
+  const client = getMetricsClient();
+  if (!client) return [];
+
+  const clamped = clampRange({ from, to });
+  const { where, args } = buildUsageWhere({ from: clamped.from, to: clamped.to, feature });
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT substr(created_at, 1, 10) AS day,
+              feature,
+              COALESCE(SUM(estimated_cost_idr), 0) AS cost_idr,
+              COALESCE(SUM(total_tokens), 0) AS tokens,
+              COUNT(*) AS calls
+            FROM ai_usage_metrics${where}
+            GROUP BY day, feature
+            ORDER BY day ASC, feature ASC`,
+      args,
+    });
+    return rows.map((r) => ({
+      date: String(r.day),
+      feature: r.feature || 'unknown',
       costIdr: Math.round((Number(r.cost_idr) || 0) * 100) / 100,
       tokens: Number(r.tokens) || 0,
       calls: Number(r.calls) || 0,
@@ -741,6 +781,7 @@ export default {
   recordSystemMetric,
   getAIUsageSummary,
   getCostTrend,
+  getCostTrendByFeature,
   getCacheHitByFeature,
   aggregateCacheHitByFeature,
   getSystemMetrics,
