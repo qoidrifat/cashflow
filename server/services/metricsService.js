@@ -224,13 +224,17 @@ export async function getAIUsageSummary({ from, to, feature = null } = {}) {
     });
     const row = overall.rows[0] || {};
 
+    // Sprint 2 (Cost Monitoring): tambah AVG execution_time_ms per fitur
+    // (sebelumnya latency hanya ada di agregat keseluruhan). Additive — bentuk
+    // contract summary (today/week/month) tidak berubah.
     const byFeature = await client.execute({
       sql: `SELECT feature,
               COALESCE(SUM(estimated_cost_idr), 0) AS cost_idr,
               COALESCE(SUM(estimated_cost_usd), 0) AS cost_usd,
               COALESCE(SUM(total_tokens), 0) AS tokens,
               COUNT(*) AS calls,
-              COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success
+              COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success,
+              AVG(CASE WHEN execution_time_ms > 0 THEN execution_time_ms END) AS avg_ms
             FROM ai_usage_metrics${where}
             GROUP BY feature
             ORDER BY calls DESC`,
@@ -245,6 +249,7 @@ export async function getAIUsageSummary({ from, to, feature = null } = {}) {
         costUsd: Math.round((Number(r.cost_usd) || 0) * 1_000_000) / 1_000_000,
         tokens: Number(r.tokens) || 0,
         calls,
+        avgTimeMs: r.avg_ms == null ? 0 : Math.round(Number(r.avg_ms)),
         successRate: calls > 0 ? Math.round((Number(r.success) / calls) * 1000) / 1000 : 0,
       };
     }
@@ -265,6 +270,62 @@ export async function getAIUsageSummary({ from, to, feature = null } = {}) {
 
 function emptyUsageSummary() {
   return { costIdr: 0, costUsd: 0, tokens: 0, calls: 0, avgTimeMs: 0, features: {} };
+}
+
+/**
+ * Agregasi cache-hit per fitur dari dua kumpulan baris yang SUDAH di-GROUP BY
+ * feature (hits & misses). MURNI — tanpa DB, agar bisa di-unit-test (pola sama
+ * dengan computeHitRateFromCounts / aggregateAgentSearchEngagement).
+ *
+ * @param {Array<{feature?: string, total?: number}>} hitRows  baris ai_cache_hit
+ * @param {Array<{feature?: string, total?: number}>} missRows baris ai_cache_miss
+ * @returns {Array<{feature: string, hits: number, misses: number, hitRate: number}>} urut total aktivitas desc
+ */
+export function aggregateCacheHitByFeature(hitRows = [], missRows = []) {
+  const totals = new Map();
+  const bump = (rows, key) => {
+    for (const r of rows) {
+      const feature = r?.feature || 'unknown';
+      const cur = totals.get(feature) || { feature, hits: 0, misses: 0 };
+      cur[key] += Number(r?.total) || 0;
+      totals.set(feature, cur);
+    }
+  };
+  bump(hitRows, 'hits');
+  bump(missRows, 'misses');
+  return [...totals.values()]
+    .map((x) => ({ ...x, hitRate: computeHitRateFromCounts(x.hits, x.misses) }))
+    .sort((a, b) => b.hits + b.misses - (a.hits + a.misses));
+}
+
+/**
+ * Cache-hit per fitur dalam rentang (Sprint 2 Cost Monitoring). Dua query ringkas
+ * (GROUP BY feature atas system_metrics ai_cache_hit / ai_cache_miss — keduanya
+ * dicatat vertexContext.js DENGAN kolom feature terisi), lalu agregasi murni.
+ */
+export async function getCacheHitByFeature({ from, to } = {}) {
+  const client = getMetricsClient();
+  if (!client) return [];
+
+  const clamped = clampRange({ from, to });
+  const build = (metric) => {
+    const clauses = ['metric_name = ?', 'feature IS NOT NULL'];
+    const args = [metric];
+    if (clamped.from) { clauses.push('created_at >= ?'); args.push(toDbTime(clamped.from)); }
+    if (clamped.to) { clauses.push('created_at <= ?'); args.push(toDbTime(clamped.to)); }
+    return { sql: `SELECT feature, COALESCE(SUM(metric_value), 0) AS total
+                  FROM system_metrics WHERE ${clauses.join(' AND ')} GROUP BY feature`, args };
+  };
+
+  try {
+    const [hits, misses] = await Promise.all([
+      client.execute(build('ai_cache_hit')),
+      client.execute(build('ai_cache_miss')),
+    ]);
+    return aggregateCacheHitByFeature(hits.rows, misses.rows);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -680,6 +741,8 @@ export default {
   recordSystemMetric,
   getAIUsageSummary,
   getCostTrend,
+  getCacheHitByFeature,
+  aggregateCacheHitByFeature,
   getSystemMetrics,
   aggregateAgentSearchEngagement,
   getAgentSearchEngagement,

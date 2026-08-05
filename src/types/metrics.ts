@@ -5,6 +5,8 @@ export interface FeatureUsage {
   costUsd: number;
   tokens: number;
   calls: number;
+  /** Latensi rata-rata per panggilan (ms) — Sprint 2 Cost Monitoring. */
+  avgTimeMs: number;
   successRate: number;
 }
 
@@ -57,10 +59,20 @@ export interface AlertStatus {
   windowMinutes: number;
 }
 
+export interface CacheByFeature {
+  feature: string;
+  hits: number;
+  misses: number;
+  /** Rasio hit/(hit+miss) dalam 0..1 — 1.0 bila belum ada aktivitas cache. */
+  hitRate: number;
+}
+
 export interface AiUsageResponse {
   ok: boolean;
   summary: AIUsageSummary;
   trend: CostTrendPoint[];
+  /** Cache-hit per fitur (Sprint 2) — dari ai_cache_hit/_miss di system_metrics. */
+  cacheByFeature: CacheByFeature[];
 }
 
 export type FeatureCallStatus = 'all' | 'success' | 'failed';

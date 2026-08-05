@@ -177,6 +177,27 @@ export const agentSearchConfigContract: Contract = {
   describe: () => 'ok:true, config:object',
 };
 
+export const adminAiUsageContract: Contract = {
+  label: '/api/admin/metrics/ai-usage',
+  validate: (body) => {
+    if (!isObject(body)) return false;
+    const b = body as Record<string, unknown>;
+    if (b.ok !== true) return false;
+    if (!isObject(b.summary)) return false;
+    if (!isArray(b.trend)) return false;
+    // Sprint 2 Cost Monitoring: cache-hit per fitur wajib ada (boleh kosong).
+    if (!isArray(b.cacheByFeature)) return false;
+    const summary = b.summary as Record<string, unknown>;
+    if (!isNumber(summary.costIdr) || !isNumber(summary.tokens) || !isNumber(summary.calls)) return false;
+    if (!isNumber(summary.avgTimeMs)) return false;
+    const cache = b.cacheByFeature as Record<string, unknown>[];
+    return cache.every(
+      (c) => isString(c.feature) && isNumber(c.hits) && isNumber(c.misses) && isNumber(c.hitRate),
+    );
+  },
+  describe: () => 'ok:true, summary{costIdr,tokens,calls,avgTimeMs}, trend[], cacheByFeature[]{feature,hits,misses,hitRate}',
+};
+
 export const adminCacheContract: Contract = {
   label: '/api/admin/metrics/cache',
   validate: (body) => {

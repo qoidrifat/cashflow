@@ -18,8 +18,8 @@ import {
   fetchAgentSearchEngagement,
 } from '../../services/adminMetrics';
 import type {
-  MetricsSummary, CostTrendPoint, FeatureHealth, AlertStatus, AICacheStats,
-  AgentSearchEngagement, AgentSearchTabCount,
+  MetricsSummary, AIUsageSummary, CostTrendPoint, FeatureHealth, AlertStatus, AICacheStats,
+  AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
 } from '../../types/metrics';
 import { cn } from '../../lib/utils';
 
@@ -28,7 +28,16 @@ const FEATURE_LABELS: Record<string, string> = {
   agent_search: 'Agent Search',
   ocr_receipt: 'OCR Receipt',
   insight_generator: 'Insight Generator',
+  fraud_detection: 'Fraud Detection',
+  financial_advisor: 'Financial Advisor',
 };
+
+/** Sprint 2 — periode Cost Monitoring: mingguan / bulanan / kuartalan. */
+const PERIOD_OPTIONS = [
+  { label: '7 Hari', days: 7 },
+  { label: '30 Hari', days: 30 },
+  { label: '90 Hari', days: 90 },
+] as const;
 
 function formatIdr(value: number): string {
   return 'Rp ' + Math.round(value).toLocaleString('id-ID');
@@ -44,11 +53,18 @@ export default function MonitoringPage() {
   const { authUser } = useAuthStore();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
+  // Ringkasan period-driven (dari /ai-usage?from&to) — sumber tabel "Cost per
+  // Fitur". TERPISAH dari `summary` (/summary — bucket fixed today/week/month).
+  const [usageSummary, setUsageSummary] = useState<AIUsageSummary | null>(null);
   const [trend, setTrend] = useState<CostTrendPoint[]>([]);
   const [health, setHealth] = useState<FeatureHealth[]>([]);
   const [alerts, setAlerts] = useState<AlertStatus[]>([]);
   const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
+  const [cacheByFeature, setCacheByFeature] = useState<CacheByFeature[]>([]);
   const [engagement, setEngagement] = useState<AgentSearchEngagement | null>(null);
+  const [periodDays, setPeriodDays] = useState<number>(7);
+  // Lookup cache-hit per fitur (Sprint 2) untuk kolom "Cache Hit" di tabel cost.
+  const cacheByFeatureMap = new Map(cacheByFeature.map((c) => [c.feature, c]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
 
@@ -56,18 +72,24 @@ export default function MonitoringPage() {
     setLoading(true);
     setError(null);
     try {
+      // Sprint 2: rentang dinamis mengikuti periode terpilih (7/30/90 hari) —
+      // memuati ulang summary/trend/health/engagement sesuai periode.
+      const to = new Date().toISOString();
+      const from = new Date(Date.now() - periodDays * 86_400_000).toISOString();
       // Panel cache & engagement bersifat observability bonus — kegagalan endpoint-nya
       // tidak boleh menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
       const [summaryRes, usageRes, healthRes, alertsRes, cacheRes, engagementRes] = await Promise.all([
         fetchMetricsSummary(),
-        fetchAiUsage(),
-        fetchFeatureHealth(),
+        fetchAiUsage(from, to),
+        fetchFeatureHealth(from, to),
         fetchAlerts(),
         fetchAICacheStats().catch(() => null),
-        fetchAgentSearchEngagement().catch(() => null),
+        fetchAgentSearchEngagement(from, to).catch(() => null),
       ]);
       setSummary(summaryRes);
+      setUsageSummary(usageRes.summary || null);
       setTrend(usageRes.trend || []);
+      setCacheByFeature(usageRes.cacheByFeature || []);
       setHealth(healthRes.health || []);
       setAlerts(alertsRes.alerts || []);
       setCacheStats(cacheRes);
@@ -78,7 +100,7 @@ export default function MonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodDays]);
 
   useEffect(() => {
     if (authUser?.uid) void loadAll();
@@ -93,9 +115,29 @@ export default function MonitoringPage() {
             <h1 className="text-2xl font-black text-app-text">AI Cost & Health</h1>
             <p className="text-sm text-app-muted mt-1">Observability biaya AI dan kesehatan fitur CashFlow.</p>
           </div>
-          <Button variant="outline" size="sm" icon={<RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />} onClick={loadAll} disabled={loading}>
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-xl bg-app-hover p-1">
+              {PERIOD_OPTIONS.map((p) => (
+                <button
+                  key={p.days}
+                  type="button"
+                  onClick={() => setPeriodDays(p.days)}
+                  disabled={loading}
+                  className={cn(
+                    'rounded-lg px-3 py-1.5 text-xs font-bold transition',
+                    periodDays === p.days
+                      ? 'bg-white text-app-text shadow-sm dark:bg-slate-800'
+                      : 'text-app-subtle hover:text-app-text',
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" icon={<RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />} onClick={loadAll} disabled={loading}>
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Error state */}
@@ -178,7 +220,7 @@ export default function MonitoringPage() {
 
             {/* Cost trend chart */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-3">Tren Biaya (7 Hari)</h3>
+              <h3 className="text-sm font-bold text-app-text mb-3">Tren Biaya ({periodDays} Hari)</h3>
               {trend.length === 0 ? (
                 <EmptyMini message="Belum ada data biaya pada rentang ini." />
               ) : (
@@ -199,25 +241,45 @@ export default function MonitoringPage() {
               )}
             </Card>
 
-            {/* Per-feature cost breakdown */}
+            {/* Per-feature cost breakdown (Sprint 2: + latency & cache hit per fitur) */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-3">Biaya per Fitur (7 Hari)</h3>
-              {Object.keys(summary.features).length === 0 ? (
+              <h3 className="text-sm font-bold text-app-text mb-1">Cost per Fitur ({periodDays} Hari)</h3>
+              <p className="text-[11px] text-app-subtle mb-3">Token · request · latency · cache hit · biaya per fitur (dari ai_usage_metrics + system_metrics).</p>
+              {!usageSummary || Object.keys(usageSummary.features).length === 0 ? (
                 <EmptyMini message="Belum ada penggunaan AI pada rentang ini." />
               ) : (
                 <div className="space-y-2">
-                  {Object.entries(summary.features).map(([feature, usage]) => (
-                    <div key={feature} className="flex items-center justify-between py-2 border-t border-app-border first:border-t-0">
-                      <div>
-                        <p className="text-sm font-medium text-app-text">{FEATURE_LABELS[feature] || feature}</p>
-                        <p className="text-xs text-app-subtle">{usage.calls} calls · {formatTokens(usage.tokens)} token</p>
+                  {Object.entries(usageSummary.features).map(([feature, usage]) => {
+                    const cache = cacheByFeatureMap.get(feature);
+                    const hasCacheData = !!cache && cache.hits + cache.misses > 0;
+                    return (
+                      <div
+                        key={feature}
+                        className="grid grid-cols-2 gap-2 py-2.5 border-t border-app-border first:border-t-0 sm:grid-cols-[1.5fr_1fr_1fr_1fr_1fr] sm:items-center"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-app-text">{FEATURE_LABELS[feature] || feature}</p>
+                          <p className="text-xs text-app-subtle">{usage.calls} calls · {formatTokens(usage.tokens)} token</p>
+                        </div>
+                        <div className="text-right sm:text-center">
+                          <p className="text-sm font-bold text-app-text">{usage.avgTimeMs}ms</p>
+                          <p className="text-[10px] text-app-subtle font-medium">Latency</p>
+                        </div>
+                        <div className="text-right sm:text-center">
+                          <p className="text-sm font-bold text-app-text">{hasCacheData ? `${Math.round(cache.hitRate * 100)}%` : '—'}</p>
+                          <p className="text-[10px] text-app-subtle font-medium">Cache Hit</p>
+                        </div>
+                        <div className="text-right sm:text-center">
+                          <p className="text-sm font-bold text-app-text">{formatIdr(usage.costIdr)}</p>
+                          <p className="text-[10px] text-app-subtle font-medium">Biaya</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-app-text">{Math.round(usage.successRate * 100)}%</p>
+                          <p className="text-[10px] text-app-subtle font-medium">Sukses</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-app-text">{formatIdr(usage.costIdr)}</p>
-                        <p className="text-xs text-app-subtle">{Math.round(usage.successRate * 100)}% sukses</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card>
@@ -226,7 +288,7 @@ export default function MonitoringPage() {
             <Card>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-app-text">AI Search Engagement</h3>
-                <span className="text-[11px] text-app-subtle font-medium">7 hari · klik hasil & suggestion</span>
+                <span className="text-[11px] text-app-subtle font-medium">{periodDays} hari · klik hasil & suggestion</span>
               </div>
               {!engagement || (engagement.searches === 0 && engagement.clicks === 0 && engagement.suggestionsUsed === 0) ? (
                 <EmptyMini message="Belum ada data engagement AI Search pada rentang ini." />

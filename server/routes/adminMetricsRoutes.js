@@ -94,14 +94,20 @@ function parseDateRange(req, defaultDays = 7) {
 
 export function registerAdminMetricsRoutes(app) {
   // GET /api/admin/metrics/ai-usage?from&to&feature
+  // Sprint 2 (Cost Monitoring): response kini juga memuat `cacheByFeature` —
+  // cache-hit per fitur (dari system_metrics ai_cache_hit/_miss yang dicatat
+  // vertexContext.js DENGAN kolom feature). Additive terhadap summary/trend.
   app.get('/api/admin/metrics/ai-usage', async (req, res) => {
     try {
       await resolveAdmin(req);
       const { from, to } = parseDateRange(req);
       const feature = req.query.feature && FEATURES.includes(req.query.feature) ? req.query.feature : null;
-      const summary = await metricsService.getAIUsageSummary({ from, to, feature });
-      const trend = await metricsService.getCostTrend({ from, to });
-      return res.json({ ok: true, summary, trend });
+      const [summary, trend, cacheByFeature] = await Promise.all([
+        metricsService.getAIUsageSummary({ from, to, feature }),
+        metricsService.getCostTrend({ from, to }),
+        metricsService.getCacheHitByFeature({ from, to }),
+      ]);
+      return res.json({ ok: true, summary, trend, cacheByFeature });
     } catch (error) {
       return sendAdminError(res, error);
     }

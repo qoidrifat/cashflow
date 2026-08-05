@@ -26,7 +26,7 @@
  */
 import { test, expect, type APIRequestContext, type APIResponse } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, type MintedSession } from '../helpers/mintSession';
-import { bodyOf, type Contract, gmailLogsContract, transactionsPaginatedContract, transactionsListContract, budgetsContract, categoriesContract, notificationsContract, adminSummaryContract, agentSearchConfigContract, adminCacheContract } from './contracts';
+import { bodyOf, type Contract, gmailLogsContract, transactionsPaginatedContract, transactionsListContract, budgetsContract, categoriesContract, notificationsContract, adminSummaryContract, agentSearchConfigContract, adminCacheContract, adminAiUsageContract } from './contracts';
 
 /** GET dengan cookie eksplisit (fixture request = context terpisah). */
 async function getWithCookie(
@@ -151,6 +151,18 @@ test.describe('API contract — schema drift detection (e2e)', () => {
       request,
       adminCacheContract,
       '/api/admin/metrics/cache',
+      session.cookie,
+    );
+  });
+
+  // Sprint 2 Cost Monitoring: ai-usage kini wajib memuat cacheByFeature[]
+  // (cache-hit per fitur) di samping summary + trend — drift di sini berarti
+  // dashboard Cost Monitoring kehilangan kolom data.
+  test('Admin AI usage contract (ok, summary, trend[], cacheByFeature[])', async ({ request }) => {
+    await checkContract(
+      request,
+      adminAiUsageContract,
+      '/api/admin/metrics/ai-usage',
       session.cookie,
     );
   });
