@@ -28,6 +28,9 @@ export const ALERT_DEFAULTS = [
   { name: 'gmail_sync_failures', metric_name: 'gmail_sync_failed', condition: 'gt', threshold: 10, window_minutes: 10 },
   { name: 'agent_search_error_rate', metric_name: 'agent_search_error_rate', condition: 'gt', threshold: 0.10, window_minutes: 60 },
   { name: 'ocr_failure_rate', metric_name: 'ocr_failure_rate', condition: 'gt', threshold: 0.20, window_minutes: 60 },
+  // Sprint 2: biaya estimasi AI 30 hari > Rp 100k (window 43200 menit = 30 hari).
+  // Threshold 100k IDR default — sesuaikan di DB alert_rules bila perlu.
+  { name: 'ai_cost_monthly', metric_name: 'ai_cost_monthly', condition: 'gt', threshold: 100000, window_minutes: 43200 },
 ];
 
 /**

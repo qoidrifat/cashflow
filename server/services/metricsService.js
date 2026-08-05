@@ -653,7 +653,10 @@ async function computeAlerts() {
     let currentValue = 0;
 
     try {
-      if (rule.metric_name === 'estimated_cost_idr') {
+      // `ai_cost_monthly` (Sprint 2): biaya estimasi AI 30 hari. Hitungannya IDENTIK
+      // dengan estimated_cost_idr (SUM dalam window rule = 43200 menit), hanya nama
+      // metric berbeda — jadi satu branch bersama, bukan query terpisah.
+      if (rule.metric_name === 'estimated_cost_idr' || rule.metric_name === 'ai_cost_monthly') {
         const { rows } = await client.execute({
           sql: `SELECT estimated_cost_idr FROM ai_usage_metrics WHERE created_at >= ?`,
           args: [windowStart],
@@ -768,7 +771,14 @@ async function computeRate(client, metricName, windowStart) {
   }
 }
 
-function evaluateCondition(value, condition, threshold) {
+/**
+ * Evaluasi kondisi alert MURNI (di-export agar bisa di-unit-test):
+ * - 'gt' → value > threshold
+ * - 'lt' → value < threshold
+ * - 'eq' → value === threshold
+ * - condition tak dikenal / falsy → false (fail-safe: jangan trigger).
+ */
+export function evaluateCondition(value, condition, threshold) {
   if (condition === 'gt') return value > threshold;
   if (condition === 'lt') return value < threshold;
   if (condition === 'eq') return value === threshold;
@@ -793,4 +803,5 @@ export default {
   checkAlerts,
   runAlertEvaluation,
   computeHitRateFromCounts,
+  evaluateCondition,
 };

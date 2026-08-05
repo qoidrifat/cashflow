@@ -389,7 +389,11 @@ VALUES
   -- pemrosesan berulang (gmail sync / OCR berulang), bukan saat cold-cache.
   ('alert_cache_hit_rate', 'cache_hit_rate', 'cache_hit_rate', 'lt', 0.5, 60),
   -- Fraud Detection (Sprint 1): lonjakan flag mencurigakan > 10 dalam 60 menit.
-  ('alert_fraud_flags', 'fraud_flags', 'fraud_flag_count', 'gt', 10, 60);
+  ('alert_fraud_flags', 'fraud_flags', 'fraud_flag_count', 'gt', 10, 60),
+  -- Biaya AI bulanan (Sprint 2): estimasi biaya 30 hari > Rp 100k (window 43200 menit).
+  -- Dihitung sebagai SUM(estimated_cost_idr) dalam window rule (branch computeAlerts
+  -- ai_cost_monthly — identik dengan estimated_cost_idr, hanya metric_name berbeda).
+  ('alert_ai_cost_monthly', 'ai_cost_monthly', 'ai_cost_monthly', 'gt', 100000, 43200);
 
 -- =============================================
 -- INDEXES
