@@ -40,7 +40,10 @@ import { formatCurrency, formatDate, cn } from '../../lib/utils';
 
 export default function TransactionsPage() {
   const { authUser } = useAuthStore();
-  const { addToast, addNotification } = useAppStore();
+  // Selector per-action (Sprint 1.8 debt) — reference stabil, tidak re-render
+  // saat state lain (toasts/notifications/theme) berubah.
+  const addToast = useAppStore((s) => s.addToast);
+  const addNotification = useAppStore((s) => s.addNotification);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);

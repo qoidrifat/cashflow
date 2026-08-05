@@ -69,7 +69,10 @@ const quickActions: Array<{
 
 export default function DashboardPage() {
   const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  // Selector per-action (Sprint 1.8 debt) — action reference stabil, jadi
+  // komponen tidak lagi re-render saat state lain (toasts/notifications/theme)
+  // berubah. Sebelumnya `useAppStore()` tanpa selector = subscribe seluruh store.
+  const addToast = useAppStore((s) => s.addToast);
   const navigate = useNavigate();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
