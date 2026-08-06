@@ -39,12 +39,12 @@
  *   3. node index.js
  */
 
-import path from 'node:path';
-import dotenv from 'dotenv';
-dotenv.config({ path: path.resolve(process.cwd(), 'server', '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-dotenv.config();
+// IMPORT PERTAMA WAJIB: env loader (ESM mengevaluasi imports depth-first sesuai
+// urutan — module ini harus selesai SEBELUM module lain membaca process.env di
+// module scope). Lihat server/lib/env.js untuk root cause & penjelasan.
+import './lib/env.js';
 
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -85,38 +85,10 @@ import {
 // Pastikan Turso client & schema terinisialisasi
 getTurso();
 
-// ===================== Path / Env Loader =====================
+// ===================== Path helpers =====================
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
-
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) {
-      continue;
-    }
-
-    const separatorIndex = trimmed.indexOf('=');
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const value = trimmed
-      .slice(separatorIndex + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '');
-
-    if (key && process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadEnvFile(path.resolve(__dirname, '.env'));
-loadEnvFile(path.resolve(__dirname, '..', '.env.local'));
 
 // ===================== Configuration =====================
 
