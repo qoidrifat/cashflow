@@ -58,7 +58,7 @@ function isFailed(status: string): boolean {
 export default function FeatureDetailPage() {
   const { feature = '' } = useParams<{ feature: string }>();
   const navigate = useNavigate();
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
 
   const [data, setData] = useState<FeatureCallsResponse | null>(null);
   const [status, setStatus] = useState<FeatureCallStatus>('all');

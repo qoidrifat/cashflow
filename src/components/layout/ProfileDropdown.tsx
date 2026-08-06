@@ -14,12 +14,13 @@
  * - Touch target minimal 44px
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, ChevronDown, type LucideIcon, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '../../lib/utils';
 import { profileMenuNav } from '../../config/navigation';
 import SuccessFeedbackOverlay from '../ui/SuccessFeedbackOverlay';
@@ -40,9 +41,11 @@ const menuItems: DropdownItem[] = profileMenuNav.map((item) => ({
 
 const LOGOUT_SUCCESS_FEEDBACK_DURATION_MS = 5000;
 
-export default function ProfileDropdown() {
-  const { authUser, logout, setLogoutAnimationActive } = useAuthStore();
-  const { addToast } = useAppStore();
+function ProfileDropdown() {
+  const { authUser, logout, setLogoutAnimationActive } = useAuthStore(
+    useShallow((s) => ({ authUser: s.authUser, logout: s.logout, setLogoutAnimationActive: s.setLogoutAnimationActive })),
+  );
+  const addToast = useAppStore((s) => s.addToast);
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -273,3 +276,5 @@ export default function ProfileDropdown() {
     </>
   );
 }
+
+export default memo(ProfileDropdown);

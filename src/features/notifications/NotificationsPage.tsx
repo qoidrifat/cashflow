@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { AppNotification, NotificationType } from './types';
 import { fetchNotifications } from './services/notificationService';
 import NotificationEmptyState from './components/NotificationEmptyState';
@@ -16,13 +17,20 @@ const PAGE_SIZE = 20;
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const {
     addToast,
     markAllNotificationsRead,
     markNotificationRead,
     removeNotification,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      addToast: s.addToast,
+      markAllNotificationsRead: s.markAllNotificationsRead,
+      markNotificationRead: s.markNotificationRead,
+      removeNotification: s.removeNotification,
+    })),
+  );
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [activeType, setActiveType] = useState<NotificationType | 'all'>('all');

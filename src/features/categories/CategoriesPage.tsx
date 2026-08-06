@@ -18,8 +18,8 @@ const colorOptions = ['#10b981', '#8b5cf6', '#3b82f6', '#ec4899', '#f59e0b', '#e
 const iconOptions = ['Wallet', 'UtensilsCrossed', 'Car', 'ShoppingBag', 'Receipt', 'Gamepad2', 'BookOpen', 'HeartPulse', 'Briefcase', 'Gift'];
 
 export default function CategoriesPage() {
-  const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const addToast = useAppStore((s) => s.addToast);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<'expense' | 'income'>('expense');

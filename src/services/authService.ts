@@ -17,21 +17,41 @@ try {
   /* sessionStorage unavailable (e.g. privacy mode) — nothing to purge */
 }
 
+// Cached user reference — prevents creating a new object every 10s poll
+// when user data hasn't changed, which would cause Zustand to trigger
+// unnecessary re-renders across the entire component tree.
+let _cachedUser: AppUser | null = null;
+
 export async function getCurrentUser(): Promise<AppUser | null> {
   try {
     const session = await authClient.getSession();
     if (session?.data?.user) {
       const user = session.data.user;
-      return {
+      const candidate: AppUser = {
         uid: user.id,
         id: user.id,
         email: user.email ?? null,
         displayName: (user as any).displayName || user.name || user.email || 'User',
         photoURL: (user as any).photoUrl || (user as any).avatarUrl || user.image || null,
       };
+      // Return cached reference if data hasn't changed — prevents Zustand
+      // from treating every poll as a new state (Object.is comparison).
+      if (
+        _cachedUser
+        && _cachedUser.uid === candidate.uid
+        && _cachedUser.email === candidate.email
+        && _cachedUser.displayName === candidate.displayName
+        && _cachedUser.photoURL === candidate.photoURL
+      ) {
+        return _cachedUser;
+      }
+      _cachedUser = candidate;
+      return candidate;
     }
+    _cachedUser = null;
     return null;
   } catch {
+    _cachedUser = null;
     return null;
   }
 }

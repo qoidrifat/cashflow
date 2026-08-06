@@ -10,13 +10,14 @@ import Modal from '../../components/ui/Modal';
 import SuccessFeedbackOverlay from '../../components/ui/SuccessFeedbackOverlay';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import { downloadTransactionsCSV, getAllTransactions } from '../../services/transactionService';
 import { resetUserData } from '../../services/resetService';
 import { cn } from '../../lib/utils';
 import type { ThemeMode } from '../../types';
 
 export default function SettingsPage() {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const {
     theme,
     setTheme,
@@ -27,7 +28,19 @@ export default function SettingsPage() {
     defaultCurrency,
     setDefaultCurrency,
     addToast,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      theme: s.theme,
+      setTheme: s.setTheme,
+      gmailSyncEnabled: s.gmailSyncEnabled,
+      setGmailSyncEnabled: s.setGmailSyncEnabled,
+      gmailAutoConfirm: s.gmailAutoConfirm,
+      setGmailAutoConfirm: s.setGmailAutoConfirm,
+      defaultCurrency: s.defaultCurrency,
+      setDefaultCurrency: s.setDefaultCurrency,
+      addToast: s.addToast,
+    })),
+  );
   const [exporting, setExporting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingData, setDeletingData] = useState(false);

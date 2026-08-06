@@ -28,8 +28,8 @@ import {
 } from '../../lib/utils';
 
 export default function BudgetsPage() {
-  const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const addToast = useAppStore((s) => s.addToast);
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);

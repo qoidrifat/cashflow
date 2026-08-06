@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, TrendingUp, TrendingDown } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { addTransaction, DuplicateTransactionError } from '../../services/transactionService';
 import { listenToCategories } from '../../services/categoryService';
 import CategoryIcon from '../../components/ui/CategoryIcon';
@@ -17,8 +18,10 @@ interface QuickAddSheetProps {
 }
 
 export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAddSheetProps) {
-  const { authUser } = useAuthStore();
-  const { addToast, addNotification } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const { addToast, addNotification } = useAppStore(
+    useShallow((s) => ({ addToast: s.addToast, addNotification: s.addNotification })),
+  );
   const amountInputRef = useRef<HTMLInputElement>(null);
 
   const [categories, setCategories] = useState<Category[]>([]);

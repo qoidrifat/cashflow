@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellOff, WifiOff } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '../../../lib/utils';
 import { useNotifications } from '../hooks/useNotifications';
 import NotificationDropdown from './NotificationDropdown';
 
-export default function NotificationBell() {
+function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -103,3 +103,5 @@ export default function NotificationBell() {
     </div>
   );
 }
+
+export default memo(NotificationBell);

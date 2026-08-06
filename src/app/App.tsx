@@ -12,18 +12,20 @@ import SessionExpiredDialog from '../components/SessionExpiredDialog';
 
 export default function App() {
   const init = useAuthStore((state) => state.init);
-  const { authUser } = useAuthStore();
-  const {
-    prependNotification,
-    removeNotificationLocal,
-    setAuthReady,
-    setAuthError,
-    setNotificationLoading,
-    setNotifications,
-    setRealtimeConnected,
-    updateNotification,
-    theme,
-  } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  // Individual selectors: App only re-renders when the selected value changes.
+  // Previously, destructuring from useAppStore() without a selector subscribed
+  // to the ENTIRE store — any state change (notification, toast, sidebar)
+  // would re-render App and cascade to all children.
+  const prependNotification = useAppStore((s) => s.prependNotification);
+  const removeNotificationLocal = useAppStore((s) => s.removeNotificationLocal);
+  const setAuthReady = useAppStore((s) => s.setAuthReady);
+  const setAuthError = useAppStore((s) => s.setAuthError);
+  const setNotificationLoading = useAppStore((s) => s.setNotificationLoading);
+  const setNotifications = useAppStore((s) => s.setNotifications);
+  const setRealtimeConnected = useAppStore((s) => s.setRealtimeConnected);
+  const updateNotification = useAppStore((s) => s.updateNotification);
+  const theme = useAppStore((s) => s.theme);
 
   // Initialize app and auth
   useEffect(() => {
@@ -71,7 +73,10 @@ export default function App() {
 
   useEffect(() => {
     if (!authUser?.uid) {
-      setNotifications([]);
+      // Avoid creating new array reference when notifications is already empty
+      if (useAppStore.getState().notifications.length > 0) {
+        setNotifications([]);
+      }
       setRealtimeConnected(false);
       return undefined;
     }

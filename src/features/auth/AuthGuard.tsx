@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Loader2 } from 'lucide-react';
 
 interface AuthGuardProps {
@@ -7,7 +8,9 @@ interface AuthGuardProps {
 }
 
 export default function AuthGuard({ children }: AuthGuardProps) {
-  const { isAuthenticated, isLoading, logoutAnimationActive } = useAuthStore();
+  const { isAuthenticated, isLoading, logoutAnimationActive } = useAuthStore(
+    useShallow((s) => ({ isAuthenticated: s.isAuthenticated, isLoading: s.isLoading, logoutAnimationActive: s.logoutAnimationActive })),
+  );
   const location = useLocation();
 
   if (isLoading) {

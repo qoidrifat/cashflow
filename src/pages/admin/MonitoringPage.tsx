@@ -124,7 +124,7 @@ function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[], metric: Trend
 }
 
 export default function MonitoringPage() {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const navigate = useNavigate();
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
   // Ringkasan period-driven (dari /ai-usage?from&to) — sumber tabel "Cost per

@@ -40,11 +40,27 @@ export const useAuthStore = create<AuthState>((set) => ({
   init: () => {
     // Subscribe to auth state changes
     const unsubscribe = onAuthStateChanged((user) => {
-      set({
-        authUser: user,
-        isAuthenticated: !!user,
-        isLoading: false,
-        error: null,
+      // Minimal fix (root cause /admin/monitoring auto-refresh): polling auth
+      // 10 detik memanggil set() dengan nilai IDENTIK tiap tick → objek state
+      // baru dibuat → subscriber tanpa selector (App, Header, Sidebar,
+      // MonitoringPage, …) me-render ulang seluruh tree setiap 10 detik.
+      // Mengembalikan referensi state yang sama membuat Zustand melewatkan
+      // notifikasi (Object.is) → nol re-render untuk data yang tidak berubah.
+      set((state) => {
+        if (
+          state.authUser === user
+          && state.isAuthenticated === !!user
+          && !state.isLoading
+          && state.error === null
+        ) {
+          return state;
+        }
+        return {
+          authUser: user,
+          isAuthenticated: !!user,
+          isLoading: false,
+          error: null,
+        };
       });
     });
 

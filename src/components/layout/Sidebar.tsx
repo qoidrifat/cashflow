@@ -17,6 +17,7 @@ import {
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import { APP_NAME } from '../../config/constants';
 
 const navLinks = [
@@ -34,8 +35,10 @@ const navLinks = [
 ];
 
 export default function Sidebar() {
-  const { sidebarOpen, setSidebarOpen } = useAppStore();
-  const { authUser } = useAuthStore();
+  const { sidebarOpen, setSidebarOpen } = useAppStore(
+    useShallow((s) => ({ sidebarOpen: s.sidebarOpen, setSidebarOpen: s.setSidebarOpen })),
+  );
+  const authUser = useAuthStore((s) => s.authUser);
 
   return (
     <AnimatePresence mode="wait">

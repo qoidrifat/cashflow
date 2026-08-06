@@ -23,7 +23,7 @@ function ScrollToTopOnRouteChange() {
 }
 
 export default function AppLayout() {
-  const { sidebarOpen } = useAppStore();
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const location = useLocation();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 

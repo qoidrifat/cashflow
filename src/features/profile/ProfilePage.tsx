@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -26,8 +27,10 @@ interface FinancialSummary {
 }
 
 export default function ProfilePage() {
-  const { authUser, logout, setLogoutAnimationActive } = useAuthStore();
-  const { addToast } = useAppStore();
+  const { authUser, logout, setLogoutAnimationActive } = useAuthStore(
+    useShallow((s) => ({ authUser: s.authUser, logout: s.logout, setLogoutAnimationActive: s.setLogoutAnimationActive })),
+  );
+  const addToast = useAppStore((s) => s.addToast);
   const navigate = useNavigate();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);

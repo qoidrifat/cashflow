@@ -44,7 +44,7 @@ import CategoryIcon from '../../components/ui/CategoryIcon';
 type Period = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 export default function ReportsPage() {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiReport, setAiReport] = useState<MonthlyFinancialReport | null>(null);

@@ -130,7 +130,7 @@ const NODE_ENV = cleanEnv(process.env.NODE_ENV || 'development');
 
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : ['http://localhost:5180', 'http://127.0.0.1:5180'];
+  : ['http://localhost:5180', 'http://127.0.0.1:5180', 'http://localhost:4173', 'http://127.0.0.1:4173'];
 
 const GOOGLE_CLOUD_PROJECT = cleanEnv(
   process.env.GOOGLE_CLOUD_PROJECT

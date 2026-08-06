@@ -1,6 +1,7 @@
 import { Moon, Sun, Search } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '../../lib/utils';
 import NotificationBell from '../notifications/NotificationBell';
 import ProfileDropdown from './ProfileDropdown';
@@ -12,8 +13,12 @@ interface HeaderProps {
 }
 
 export default function Header({ title, showSearch, onSearchChange }: HeaderProps) {
-  const { theme, setTheme } = useAppStore();
-  const { authUser, logoutAnimationActive } = useAuthStore();
+  const { theme, setTheme } = useAppStore(
+    useShallow((s) => ({ theme: s.theme, setTheme: s.setTheme })),
+  );
+  const { authUser, logoutAnimationActive } = useAuthStore(
+    useShallow((s) => ({ authUser: s.authUser, logoutAnimationActive: s.logoutAnimationActive })),
+  );
 
   const toggleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];

@@ -50,7 +50,6 @@ export function connectSSE() {
 
     eventSource.onerror = () => {
       isConnecting = false;
-      // Browser EventSource automatically reconnects on error
     };
   } catch {
     isConnecting = false;

@@ -2,11 +2,14 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useShallow } from 'zustand/react/shallow';
 import { APP_NAME } from '../../config/constants';
 
 export default function SplashScreen() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading } = useAuthStore(
+    useShallow((s) => ({ isAuthenticated: s.isAuthenticated, isLoading: s.isLoading })),
+  );
 
   useEffect(() => {
     if (!isLoading) {

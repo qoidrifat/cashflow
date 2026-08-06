@@ -23,6 +23,7 @@ import {
 import CategoryIcon from '../../components/ui/CategoryIcon';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { clearGmailAccessToken, signInWithGoogleGmail } from '../../services/authService';
 import { fetchTransactionEmails, fetchEmailsById, formatGmailDate, getTomorrow } from '../../services/gmailService';
 import {
@@ -214,8 +215,10 @@ async function persistGmailSyncResults(userId: string | undefined, results: Sync
 // ===================== Component =====================
 
 export default function GmailSyncPage() {
-  const { authUser } = useAuthStore();
-  const { addToast, gmailSyncEnabled, setGmailSyncEnabled } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const { addToast, gmailSyncEnabled, setGmailSyncEnabled } = useAppStore(
+    useShallow((s) => ({ addToast: s.addToast, gmailSyncEnabled: s.gmailSyncEnabled, setGmailSyncEnabled: s.setGmailSyncEnabled })),
+  );
 
   const [isConnected, setIsConnected] = useState(false);
   const [isScanning, setIsScanning] = useState(false);

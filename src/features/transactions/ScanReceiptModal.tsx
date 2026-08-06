@@ -50,8 +50,8 @@ interface ScanReceiptModalProps {
 }
 
 export default function ScanReceiptModal({ isOpen, onClose, onSaved }: ScanReceiptModalProps) {
-  const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const addToast = useAppStore((s) => s.addToast);
 
   const [step, setStep] = useState<ScanStep>('choose');
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);

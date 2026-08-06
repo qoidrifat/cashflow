@@ -39,7 +39,7 @@ import type { Category, PaymentMethod, Transaction, TransactionFormData, Transac
 import { formatCurrency, formatDate, cn } from '../../lib/utils';
 
 export default function TransactionsPage() {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   // Selector per-action (Sprint 1.8 debt) — reference stabil, tidak re-render
   // saat state lain (toasts/notifications/theme) berubah.
   const addToast = useAppStore((s) => s.addToast);

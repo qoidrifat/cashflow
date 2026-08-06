@@ -10,7 +10,7 @@ export interface NotificationFilters {
 }
 
 export function useNotifications(filters: NotificationFilters = {}) {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const notifications = useAppStore((state) => state.notifications);
   const notificationLoading = useAppStore((state) => state.notificationLoading);
   const realtimeConnected = useAppStore((state) => state.realtimeConnected);

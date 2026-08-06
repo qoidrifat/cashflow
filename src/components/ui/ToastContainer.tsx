@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '../../lib/utils';
 
 const iconMap = {
@@ -18,7 +19,9 @@ const colorMap = {
 };
 
 export default function ToastContainer() {
-  const { toasts, removeToast } = useAppStore();
+  const { toasts, removeToast } = useAppStore(
+    useShallow((s) => ({ toasts: s.toasts, removeToast: s.removeToast })),
+  );
 
   return (
     <div className="fixed inset-x-3 bottom-24 z-50 space-y-2 pointer-events-none sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-4 sm:max-w-sm sm:w-full">

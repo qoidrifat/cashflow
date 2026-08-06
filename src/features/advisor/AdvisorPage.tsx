@@ -47,7 +47,7 @@ const PRIORITY_STYLES: Record<string, string> = {
 const PRIORITY_LABELS: Record<string, string> = { high: 'Prioritas', medium: 'Sedang', low: 'Opsional' };
 
 export default function AdvisorPage() {
-  const { authUser } = useAuthStore();
+  const authUser = useAuthStore((s) => s.authUser);
   const navigate = useNavigate();
   const [data, setData] = useState<AdvisorInput | null>(null);
   const [report, setReport] = useState<AdvisorReport | null>(null);

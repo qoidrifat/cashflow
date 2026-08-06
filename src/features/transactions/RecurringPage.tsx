@@ -14,6 +14,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   listenToRecurringTransactions,
   addRecurringTransaction,
@@ -56,8 +57,10 @@ function getIntervalDescription(rt: RecurringTransaction): string {
 }
 
 export default function RecurringPage() {
-  const { authUser } = useAuthStore();
-  const { addToast, addNotification } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const { addToast, addNotification } = useAppStore(
+    useShallow((s) => ({ addToast: s.addToast, addNotification: s.addNotification })),
+  );
   const [recurringList, setRecurringList] = useState<RecurringTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

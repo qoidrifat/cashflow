@@ -35,8 +35,8 @@ import { listenToCategories } from '../services/categoryService';
 import { cn } from '../lib/utils';
 
 export default function AiSearchPage() {
-  const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const addToast = useAppStore((s) => s.addToast);
   const [activeTab, setActiveTab] = useState<AiSearchTab>('help');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AgentSearchResult[]>([]);

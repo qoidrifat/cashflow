@@ -110,8 +110,8 @@ const subscriptionSchema = z.object({
 });
 
 export default function ProfessionalSuitePage() {
-  const { authUser } = useAuthStore();
-  const { addToast } = useAppStore();
+  const authUser = useAuthStore((s) => s.authUser);
+  const addToast = useAppStore((s) => s.addToast);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true); // Sprint 1.8: cegah flash EmptyState
