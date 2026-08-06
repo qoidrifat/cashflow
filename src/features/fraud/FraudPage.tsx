@@ -200,6 +200,9 @@ export default function FraudPage() {
               const aiReasons = Array.isArray(flag.ruleData?.aiReasons)
                 ? (flag.ruleData.aiReasons as string[])
                 : [];
+              const aiConfidence = typeof flag.ruleData?.aiConfidence === 'number'
+                ? flag.ruleData.aiConfidence
+                : 0;
               return (
               <li key={flag.id} data-testid={`fraud-flag-${flag.id}`}>
                 <Card>
@@ -230,6 +233,14 @@ export default function FraudPage() {
                           <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1', DECISION_CHIP[flag.decision])}>
                             <Bot className="w-3 h-3" aria-hidden="true" />
                             AI: {flag.decision === 'allow' ? 'Aman' : flag.decision === 'review' ? 'Perlu review' : 'Blokir'}
+                          </span>
+                        )}
+                        {aiConfidence > 0 && (
+                          <span
+                            title="Keyakinan model AI terhadap skor risiko (L2)"
+                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-app-hover text-app-subtle"
+                          >
+                            Keyakinan {Math.round(aiConfidence * 100)}%
                           </span>
                         )}
                       </div>

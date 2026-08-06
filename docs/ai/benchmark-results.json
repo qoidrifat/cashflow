@@ -1,0 +1,73 @@
+{
+  "runner": "tests/benchmark/aiQualityBenchmark.spec.ts (npm run benchmark:ai)",
+  "deterministic": true,
+  "categories": [
+    {
+      "category": "fraud_l1",
+      "cases": 100,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.0064750000000026375,
+      "avgInputTokens": 280,
+      "estCostUsdPerCase": 0.00004613325,
+      "confidenceDistribution": {
+        "0.0-0.5": 15,
+        "0.5-0.7": 49,
+        "0.7-0.85": 2,
+        "0.85-1.0": 17
+      }
+    },
+    {
+      "category": "insight_fallback",
+      "cases": 100,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.3209120000000212,
+      "avgInputTokens": 272,
+      "estCostUsdPerCase": 0.00004484175000000001,
+      "confidenceDistribution": {
+        "0.0-0.5": 17,
+        "0.5-0.7": 33,
+        "0.7-0.85": 16,
+        "0.85-1.0": 34
+      }
+    },
+    {
+      "category": "advisor_fallback",
+      "cases": 100,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.10538400000001047,
+      "avgInputTokens": 147,
+      "estCostUsdPerCase": 0.00002426025000000002
+    },
+    {
+      "category": "search_rerank",
+      "cases": 100,
+      "top1HitRate": 1,
+      "explanationRate": 1,
+      "suggestedQueriesValidRate": 1,
+      "avgLatencyMs": 0.06981699999999591
+    },
+    {
+      "category": "ocr_parsing_local",
+      "cases": 100,
+      "gmailDecisionAccuracy": 1,
+      "gmailAmountExtractionAccuracy": 1,
+      "receiptFieldAccuracy": 1,
+      "avgLatencyMs": 0.12215000000000373,
+      "confidenceDistribution": {
+        "0.0-0.5": 0,
+        "0.5-0.7": 0,
+        "0.7-0.85": 0,
+        "0.85-1.0": 50
+      }
+    }
+  ]
+}

@@ -102,47 +102,8 @@ export const ERROR_MESSAGES = {
   GEMINI_API_KEY: 'Gemini API key belum dikonfigurasi di server.',
 } as const;
 
-// Gemini prompt for transaction extraction (server uses its own version in server/index.js)
-// This copy is kept for reference/backwards compatibility
-export const GEMINI_EXTRACTION_PROMPT_KEEP = `Kamu adalah AI financial transaction extractor untuk aplikasi CashFlow Indonesia.
-
-Tugas: Baca email pengguna dan tentukan apakah email berisi transaksi keuangan nyata.
-Keluarkan SATU JSON OBJECT VALID SAJA. Tidak ada teks lain.
-
-DEFINISI TRANSAKSI VALID:
-- Pembayaran aktual (invoice, receipt, struk, e-ticket)
-- Transfer masuk/keluar aktual
-- Pembelian berhasil
-- Top up berhasil
-- Refund/pengembalian dana berhasil
-- Cashback yang benar-benar diterima
-- QRIS/VA/kartu/e-wallet/bank berhasil
-- Informasi transaksi bank yang memuat aktivitas finansial aktual
-
-BUKAN TRANSAKSI (is_transaction = false):
-- Promo, diskon, kupon, newsletter
-- Iklan, rekomendasi produk, survei
-- Login alert, notifikasi keamanan
-- Artikel, digest, lowongan kerja
-- Cashback promosi yang belum diterima
-- Email promo cashback seperti "cashback hingga", "cashback s/d", "cashback sampai", "cashback up to", "dapatkan cashback", "promo cashback", "ajukan KTA", atau "buka deposito, cashback"
-- Nominal yang muncul sebagai nilai maksimum promo cashback, bukan uang yang sudah diterima
-
-ATURAN OUTPUT WAJIB:
-1. Output hanya SATU JSON OBJECT. Tidak ada markdown, tidak ada code block, tidak ada teks lain.
-2. Jangan gunakan tanda | dalam value. Pilih satu value, misalnya "expense" bukan "income | expense".
-3. Jangan gunakan trailing comma.
-4. Jangan gunakan undefined. Gunakan null jika data tidak ditemukan.
-5. Jangan gunakan NaN. Gunakan null.
-6. Semua key WAJIB ada.
-7. amount: number (tanpa Rp, titik, koma) atau null jika tidak ditemukan.
-8. date: format YYYY-MM-DD. Jika tanggal tidak ditemukan, gunakan {{EMAIL_DATE}}.
-9. confidence_score: number antara 0.0 dan 1.0.
-10. Jika is_transaction = false, reason WAJIB menjelaskan kenapa.
-11. Jika email promo cashback, output wajib amount null dan reason "Email promo cashback, bukan transaksi cashback aktual".
-12. Cashback aktual boleh transaksi hanya jika email menyatakan cashback berhasil diterima, masuk, cair, atau dikreditkan.
-
-Sender: {{SENDER}}
-Subject: {{SUBJECT}}
-Email Text:
-{{EMAIL_TEXT}}`;
+// Gemini prompt builders — SINGLE SOURCE OF TRUTH di server: server/lib/vertexContext.js
+// (buildExtractionPrompt, buildReceiptExtractionPrompt, buildMonthlyReportPrompt,
+// buildAdvisorPrompt) + server/services/fraudDetectionService.js (buildFraudScoringPrompt).
+// Frontend TIDAK menyimpan salinan prompt (mencegah drift — lihat AI_CAPABILITY_AUDIT.md,
+// temuan P1.1: salinan lama GEMINI_EXTRACTION_PROMPT_KEEP dihapus karena 0 referensi).

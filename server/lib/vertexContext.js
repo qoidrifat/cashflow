@@ -340,7 +340,7 @@ export function extractTextFromGenAIResponse(response) {
 // ===================== Normalizers =====================
 
 export function normalizeReceiptPaymentMethod(value) {
-  const normalized = String(value || '').toLowerCase().replace(/[_\\s]/g, '-');
+  const normalized = String(value || '').toLowerCase().replace(/[_\s]/g, '-');
 
   if (normalized === 'cash' || normalized === 'tunai') return 'cash';
   if (normalized === 'qris' || normalized === 'qr') return 'qris';
@@ -373,7 +373,7 @@ export function normalizeReceiptResult(payload) {
     transaction_type: isTransaction ? transactionType : null,
     amount: Number.isFinite(amount) && amount > 0 ? amount : null,
     currency: payload?.currency || 'IDR',
-    date: typeof payload?.date === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(payload.date)
+    date: typeof payload?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload.date)
       ? payload.date
       : null,
     merchant: payload?.merchant ? String(payload.merchant).slice(0, 120) : null,

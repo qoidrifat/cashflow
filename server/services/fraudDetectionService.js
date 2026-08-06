@@ -325,6 +325,7 @@ async function runAiScoring({ userId, transaction, flags, aggregates }) {
     const reasons = Array.isArray(parsed.data.reasons)
       ? parsed.data.reasons.slice(0, 4).map(String)
       : [];
+    const confidence = clampScore(parsed.data.confidence); // Sprint P1.2: persist keyakinan AI
 
     // Persist skor + keputusan + alasan AI (alasan disimpan di rule_data agar
     // UI halaman review bisa menampilkan "Alasan AI" — lihat FraudPage.tsx).
@@ -344,6 +345,7 @@ async function runAiScoring({ userId, transaction, flags, aggregates }) {
       /* non-blocking — merge gagal tidak menjatuhkan scoring */
     }
     if (reasons.length > 0) mergedRuleData.aiReasons = reasons;
+    if (confidence !== null) mergedRuleData.aiConfidence = confidence;
 
     await turso.execute({
       sql: `UPDATE fraud_flags SET risk_score = ?, decision = ?, rule_data = ? WHERE user_id = ? AND transaction_id = ?`,

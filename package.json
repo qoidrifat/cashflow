@@ -33,6 +33,7 @@
     "test:e2e:perf": "playwright test e2e/performance/performance.spec.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "benchmark:ai": "vitest run tests/benchmark/aiQualityBenchmark.spec.ts",
     "test:all": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {

@@ -181,7 +181,12 @@ function buildUnusualSpending(metrics: MonthlyMetrics): string[] {
   return unusual;
 }
 
-function buildFallbackMonthlyReport(input: MonthlyReportInput): MonthlyFinancialReport {
+/**
+ * Laporan bulanan DETERMINISTIK (rule-based) — dipakai sebagai fallback bila AI
+ * gagal, DAN sebagai sumber jaminan kualitas di normalizeReportPayload.
+ * Di-export untuk benchmark AI (tests/benchmark) — perilaku tidak berubah.
+ */
+export function buildFallbackMonthlyReport(input: MonthlyReportInput): MonthlyFinancialReport {
   const metrics = calculateMonthlyMetrics(input.transactions, input.month, input.year);
   const health = getFinancialHealth(metrics);
   const financialHealthScore = computeFinancialHealthScore(metrics);
