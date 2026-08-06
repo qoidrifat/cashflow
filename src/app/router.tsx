@@ -15,6 +15,7 @@ const BudgetsPage = lazy(() => import('../features/budgets/BudgetsPage'));
 const RecurringPage = lazy(() => import('../features/transactions/RecurringPage'));
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage'));
 const AdvisorPage = lazy(() => import('../features/advisor/AdvisorPage'));
+const AiHubPage = lazy(() => import('../features/ai-product/AiHubPage'));
 const ProfessionalSuitePage = lazy(() => import('../features/professional/ProfessionalSuitePage'));
 const GmailSyncPage = lazy(() => import('../features/gmail/GmailSyncPage'));
 const NotificationsPage = lazy(() => import('../features/notifications/NotificationsPage'));
@@ -111,6 +112,10 @@ export const router = createBrowserRouter([
       {
         path: 'advisor',
         element: withSuspense(<AdvisorPage />),
+      },
+      {
+        path: 'ai',
+        element: withSuspense(<AiHubPage />),
       },
       {
         path: 'professional',

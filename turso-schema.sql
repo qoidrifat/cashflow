@@ -396,6 +396,48 @@ VALUES
   ('alert_ai_cost_monthly', 'ai_cost_monthly', 'ai_cost_monthly', 'gt', 100000, 43200);
 
 -- =============================================
+-- AI PRODUCT EXPERIENCE (Sprint 1.5)
+-- =============================================
+
+-- Feedback pengguna atas hasil AI (👍/👎 + alasan) — dataset evaluasi, bukan
+-- langsung mengubah AI. rating: helpful | not_helpful | mismatched | irrelevant
+-- | already_done | skip.
+CREATE TABLE IF NOT EXISTS ai_feedback (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature TEXT NOT NULL,
+  item_id TEXT DEFAULT '',
+  rating TEXT NOT NULL,
+  reason TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Preferensi AI user (AI Memory) — editable, deletable, transparan, user-scoped.
+CREATE TABLE IF NOT EXISTS ai_memory (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (user_id, category, key)
+);
+
+-- Timeline rekomendasi AI — riwayat yang menjelaskan apa yang berubah & mengapa.
+CREATE TABLE IF NOT EXISTS ai_timeline (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  confidence REAL,
+  payload TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- =============================================
 -- INDEXES
 -- =============================================
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
@@ -417,3 +459,7 @@ CREATE INDEX IF NOT EXISTS idx_goals_user ON saving_goals(user_id, created_at DE
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id, next_billing_date ASC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_user ON gmail_sync_runs(user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_feedback_user_created ON ai_feedback(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_feedback_feature ON ai_feedback(feature, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_memory_user ON ai_memory(user_id, category);
+CREATE INDEX IF NOT EXISTS idx_ai_timeline_user_created ON ai_timeline(user_id, created_at DESC);

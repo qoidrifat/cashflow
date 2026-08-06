@@ -27,6 +27,8 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import EmptyState from '../../components/ui/EmptyState';
 import { ChartSkeleton } from '../../components/ui/Skeleton';
+import AiFeedbackButtons from '../ai-product/components/AiFeedbackButtons';
+import AiTrustMeta from '../ai-product/components/AiTrustMeta';
 
 /** Bungkus listener berbasis-callback jadi Promise (pola dashboard). */
 function fetchOnce<T>(subscribe: (cb: (data: T) => void, errCb?: (e: Error) => void) => () => void): Promise<T> {
@@ -177,11 +179,17 @@ export default function AdvisorPage() {
             <p className="text-sm leading-relaxed text-app-text">
               {aiLoading ? 'AI Coach sedang menyusun rekomendasi terbaik...' : report.summary}
             </p>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-mint-500 dark:text-mint-300" />
-              <span className="text-[11px] font-medium text-app-subtle">
-                {report.generatedBy === 'gemini' ? 'Didukung Gemini AI' : 'Rekomendasi lokal (AI tidak tersedia)'}
-              </span>
+            <div className="mt-1 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-mint-500 dark:text-mint-300" />
+                <span className="text-[11px] font-medium text-app-subtle">
+                  {report.generatedBy === 'gemini' ? 'Didukung Gemini AI' : 'Rekomendasi lokal (AI tidak tersedia)'}
+                </span>
+                <AiTrustMeta
+                  model={{ source: report.generatedBy, feature: 'advisor', timestamp: report.generatedAt }}
+                />
+              </div>
+              <AiFeedbackButtons feature="advisor" />
             </div>
           </div>
         </Card>

@@ -19,6 +19,7 @@ import {
   Settings,
   MessagesSquare,
   ShieldAlert,
+  BrainCircuit,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export const primaryMobileNav: NavItem[] = [
 export const moreMenuNav: NavItem[] = [
   { label: 'Laporan', href: '/reports', icon: BarChart3 },
   { label: 'AI Advisor', href: '/advisor', icon: MessagesSquare },
+  { label: 'AI Hub', href: '/ai', icon: BrainCircuit },
   { label: 'Rutin', href: '/recurring', icon: RefreshCw },
   { label: 'Perlindungan Fraud', href: '/fraud', icon: ShieldAlert },
   { label: 'Suite', href: '/professional', icon: BriefcaseBusiness },

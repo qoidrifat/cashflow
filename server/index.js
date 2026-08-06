@@ -67,6 +67,7 @@ import { registerGeminiRoutes } from './routes/geminiRoutes.js';
 import { registerAgentSearchRoutes } from './routes/agentSearchRoutes.js';
 import { registerAdminMetricsRoutes } from './routes/adminMetricsRoutes.js';
 import { registerHealthRoutes } from './routes/healthRoutes.js';
+import { registerAiProductRoutes } from './routes/aiProductRoutes.js';
 import { getTurso, closeTurso } from './lib/turso.js';
 import { runAlertEvaluation } from './services/metricsService.js';
 import helmet from 'helmet';
@@ -322,6 +323,7 @@ registerGeminiRoutes(app);
 registerAgentSearchRoutes(app);
 registerAdminMetricsRoutes(app);
 registerHealthRoutes(app);
+registerAiProductRoutes(app);
 
 // ===================== Error Middleware =====================
 
