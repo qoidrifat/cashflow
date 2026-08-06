@@ -166,10 +166,13 @@ test.describe('Fraud Detection (e2e)', () => {
       await expect(card).not.toBeVisible();
       await context.close();
     } finally {
-      await api.dispose().catch(() => {});
+      // Cleanup SEBELUM dispose — setelah context ditutup, delete request gagal
+      // dan transaksi bocor ke dataset seed (mengacaukan transactions.spec
+      // yang meng-assert PINNED 284; terlihat sebagai +2/+4 di CI, bukan flake).
       for (const txId of createdTxIds) {
         await api.delete(`/api/transactions/${txId}`, { headers: authHeaders(cookie) }).catch(() => {});
       }
+      await api.dispose().catch(() => {});
     }
   });
 });
