@@ -48,9 +48,15 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createClient } from '@libsql/client';
 
-if (process.env.SEED_E2E !== '1') {
+// Hanya jalankan guard + main() saat file DIEKSEKUSI LANGSUNG — bukan saat
+// di-import oleh unit test (tests/unit/seedE2eDataset.test.ts meng-import
+// fungsi murni buildSeedStatements/withRetry/createTimedFetch tanpa DB).
+const IS_MAIN = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (IS_MAIN && process.env.SEED_E2E !== '1') {
   console.error('[seedE2e] ⛔ Safety guard: set SEED_E2E=1 untuk menjalankan seed (mencegah penghapusan data di DB development).');
   process.exit(1);
 }
@@ -73,7 +79,7 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAILS || '')
   .split(',')[0]?.trim().toLowerCase() || 'e2e-seed-admin@cashflow.test';
 
 /** RNG deterministik (mulberry32) agar dataset CI selalu identik. */
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -83,19 +89,19 @@ function mulberry32(seed) {
   };
 }
 
-const EXPENSE_CATEGORIES = [
+export const EXPENSE_CATEGORIES = [
   ['food', 'Makanan & Minuman', 'Utensils', '#f97316'],
   ['transport', 'Transportasi', 'Bus', '#3b82f6'],
   ['shopping', 'Belanja', 'ShoppingBag', '#ec4899'],
   ['bills', 'Tagihan', 'FileText', '#ef4444'],
   ['entertainment', 'Hiburan', 'Clapperboard', '#8b5cf6'],
 ];
-const INCOME_CATEGORIES = [
+export const INCOME_CATEGORIES = [
   ['salary', 'Gaji', 'Wallet', '#10b981'],
   ['freelance', 'Freelance', 'Briefcase', '#14b8a6'],
 ];
 
-function rpAmount(rng, min, max) {
+export function rpAmount(rng, min, max) {
   return Math.round((min + rng() * (max - min)) / 1000) * 1000;
 }
 
@@ -105,13 +111,13 @@ function rpAmount(rng, min, max) {
 // Error yang pantas di-retry: gangguan transport/HTTP transien. Error
 // constraint (UNIQUE dsb.) = bug deterministik → JANGAN di-retry (di-masking
 // hanya menunda kegagalan & menyulitkan diagnosis).
-const TRANSIENT_RE = /network|timed?\s?out|timeout|econn|socket|fetch failed|too many requests|\b429\b|\b5\d\d\b|connection/i;
+export const TRANSIENT_RE = /network|timed?\s?out|timeout|econn|socket|fetch failed|too many requests|\b429\b|\b5\d\d\b|connection/i;
 
 // Asumsi klasifikasi berbasis pesan: pesan yang mengandung 'constraint'/'unique'
 // dianggap bug deterministik (fail-fast, TIDAK di-masking); pesan lain yang
 // cocok TRANSIENT_RE dianggap gangguan transport (retry). Trade-off diterima:
 // fail-fast lebih baik daripada retry yang menunda kegagalan deterministik.
-async function withRetry(fn, { attempts = 4, baseMs = 400, label = 'query' } = {}) {
+export async function withRetry(fn, { attempts = 4, baseMs = 400, label = 'query' } = {}) {
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
@@ -127,7 +133,25 @@ async function withRetry(fn, { attempts = 4, baseMs = 400, label = 'query' } = {
   }
 }
 
-const BATCH_SIZE = 100;
+export const BATCH_SIZE = 100;
+
+/**
+ * Konstanta dataset deterministik — sumber kebenaran tunggal (dipakai
+ * buildSeedStatements + ringkasan main + unit test regression guard).
+ * Nilai harus sinkron dengan PINNED di e2e/helpers/fixtures.ts.
+ */
+export const SEED_DATASET = {
+  T_TOTAL: 284, T_INCOME: 86, T_EXPENSE: 131, T_OTHER: 67,
+  G_TOTAL: 519, G_ACCEPTED: 350, G_NEEDS_REVIEW: 30, G_SKIP_REJECT: 139,
+};
+
+/** Bagi array menjadi chunk berukuran `size` (murni — dipakai flushPending). */
+export function chunkArray(arr, size) {
+  if (!(size > 0)) return []; // guard: size <= 0 → tanpa chunk (hindari infinite loop i += 0)
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 /**
  * Timeout eksplisit per request Turso (lihat header, poin 3).
@@ -141,7 +165,7 @@ const BATCH_SIZE = 100;
  */
 const SEED_TURSO_TIMEOUT_MS = Number(process.env.SEED_TURSO_TIMEOUT_MS) || 30_000;
 
-function createTimedFetch(timeoutMs) {
+export function createTimedFetch(timeoutMs) {
   const nativeFetch = globalThis.fetch;
   return (input, init = {}) => {
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -180,8 +204,11 @@ async function main() {
   let batchCount = 0;
 
   async function flushPending(label = sectionLabel) {
-    while (pending.length > 0) {
-      const chunk = pending.splice(0, BATCH_SIZE);
+    // chunkArray dipakai di sini (bukan splice inline) agar unit test batching
+    // (tests/unit/seedE2eDataset.test.ts) meng-guard LOOP ASLI yang berjalan di
+    // CI — chunking yang ditest = chunking yang dieksekusi. pending.splice(0)
+    // mengambil semua sekaligus (sudah menyalin), lalu dibagi ber-batch.
+    for (const chunk of chunkArray(pending.splice(0), BATCH_SIZE)) {
       batchCount += 1;
       await withRetry(() => turso.batch(chunk), { label: `${label} (batch ${batchCount})` });
     }
@@ -238,116 +265,14 @@ async function main() {
       args: [seedUserId, seedEmail, 'E2E Seed Admin', 'E2E Seed Admin'],
     }), { label: 'INSERT users' });
 
-    // ==== Kategori ====
-    sectionLabel = 'categories';
-    const catIds = {};
-    for (const [id, name, icon, color] of EXPENSE_CATEGORIES) {
-      const catId = `cat-${id}`;
-      catIds[id] = catId;
-      pushStmt(`INSERT INTO categories (id, user_id, name, type, icon, color, is_default) VALUES (?, ?, ?, 'expense', ?, ?, 1) ON CONFLICT(user_id, id) DO NOTHING`, [catId, seedUserId, name, icon, color]);
-    }
-    for (const [id, name, icon, color] of INCOME_CATEGORIES) {
-      const catId = `cat-${id}`;
-      catIds[id] = catId;
-      pushStmt(`INSERT INTO categories (id, user_id, name, type, icon, color, is_default) VALUES (?, ?, ?, 'income', ?, ?, 1) ON CONFLICT(user_id, id) DO NOTHING`, [catId, seedUserId, name, icon, color]);
-    }
-
-    // ==== 284 transaksi: 86 income, 131 expense, 67 transfer/refund ====
-    const T_TOTAL = 284;
-    const T_INCOME = 86;
-    const T_EXPENSE = 131;
-    const T_OTHER = T_TOTAL - T_INCOME - T_EXPENSE; // 67
-    const nowIso = new Date().toISOString();
-    let txSeq = 0;
-
-    sectionLabel = 'transactions';
-    for (let i = 0; i < T_INCOME; i++) {
-      const cat = INCOME_CATEGORIES[i % INCOME_CATEGORIES.length];
-      txSeq += 1;
-      const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
-      const date = new Date(Date.now() - (i % 90) * 86400_000).toISOString().split('T')[0];
-      pushStmt(
-        `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
-        [id, seedUserId, 'income', rpAmount(rng, 500000, 15000000), catIds[cat[0]], cat[1], `Income ${cat[1]}`, `income seed ${txSeq}`, date, date, nowIso, nowIso],
-      );
-    }
-    for (let i = 0; i < T_EXPENSE; i++) {
-      const cat = EXPENSE_CATEGORIES[i % EXPENSE_CATEGORIES.length];
-      txSeq += 1;
-      const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
-      const date = new Date(Date.now() - (i % 90) * 86400_000).toISOString().split('T')[0];
-      pushStmt(
-        `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
-        [id, seedUserId, 'expense', rpAmount(rng, 10000, 2000000), catIds[cat[0]], cat[1], `Merchant ${cat[1]}`, `expense seed ${txSeq}`, date, date, nowIso, nowIso],
-      );
-    }
-    for (let i = 0; i < T_OTHER; i++) {
-      txSeq += 1;
-      const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
-      const date = new Date(Date.now() - (i % 60) * 86400_000).toISOString().split('T')[0];
-      const isTransfer = i % 2 === 0;
-      pushStmt(
-        `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
-        [id, seedUserId, isTransfer ? 'transfer' : 'refund', rpAmount(rng, 50000, 5000000), catIds.food, isTransfer ? 'Transfer' : 'Refund', isTransfer ? 'Transfer Bank' : 'Refund Toko', `${isTransfer ? 'transfer' : 'refund'} seed ${txSeq}`, date, date, nowIso, nowIso],
-      );
-    }
-
-    // ==== 519 gmail_sync_logs: 350 auto_accepted, 30 needs_review, 139 skipped/rejected ====
-    const G_TOTAL = 519;
-    const G_ACCEPTED = 350;
-    const G_NEEDS_REVIEW = 30;
-    const G_SKIP_REJECT = G_TOTAL - G_ACCEPTED - G_NEEDS_REVIEW; // 139
-    const runIds = [];
-    sectionLabel = 'gmail_runs';
-    for (let r = 0; r < 2; r++) {
-      const runId = `e2e-run-${seedUserId.slice(0, 8)}-${r + 1}`;
-      const started = new Date(Date.now() - (r + 1) * 86400_000).toISOString();
-      pushStmt(
-        `INSERT INTO gmail_sync_runs (id, user_id, status, started_at, completed_at, total_emails, processed, accepted, rejected, skipped, failed)
-         VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(id) DO NOTHING`,
-        [runId, seedUserId, started, new Date(Date.now() - r * 86400_000).toISOString(), G_TOTAL, G_TOTAL, G_ACCEPTED, 0, G_SKIP_REJECT + G_NEEDS_REVIEW],
-      );
-      runIds.push(runId);
-    }
-
-    let logSeq = 0;
-    sectionLabel = 'gmail_logs';
-    for (let i = 0; i < G_ACCEPTED; i++) {
-      logSeq += 1;
-      pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, 'auto_accepted', 'auto_accepted'));
-    }
-    for (let i = 0; i < G_NEEDS_REVIEW; i++) {
-      logSeq += 1;
-      pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, 'needs_review', 'needs_review'));
-    }
-    for (let i = 0; i < G_SKIP_REJECT; i++) {
-      logSeq += 1;
-      const status = i % 3 === 0 ? 'auto_rejected' : 'auto_skipped';
-      pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, status, status));
-    }
-
-    // ==== Budgets & Notifications (untuk halaman budgets/notifications) ====
-    const month = new Date().getMonth() + 1;
-    const year = new Date().getFullYear();
-    sectionLabel = 'budgets';
-    for (const cat of EXPENSE_CATEGORIES) {
-      pushStmt(
-        `INSERT INTO budgets (id, user_id, category_id, category_name, amount, used_amount, month, year, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'safe', ?, ?) ON CONFLICT(id) DO NOTHING`,
-        [`e2e-budget-${cat[0]}`, seedUserId, catIds[cat[0]], cat[1], rpAmount(rng, 500000, 3000000), month, year, nowIso, nowIso],
-      );
-    }
-    sectionLabel = 'notifications';
-    for (let i = 0; i < 3; i++) {
-      pushStmt(
-        `INSERT INTO notifications (id, user_id, type, priority, title, message, read, created_at)
-         VALUES (?, ?, 'system', 'normal', ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING`,
-        [`e2e-notif-${i}`, seedUserId, `Notifikasi seed ${i + 1}`, 'Contoh notifikasi untuk CI', nowIso],
-      );
-    }
+    // ==== Bangun seluruh statement data (MURNI — buildSeedStatements) ====
+    // Urutan pemanggilan RNG (income → expense → other → budgets) dipertahankan
+    // persis agar dataset deterministik; nowMs tunggal → timestamp identik antar
+    // run (versi lama memanggil Date.now() per-statement → bisa beda beberapa ms).
+    sectionLabel = 'inserts';
+    const nowMs = Date.now();
+    const { stmts } = buildSeedStatements({ seedUserId, rng, nowMs });
+    for (const stmt of stmts) pending.push(stmt);
     await flushPending();
 
     // ==== Ringkasan ====
@@ -365,8 +290,8 @@ async function main() {
 
     const elapsedMs = Date.now() - startTime;
     console.log(`[seedE2e] ✅ Dataset deterministik siap untuk user ${seedEmail} (id ${seedUserId.slice(0, 8)}…)`);
-    console.log(`[seedE2e]    transaksi: ${counts.transactions} (income ${T_INCOME} / expense ${T_EXPENSE} / other ${T_OTHER})`);
-    console.log(`[seedE2e]    gmail_logs: ${counts.gmail_logs} (auto_accepted ${G_ACCEPTED} / needs_review ${G_NEEDS_REVIEW} / skip-reject ${G_SKIP_REJECT})`);
+    console.log(`[seedE2e]    transaksi: ${counts.transactions} (income ${SEED_DATASET.T_INCOME} / expense ${SEED_DATASET.T_EXPENSE} / other ${SEED_DATASET.T_OTHER})`);
+    console.log(`[seedE2e]    gmail_logs: ${counts.gmail_logs} (auto_accepted ${SEED_DATASET.G_ACCEPTED} / needs_review ${SEED_DATASET.G_NEEDS_REVIEW} / skip-reject ${SEED_DATASET.G_SKIP_REJECT})`);
     console.log(`[seedE2e]    gmail_runs: ${counts.gmail_runs} · budgets: ${counts.budgets} · notifications: ${counts.notifications}`);
     console.log(`[seedE2e]    ADMIN_EMAILS harus memuat: ${seedEmail}`);
     console.log(`[seedE2e]    ⏱️ ${(elapsedMs / 1000).toFixed(1)}s · ${batchCount} batch (${BATCH_SIZE}/batch) · retry transien + timeout ${SEED_TURSO_TIMEOUT_MS}ms`);
@@ -384,10 +309,10 @@ async function main() {
 }
 
 /** Bangun statement INSERT gmail_sync_logs (deterministik; dipakai ber-batch). */
-function buildLogStmt(seedUserId, runIds, logSeq, status, finalStatus) {
+export function buildLogStmt(seedUserId, runIds, logSeq, status, finalStatus, nowMs) {
   const id = `e2e-log-${seedUserId.slice(0, 8)}-${String(logSeq).padStart(5, '0')}`;
   const daysAgo = logSeq % 90;
-  const date = new Date(Date.now() - daysAgo * 86400_000).toISOString().split('T')[0];
+  const date = new Date(nowMs - daysAgo * 86400_000).toISOString().split('T')[0];
   return [(
     `INSERT INTO gmail_sync_logs (id, user_id, message_id, subject, sender, sender_domain, email_date, status, final_status, confidence_score, sync_run_id, scanned_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`
@@ -402,14 +327,132 @@ function buildLogStmt(seedUserId, runIds, logSeq, status, finalStatus) {
     finalStatus,
     status === 'auto_accepted' ? 0.92 : 0.5,
     runIds[logSeq % 2],
-    new Date(Date.now() - daysAgo * 86400_000).toISOString(),
+    new Date(nowMs - daysAgo * 86400_000).toISOString(),
   ]];
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(`[seedE2e] Gagal: ${err.message}`);
-    console.error(`[seedE2e] (fase aktif terakhir: ${sectionLabel ?? 'unknown'})`);
-    process.exit(1);
-  });
+/**
+ * Bangun SELURUH statement data deterministik (MURNI — tanpa DB).
+ *
+ * Urutan pemanggilan RNG dipertahankan persis dari versi sekuensial agar
+ * dataset CI identik: income (86) → expense (131) → other (67) → budgets (5).
+ * `nowMs` tunggal membuat timestamp identik antar run (determinisme penuh —
+ * dijamin oleh unit test tests/unit/seedE2eDataset.test.ts).
+ *
+ * @returns {{ stmts: Array<{sql: string, args: unknown[]}>, catIds: Record<string,string> }}
+ */
+export function buildSeedStatements({ seedUserId, rng, nowMs }) {
+  const stmts = [];
+  const pushStmt = (sql, args) => stmts.push({ sql, args });
+  const nowIso = new Date(nowMs).toISOString();
+
+  // ==== Kategori ====
+  const catIds = {};
+  for (const [id, name, icon, color] of EXPENSE_CATEGORIES) {
+    const catId = `cat-${id}`;
+    catIds[id] = catId;
+    pushStmt(`INSERT INTO categories (id, user_id, name, type, icon, color, is_default) VALUES (?, ?, ?, 'expense', ?, ?, 1) ON CONFLICT(user_id, id) DO NOTHING`, [catId, seedUserId, name, icon, color]);
+  }
+  for (const [id, name, icon, color] of INCOME_CATEGORIES) {
+    const catId = `cat-${id}`;
+    catIds[id] = catId;
+    pushStmt(`INSERT INTO categories (id, user_id, name, type, icon, color, is_default) VALUES (?, ?, ?, 'income', ?, ?, 1) ON CONFLICT(user_id, id) DO NOTHING`, [catId, seedUserId, name, icon, color]);
+  }
+
+  // ==== 284 transaksi: 86 income, 131 expense, 67 transfer/refund ====
+  const { T_INCOME, T_EXPENSE, T_OTHER } = SEED_DATASET;
+  let txSeq = 0;
+
+  for (let i = 0; i < T_INCOME; i++) {
+    const cat = INCOME_CATEGORIES[i % INCOME_CATEGORIES.length];
+    txSeq += 1;
+    const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
+    const date = new Date(nowMs - (i % 90) * 86400_000).toISOString().split('T')[0];
+    pushStmt(
+      `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
+      [id, seedUserId, 'income', rpAmount(rng, 500000, 15000000), catIds[cat[0]], cat[1], `Income ${cat[1]}`, `income seed ${txSeq}`, date, date, nowIso, nowIso],
+    );
+  }
+  for (let i = 0; i < T_EXPENSE; i++) {
+    const cat = EXPENSE_CATEGORIES[i % EXPENSE_CATEGORIES.length];
+    txSeq += 1;
+    const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
+    const date = new Date(nowMs - (i % 90) * 86400_000).toISOString().split('T')[0];
+    pushStmt(
+      `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
+      [id, seedUserId, 'expense', rpAmount(rng, 10000, 2000000), catIds[cat[0]], cat[1], `Merchant ${cat[1]}`, `expense seed ${txSeq}`, date, date, nowIso, nowIso],
+    );
+  }
+  for (let i = 0; i < T_OTHER; i++) {
+    txSeq += 1;
+    const id = `e2e-tx-${seedUserId.slice(0, 8)}-${String(txSeq).padStart(5, '0')}`;
+    const date = new Date(nowMs - (i % 60) * 86400_000).toISOString().split('T')[0];
+    const isTransfer = i % 2 === 0;
+    pushStmt(
+      `INSERT INTO transactions (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'cash', ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO NOTHING`,
+      [id, seedUserId, isTransfer ? 'transfer' : 'refund', rpAmount(rng, 50000, 5000000), catIds.food, isTransfer ? 'Transfer' : 'Refund', isTransfer ? 'Transfer Bank' : 'Refund Toko', `${isTransfer ? 'transfer' : 'refund'} seed ${txSeq}`, date, date, nowIso, nowIso],
+    );
+  }
+
+  // ==== 519 gmail_sync_logs: 350 auto_accepted, 30 needs_review, 139 skipped/rejected ====
+  const { G_ACCEPTED, G_NEEDS_REVIEW, G_SKIP_REJECT } = SEED_DATASET;
+  const runIds = [];
+  for (let r = 0; r < 2; r++) {
+    const runId = `e2e-run-${seedUserId.slice(0, 8)}-${r + 1}`;
+    const started = new Date(nowMs - (r + 1) * 86400_000).toISOString();
+    pushStmt(
+      `INSERT INTO gmail_sync_runs (id, user_id, status, started_at, completed_at, total_emails, processed, accepted, rejected, skipped, failed)
+       VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, 0) ON CONFLICT(id) DO NOTHING`,
+      [runId, seedUserId, started, new Date(nowMs - r * 86400_000).toISOString(), SEED_DATASET.G_TOTAL, SEED_DATASET.G_TOTAL, G_ACCEPTED, 0, G_SKIP_REJECT + G_NEEDS_REVIEW],
+    );
+    runIds.push(runId);
+  }
+
+  let logSeq = 0;
+  for (let i = 0; i < G_ACCEPTED; i++) {
+    logSeq += 1;
+    pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, 'auto_accepted', 'auto_accepted', nowMs));
+  }
+  for (let i = 0; i < G_NEEDS_REVIEW; i++) {
+    logSeq += 1;
+    pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, 'needs_review', 'needs_review', nowMs));
+  }
+  for (let i = 0; i < G_SKIP_REJECT; i++) {
+    logSeq += 1;
+    const status = i % 3 === 0 ? 'auto_rejected' : 'auto_skipped';
+    pushStmt(...buildLogStmt(seedUserId, runIds, logSeq, status, status, nowMs));
+  }
+
+  // ==== Budgets & Notifications (untuk halaman budgets/notifications) ====
+  const month = new Date(nowMs).getMonth() + 1;
+  const year = new Date(nowMs).getFullYear();
+  for (const cat of EXPENSE_CATEGORIES) {
+    pushStmt(
+      `INSERT INTO budgets (id, user_id, category_id, category_name, amount, used_amount, month, year, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'safe', ?, ?) ON CONFLICT(id) DO NOTHING`,
+      [`e2e-budget-${cat[0]}`, seedUserId, catIds[cat[0]], cat[1], rpAmount(rng, 500000, 3000000), month, year, nowIso, nowIso],
+    );
+  }
+  for (let i = 0; i < 3; i++) {
+    pushStmt(
+      `INSERT INTO notifications (id, user_id, type, priority, title, message, read, created_at)
+       VALUES (?, ?, 'system', 'normal', ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING`,
+      [`e2e-notif-${i}`, seedUserId, `Notifikasi seed ${i + 1}`, 'Contoh notifikasi untuk CI', nowIso],
+    );
+  }
+
+  return { stmts, catIds };
+}
+
+if (IS_MAIN) {
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(`[seedE2e] Gagal: ${err.message}`);
+      console.error(`[seedE2e] (fase aktif terakhir: ${sectionLabel ?? 'unknown'})`);
+      process.exit(1);
+    });
+}
