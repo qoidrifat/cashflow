@@ -79,7 +79,7 @@ concurrency:
                                                                    ├─ perf ──────┤
 ```
 
-**Sprint 0.7 (2026-08-06):** seed E2E dipangkas **100s → ~4s** (batching `client.batch`, lihat [SEED_DATABASE_GUIDE.md](SEED_DATABASE_GUIDE.md)) — memangkas step seed (sebelumnya 2–4 menit di CI) dan memperkecil jendela error transient secara drastis.
+**Sprint 0.7 (2026-08-06):** seed E2E dipangkas **100s → ~4s** (batching `client.batch`, lihat [SEED_DATABASE_GUIDE.md](SEED_DATABASE_GUIDE.md)) — memangkas step seed (sebelumnya 2–4 menit di CI) dan memperkecil jendela error transient secara drastis. **Retry transien juga diaktifkan di boot produksi** (`initTursoSchema({retry:true})`, commit `31c892e`) dan **apply schema** (`05cc914`) — satu sumber kebenaran `server/lib/retry.js`; runtime query sengaja tanpa retry (risiko double-commit, lihat [TURSO_RUNTIME_RETRY_AUDIT.md](../review/TURSO_RUNTIME_RETRY_AUDIT.md)).
 
 ## 7. Observability & Artifacts
 

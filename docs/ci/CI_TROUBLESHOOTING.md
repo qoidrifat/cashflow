@@ -27,6 +27,8 @@
 
 **Jika masih terjadi setelah fix:** cek pesan error di log step seed. Bila constraint (`UNIQUE`) → bug data deterministik (jangan retry); bila network/429 → pastikan retry aktif & Turso sehat.
 
+> **Retry juga aktif di jalur lain (sejak 2026-08):** step **'Apply Turso schema'** (commit `05cc914`) dan **boot server produksi** (`initTursoSchema({retry:true})`, commit `31c892e`) memakai retry transien dari satu sumber kebenaran `server/lib/retry.js`. Konsekuensi diagnosis: transient persisten di apply → **exit non-zero** (bukan sukses palsu); di boot → **log error** (bukan senyap). Runtime query sengaja TANPA retry (writes non-idempoten → risiko double-commit) — lihat [TURSO_RUNTIME_RETRY_AUDIT.md](../review/TURSO_RUNTIME_RETRY_AUDIT.md).
+
 > **Selalu aman re-run seed dari state parsial apa pun** — seed idempoten (delete-then-insert untuk user seed). Bila seed gagal di tengah flush, job cukup di-re-run; tidak ada manual cleanup yang diperlukan.
 
 ## 2. Sejarah: `UNIQUE constraint failed: users.email` (commit 60ab972)

@@ -1,7 +1,7 @@
 # Seed Database Guide
 
 > **Date:** 2026-08-06 · **Author:** DevOps audit (Sprint 0.7 — CI stabilization)
-> **Scope:** `scripts/seedE2eDataset.mjs`, `scripts/applyTursoSchema.mjs`, workflow steps
+> **Scope:** `scripts/seedE2eDataset.mjs`, `scripts/applyTursoSchema.mjs`, boot `server/lib/turso.js`, `server/lib/retry.js`, workflow steps
 > **Goal:** Seed 100% deterministic & tahan error transient — akar flake CI yang sudah ditutup
 
 ---
@@ -40,7 +40,7 @@ flowchart LR
     E --> F[Verifikasi COUNT]
 ```
 
-1. **`applyTursoSchema.mjs`** — DB CI baru kosong → apply `turso-schema.sql` (idempoten, non-destruktif) + verifikasi 6 tabel inti ada.
+1. **`applyTursoSchema.mjs`** — DB CI baru kosong → apply `turso-schema.sql` (idempoten, non-destruktif, **dengan retry transien** — commit `05cc914`) + verifikasi 6 tabel inti ada.
 2. **Normalisasi user singular/plural** — `user` (Better Auth) & `users` (bisnis) harus satu id. Desync id lama → DELETE baris desync + data bisnis kedua id, re-insert satu id konsisten. (Fix commit `60ab972` — menutup `UNIQUE constraint failed: users.email` di CI.)
 3. **Delete-then-insert** — semua baris seed user dibersihkan lalu di-insert ulang → aman dijalankan berulang.
 
@@ -70,7 +70,23 @@ flowchart LR
 
 **Verifikasi lokal (2026-08-06):** seed RC=0, dataset identik (284/519/2/5/3), idempoten run ke-2 (3.8s), E2E subset 9/9 PASSED.
 
-## 5. Usage
+## 5. Retry Map — boot / apply / seed (runtime sengaja TANPA retry)
+
+Seluruh retry transien Turso berbagi **satu sumber kebenaran**: `server/lib/retry.js`
+(`withRetry` + `TRANSIENT_RE` + `createTimedFetch` + `isConstraintError`).
+
+| Jalur | Mekanisme | Commit | Alasan |
+|---|---|---|---|
+| **Boot produksi** `getTurso()` → `initTursoSchema({ retry: true })` | withRetry per-statement; **fire-and-forget** (tidak memblokir boot Express); transient persisten di-RE-THROW → sampai ke `logger.error` (gagal TERLIHAT, bukan senyap); fail-fast ±3s (loop berhenti di statement pertama) | `31c892e` | Cold start (Render free tier setelah idle) sering kena gangguan transport sekali (DNS/TLS/429); schema idempoten → self-heal; `/api/ready` tetap gate terpisah |
+| **Apply schema** `applyTursoSchema.mjs` | withRetry per-statement + timed fetch; transient persisten di-rethrow → **exit non-zero** (bukan "sukses" dengan schema tidak lengkap) | `05cc914` | CI fresh DB; kegagalan apply harus terang-terangan |
+| **Seed E2E** `seedE2eDataset.mjs` | batching `client.batch()` + withRetry + timed fetch + `ON CONFLICT` defensif | Sprint 0.7 | Dataset besar (±870 baris); satu transient tidak boleh mematikan job |
+| **Runtime (routes/services, ~102 statement)** | **TANPA retry — keputusan sadar** | — | Writes mayoritas NON-idempoten → retry berisiko double-commit (transaksi ganda); reads ditangani client (ErrorState + tombol retry, Sprint 1.5); background async fail-open + dedupe self-heal. Detail: [TURSO_RUNTIME_RETRY_AUDIT.md](../review/TURSO_RUNTIME_RETRY_AUDIT.md) |
+
+**Aturan klasifikasi error (`server/lib/retry.js`):** HANYA error **transient**
+(network/timeout/429/5xx/`busy`/`locked`) yang di-retry; error **constraint**
+(UNIQUE/duplicate/already exists) = bug deterministik → gagal cepat, JANGAN di-masking.
+
+## 6. Usage
 
 ```bash
 # CI (workflow) — urutan wajib:
@@ -84,7 +100,7 @@ SEED_E2E=1 node scripts/seedE2eDataset.mjs
 SEED_E2E=1 node scripts/seedE2eDataset.mjs
 ```
 
-## 6. Anti-pattern
+## 7. Anti-pattern
 
 | ❌ | ✅ |
 |---|---|
