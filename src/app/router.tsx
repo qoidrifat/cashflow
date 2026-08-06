@@ -9,6 +9,7 @@ const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
 const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'));
 const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage'));
+const FraudPage = lazy(() => import('../features/fraud/FraudPage'));
 const TransactionsPage = lazy(() => import('../features/transactions/TransactionsPage'));
 const BudgetsPage = lazy(() => import('../features/budgets/BudgetsPage'));
 const RecurringPage = lazy(() => import('../features/transactions/RecurringPage'));
@@ -86,6 +87,10 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard',
         element: withSuspense(<DashboardPage />),
+      },
+      {
+        path: 'fraud',
+        element: withSuspense(<FraudPage />),
       },
       {
         path: 'transactions',

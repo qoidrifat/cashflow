@@ -422,7 +422,7 @@ export default function DashboardPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => navigate('/transactions')}
+                    onClick={() => navigate('/fraud')}
                     className="text-xs font-medium text-primary-500 hover:text-primary-600 dark:text-primary-300 shrink-0"
                   >
                     Lihat

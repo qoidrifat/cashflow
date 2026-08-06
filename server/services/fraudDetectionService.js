@@ -322,10 +322,32 @@ async function runAiScoring({ userId, transaction, flags, aggregates }) {
       ? parsed.data.decision
       : null;
     if (score === null) return;
+    const reasons = Array.isArray(parsed.data.reasons)
+      ? parsed.data.reasons.slice(0, 4).map(String)
+      : [];
+
+    // Persist skor + keputusan + alasan AI (alasan disimpan di rule_data agar
+    // UI halaman review bisa menampilkan "Alasan AI" — lihat FraudPage.tsx).
+    // rule_data di-merge dengan data rule L1 yang sudah ada (bukan overwrite).
+    let mergedRuleData = {};
+    try {
+      const { rows } = await turso.execute({
+        sql: `SELECT rule_data FROM fraud_flags WHERE user_id = ? AND transaction_id = ? LIMIT 1`,
+        args: [userId, transaction.id],
+      });
+      const existing = rows[0]?.rule_data;
+      if (typeof existing === 'string' && existing) {
+        const parsedExisting = JSON.parse(existing);
+        if (parsedExisting && typeof parsedExisting === 'object') mergedRuleData = parsedExisting;
+      }
+    } catch {
+      /* non-blocking — merge gagal tidak menjatuhkan scoring */
+    }
+    if (reasons.length > 0) mergedRuleData.aiReasons = reasons;
 
     await turso.execute({
-      sql: `UPDATE fraud_flags SET risk_score = ?, decision = ? WHERE user_id = ? AND transaction_id = ?`,
-      args: [score, decision, userId, transaction.id],
+      sql: `UPDATE fraud_flags SET risk_score = ?, decision = ?, rule_data = ? WHERE user_id = ? AND transaction_id = ?`,
+      args: [score, decision, JSON.stringify(mergedRuleData), userId, transaction.id],
     });
     await turso.execute({
       sql: `UPDATE transactions SET fraud_score = ? WHERE id = ? AND user_id = ?`,
@@ -334,11 +356,9 @@ async function runAiScoring({ userId, transaction, flags, aggregates }) {
 
     // Eskalasi notifikasi bila AI menyimpulkan block — TETAP ADVISORY:
     // transaksi tidak dihapus/diblokir; hanya peringatan lebih kuat + skor AI.
+    // (notifyFraudEscalation menangani reasons kosong — template conditional.)
     if (decision === 'block') {
-      const reasons = Array.isArray(parsed.data.reasons)
-        ? parsed.data.reasons.slice(0, 3).map(String).join(' ')
-        : '';
-      await notifyFraudEscalation(userId, transaction, score, reasons);
+      await notifyFraudEscalation(userId, transaction, score, reasons.slice(0, 3).join(' '));
     }
   } catch (err) {
     logger.warn({ txId: transaction.id, err: err.message }, 'Fraud AI scoring gagal — degrade ke verdict rule engine');

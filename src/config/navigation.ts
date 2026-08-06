@@ -18,6 +18,7 @@ import {
   UserCircle,
   Settings,
   MessagesSquare,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export const moreMenuNav: NavItem[] = [
   { label: 'Laporan', href: '/reports', icon: BarChart3 },
   { label: 'AI Advisor', href: '/advisor', icon: MessagesSquare },
   { label: 'Rutin', href: '/recurring', icon: RefreshCw },
+  { label: 'Perlindungan Fraud', href: '/fraud', icon: ShieldAlert },
   { label: 'Suite', href: '/professional', icon: BriefcaseBusiness },
   { label: 'AI Search', href: '/suite/ai-search', icon: Sparkles },
   { label: 'Kategori', href: '/categories', icon: Tags },

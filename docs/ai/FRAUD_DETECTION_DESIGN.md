@@ -1,6 +1,6 @@
 # Fraud Detection — Architecture Design
 
-> **Status:** Implemented (L1 full + L2 behind feature flag) · **Owner:** Core Engineering · **Related:** [ADR-011](../adr/ADR-011-fraud-detection.md)
+> **Status:** Implemented (Sprint 1.1 penuh: L1 + L2 flag + UI review) · **Owner:** Core Engineering · **Related:** [ADR-011](../adr/ADR-011-fraud-detection.md)
 
 ## Objective
 
@@ -92,9 +92,10 @@ Only for flagged candidates, async (non-blocking):
 | Notification (bell + SSE) | ✅ Implemented | dedupe `fraud:<txId>`, type `warning`, action → /transactions |
 | Admin monitoring | ✅ Implemented | metric `fraud_flag_count` + alert rule seed `fraud_flags` |
 | API | ✅ Implemented | `server/routes/fraudRoutes.js` (summary / flags / review) + E2E spec |
-| L2 AI scoring (Gemini) | ✅ Implemented (di balik flag) | `runAiScoring`, prompt-bounded, degrade ke verdict L1 |
+| L2 AI scoring (Gemini) | ✅ Implemented (di balik flag) | `runAiScoring`, prompt-bounded, degrade ke verdict L1; alasan AI dipersist ke `rule_data.aiReasons` |
+| UI halaman review flag | ✅ Implemented | `src/features/fraud/FraudPage.tsx` (`/fraud`): summary, filter open/all, card flag (rule/severity/skor/decision/alasan AI), aksi "Sudah dicek" + E2E UI flow |
+| Navigasi & entry point | ✅ Implemented | route `/fraud` (lazy), item sidebar/menu "Perlindungan Fraud", widget dashboard → `/fraud` |
 
 ## Remaining
 
 - Tuning threshold per-rule setelah data nyata (env/konfigurasi rule).
-- UI halaman detail flag (saat ini: widget dashboard + badge transaksi + notifikasi).

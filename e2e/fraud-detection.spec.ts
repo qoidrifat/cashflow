@@ -15,6 +15,7 @@
  */
 import { test, expect, type APIRequestContext } from 'playwright/test';
 import { mintSessionCookie, cleanupTestSessions, type MintedSession } from './helpers/mintSession';
+import { setupAuthContext } from './helpers/authContext';
 
 const runTag = `fraud-e2e-${Date.now()}`;
 
@@ -109,6 +110,65 @@ test.describe('Fraud Detection (e2e)', () => {
       // ON DELETE CASCADE). Mencegah polusi dataset pinned user seed di CI/dev.
       for (const txId of createdTxIds) {
         await request.delete(`/api/transactions/${txId}`, { headers: authHeaders(cookie) }).catch(() => {});
+      }
+    }
+  });
+
+  test('UI: halaman /fraud menampilkan flag + flow tandai sudah dicek', async ({ browser, playwright }) => {
+    const cookie = session.cookie;
+    const msgId = `fraud-ui-msg-${runTag}`;
+    const merchant = `Merchant UI ${runTag}`;
+    const createdTxIds: string[] = [];
+
+    // API context terpisah (request fixture tidak tersedia di test bertipe browser).
+    const api = await playwright.request.newContext({ baseURL: 'http://localhost:5180' });
+
+    try {
+      const tx1 = await createExpense(api, cookie, { gmailMessageId: msgId, merchant });
+      createdTxIds.push(tx1);
+      const tx2 = await createExpense(api, cookie, { gmailMessageId: msgId, merchant });
+      createdTxIds.push(tx2);
+
+      // Tunggu flag transaksi-2 muncul (deteksi async).
+      let flagId = '';
+      await expect.poll(async () => {
+        const resp = await api.get('/api/fraud/summary', { headers: authHeaders(cookie) });
+        if (resp.status() !== 200) return '';
+        const body = await resp.json();
+        const flag = (body.recent || []).find((f: { transaction_id?: string }) => f.transaction_id === tx2);
+        flagId = flag?.id || '';
+        return flagId;
+      }, { timeout: 20_000 }).not.toBe('');
+
+      // Buka halaman /fraud dengan sesi browser.
+      const context = await browser.newContext();
+      await setupAuthContext(context, session);
+      const page = await context.newPage();
+      await page.goto('/fraud');
+
+      // Card flag tampil dengan label rule + severity + merchant.
+      const card = page.getByTestId(`fraud-flag-${flagId}`);
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await expect(card).toContainText('Duplikat');
+      await expect(card).toContainText(merchant);
+      await expect(card).toContainText('Kritis');
+
+      // Tombol "Sudah dicek" → status flag berubah jadi reviewed (API ground truth).
+      await card.getByRole('button', { name: /Sudah dicek/ }).click();
+      await expect.poll(async () => {
+        const resp = await api.get('/api/fraud/flags?limit=100', { headers: authHeaders(cookie) });
+        const body = await resp.json();
+        const found = (body.flags || []).find((f: { id?: string }) => f.id === flagId);
+        return found?.status;
+      }, { timeout: 10_000 }).toBe('reviewed');
+
+      // UI: card keluar dari daftar "Perlu dicek" (filter default open).
+      await expect(card).not.toBeVisible();
+      await context.close();
+    } finally {
+      await api.dispose().catch(() => {});
+      for (const txId of createdTxIds) {
+        await api.delete(`/api/transactions/${txId}`, { headers: authHeaders(cookie) }).catch(() => {});
       }
     }
   });
