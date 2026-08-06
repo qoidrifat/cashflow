@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../../components/layout/Header';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import ErrorState from '../../components/ui/ErrorState';
+import { TransactionSkeleton } from '../../components/ui/Skeleton';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -38,10 +40,13 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  // Sprint 1.5: error state inline (dengan retry) — bukan hanya toast,
+  // supaya halaman tidak tampil kosong menyesatkan saat fetch gagal.
+  const [error, setError] = useState<unknown>(null);
 
   const loadPage = async (offset = 0) => {
     if (!authUser?.uid) return;
-    if (offset === 0) setLoading(true);
+    if (offset === 0) { setLoading(true); setError(null); }
     else setLoadingMore(true);
 
     try {
@@ -54,11 +59,13 @@ export default function NotificationsPage() {
       const pageRows = rows.slice(0, PAGE_SIZE);
       setHasMore(rows.length > PAGE_SIZE);
       setNotifications((prev) => offset === 0 ? pageRows : [...prev, ...pageRows]);
-    } catch (error) {
+    } catch (fetchError) {
+      setError(fetchError);
+      if (offset === 0) setNotifications([]);
       addToast({
         type: 'error',
         title: 'Gagal memuat notifikasi',
-        message: error instanceof Error ? error.message : undefined,
+        message: fetchError instanceof Error ? fetchError.message : undefined,
       });
     } finally {
       setLoading(false);
@@ -146,10 +153,19 @@ export default function NotificationsPage() {
         <section aria-label="Daftar notifikasi" className="space-y-3">
           {loading ? (
             <Card>
-              <div className="flex items-center justify-center py-12 text-app-muted">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                Memuat notifikasi...
+              <div className="divide-y divide-app-border/70">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <TransactionSkeleton key={i} />
+                ))}
               </div>
+            </Card>
+          ) : error ? (
+            <Card>
+              <ErrorState
+                error={error}
+                title="Gagal Memuat Notifikasi"
+                onRetry={() => void loadPage(0)}
+              />
             </Card>
           ) : notifications.length === 0 ? (
             <Card>

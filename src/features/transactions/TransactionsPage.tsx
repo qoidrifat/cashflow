@@ -30,6 +30,7 @@ import Button from '../../components/ui/Button';
 import TransactionItem from '../../components/ui/TransactionItem';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
+import ErrorState from '../../components/ui/ErrorState';
 import { TransactionSkeleton } from '../../components/ui/Skeleton';
 import TransactionForm from './TransactionForm';
 import ScanReceiptModal from './ScanReceiptModal';
@@ -482,13 +483,11 @@ export default function TransactionsPage() {
               ))}
             </div>
           ) : error ? (
-            <div className="p-6 text-center space-y-3">
-              <p className="text-sm font-semibold text-app-text">Gagal memuat transaksi</p>
-              <p className="text-xs text-app-subtle">{error}</p>
-              <Button variant="outline" size="sm" onClick={() => void loadTransactions()}>
-                Coba Lagi
-              </Button>
-            </div>
+            <ErrorState
+              error={error}
+              title="Gagal Memuat Transaksi"
+              onRetry={() => void loadTransactions()}
+            />
           ) : transactions.length === 0 ? (
             <EmptyState
               title={search ? 'Tidak ada hasil' : 'Belum ada transaksi'}

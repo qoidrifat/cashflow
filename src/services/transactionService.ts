@@ -80,6 +80,12 @@ export interface GetTransactionsPaginatedOptions {
   minAmount?: number | null;
   maxAmount?: number | null;
   sortBy?: SortOption;
+  /**
+   * Sprint 1.5: false → error API dibiarkan menyebar (tidak fallback ke
+   * localStorage) agar UI bisa menampilkan ErrorState yang jujur.
+   * Default true = perilaku lama (offline-first: tampilkan cache lokal).
+   */
+  fallbackToLocal?: boolean;
 }
 
 export function listenToTransactions(
@@ -151,7 +157,11 @@ export async function getTransactionsPaginated(
       ...res,
       data: (res.data || []).map(mapTransaction),
     };
-  } catch {
+  } catch (err) {
+    // Sprint 1.5: panggil dengan fallbackToLocal:false bila error harus
+    // sampai ke UI (mis. ringkasan profil) — jangan menelan error jadi
+    // "Belum ada transaksi" yang menyesatkan saat backend down.
+    if (options.fallbackToLocal === false) throw err;
     const rows = readLocalTransactions(options.userId);
     return {
       data: rows,

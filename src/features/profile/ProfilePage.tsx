@@ -13,6 +13,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import SuccessFeedbackOverlay from '../../components/ui/SuccessFeedbackOverlay';
+import ErrorState from '../../components/ui/ErrorState';
 import { getTransactionsPaginated } from '../../services/transactionService';
 import { cn, formatCurrency } from '../../lib/utils';
 
@@ -40,6 +41,8 @@ export default function ProfilePage() {
   // Financial summary state
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  // Sprint 1.5: pisah error vs empty — fetch gagal ≠ "belum ada transaksi"
+  const [summaryError, setSummaryError] = useState<unknown>(null);
 
   useEffect(() => {
     return () => {
@@ -59,6 +62,7 @@ export default function ProfilePage() {
   const loadFinancialSummary = useCallback(async () => {
     if (!authUser?.uid) return;
     setSummaryLoading(true);
+    setSummaryError(null);
     try {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -68,6 +72,9 @@ export default function ProfilePage() {
         pageSize: 100,
         dateFrom: startOfMonth.toISOString().split('T')[0],
         dateTo: now.toISOString().split('T')[0],
+        // Sprint 1.5: jangan fallback ke localStorage — error API harus tampil
+        // sebagai ErrorState, bukan menyesatkan jadi "Belum ada transaksi".
+        fallbackToLocal: false,
       });
 
       const transactions = result.data || [];
@@ -94,8 +101,9 @@ export default function ProfilePage() {
         transactionCount: result.total || transactions.length,
         topCategory,
       });
-    } catch {
+    } catch (err) {
       setSummary(null);
+      setSummaryError(err);
     } finally {
       setSummaryLoading(false);
     }
@@ -172,6 +180,14 @@ export default function ProfilePage() {
                   <div className="h-16 bg-app-hover rounded-2xl" />
                 </div>
               </div>
+            </Card>
+          ) : summaryError ? (
+            <Card>
+              <ErrorState
+                error={summaryError}
+                title="Gagal Memuat Ringkasan"
+                onRetry={() => void loadFinancialSummary()}
+              />
             </Card>
           ) : summary ? (
             <div className="grid grid-cols-3 gap-2">
