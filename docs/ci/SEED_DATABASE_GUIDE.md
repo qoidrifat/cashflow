@@ -61,7 +61,12 @@ flowchart LR
    - Error **constraint TIDAK di-retry** (bug deterministik → gagal cepat & diagnosable, tidak di-masking).
 3. **`ON CONFLICT(id) DO NOTHING`** defensif di semua INSERT deterministik.
    - ⚠️ `categories` pakai composite PK `(user_id, id)` → `ON CONFLICT(user_id, id) DO NOTHING` (bukan `(id)`).
-4. **Error context** — setiap fase berlabel; failure melaporkan fase aktif terakhir + pesan penuh.
+4. **Timeout eksplisit per request** — custom fetch `AbortSignal.timeout` di `createClient({ fetch })` (juga di `applyTursoSchema.mjs`):
+   - Default **30s**, override via env `SEED_TURSO_TIMEOUT_MS`.
+   - Mengapa: tanpa timeout, request Turso yang HANG (network blackhole / TLS stall) menggantung **tanpa batas** sampai timeout job GitHub — jauh lebih buruk daripada error transien yang bisa di-retry.
+   - Timeout menghasilkan DOMException `TimeoutError` (pesan mengandung `timeout`) → otomatis masuk jalur retry, attempt tidak terbuang.
+   - Hanya berlaku untuk URL `http(s)`; DB `file:` lokal tidak terpengaruh.
+5. **Error context** — setiap fase berlabel; failure melaporkan fase aktif terakhir + pesan penuh.
 
 **Verifikasi lokal (2026-08-06):** seed RC=0, dataset identik (284/519/2/5/3), idempoten run ke-2 (3.8s), E2E subset 9/9 PASSED.
 
@@ -85,6 +90,7 @@ SEED_E2E=1 node scripts/seedE2eDataset.mjs
 |---|---|
 | Insert per-baris `execute()` untuk dataset besar | `client.batch()` chunk 100 |
 | Retry semua error | Retry hanya transient; constraint gagal cepat |
+| Tanpa timeout (request hang → job GitHub timeout) | Custom fetch `AbortSignal.timeout` (30s, `SEED_TURSO_TIMEOUT_MS`) |
 | `ON CONFLICT(id)` untuk tabel PK composite | `ON CONFLICT(<kolom PK sebenarnya>)` |
 | Menghapus data user non-seed | Delete hanya `staleIds` (user seed) |
 | Mengubah schema | `applyTursoSchema` non-destruktif, `IF NOT EXISTS` |

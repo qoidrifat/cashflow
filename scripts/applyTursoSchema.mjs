@@ -43,7 +43,21 @@ if (!url) {
   process.exit(1);
 }
 
-const client = createClient({ url, authToken: authToken || undefined });
+// Timeout eksplisit per request (pola sama dengan scripts/seedE2eDataset.mjs):
+// request Turso yang HANG (network blackhole / TLS stall) menggantung tanpa
+// batas sampai timeout job GitHub. AbortSignal.timeout → DOMException
+// 'TimeoutError' yang fail cepat (bukan hang). Hanya berlaku untuk URL http(s);
+// DB file: lokal tidak terpengaruh. Default 30s, env SEED_TURSO_TIMEOUT_MS.
+const TIMEOUT_MS = Number(process.env.SEED_TURSO_TIMEOUT_MS) || 30_000;
+const timedFetch = (input, init = {}) => {
+  const timeoutSignal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = init.signal
+    ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, timeoutSignal]) : init.signal)
+    : timeoutSignal;
+  return globalThis.fetch(input, { ...init, signal });
+};
+
+const client = createClient({ url, authToken: authToken || undefined, fetch: timedFetch });
 
 try {
   await initTursoSchema(client);

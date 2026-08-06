@@ -30,9 +30,15 @@
  *   2. RETRY — exponential backoff (4 attempt) HANYA untuk error transient
  *      (network/timeout/429/5xx); error constraint (UNIQUE dsb.) TIDAK di-retry
  *      dan langsung gagal (diagnosable, bukan di-masking).
- *   3. ON CONFLICT(id) DO NOTHING di semua INSERT deterministik (defensif —
+ *   3. TIMEOUT EKSPLISIT — custom fetch dengan AbortSignal.timeout (default 30s,
+ *      env SEED_TURSO_TIMEOUT_MS). Tanpa ini, request Turso yang HANG (network
+ *      blackhole, TLS stall) menggantung tanpa batas sampai timeout job GitHub
+ *      — jauh lebih buruk daripada error transien yang bisa di-retry. Timeout
+ *      menghasilkan DOMException 'TimeoutError' yang cocok TRANSIENT_RE →
+ *      denganRetry menanganinya (tidak membuang attempt).
+ *   4. ON CONFLICT(id) DO NOTHING di semua INSERT deterministik (defensif —
  *      DELETE pendahulu tetap penjaga utama idempotensi).
- *   4. ERROR CONTEXT — setiap fase berlabel; failure melaporkan fase + pesan
+ *   5. ERROR CONTEXT — setiap fase berlabel; failure melaporkan fase + pesan
  *      penuh agar failure CI bisa di-root-cause dari log.
  *
  * Penggunaan:
@@ -123,6 +129,29 @@ async function withRetry(fn, { attempts = 4, baseMs = 400, label = 'query' } = {
 
 const BATCH_SIZE = 100;
 
+/**
+ * Timeout eksplisit per request Turso (lihat header, poin 3).
+ *
+ * createClient menerima opsi `fetch` (custom fetch untuk HTTP client — hanya
+ * dipakai untuk URL http(s); DB file: lokal tidak terpengaruh). Wrapper ini
+ * membungkus fetch native undici dengan AbortSignal.timeout: bila request HANG,
+ * undici melempar DOMException 'TimeoutError' (pesan mengandung 'timeout' →
+ * cocok TRANSIENT_RE → ditangani withRetry). Fallback aman bila signal lain
+ * sudah ada (AbortSignal.any, Node 20+; CI & lokal Node 24).
+ */
+const SEED_TURSO_TIMEOUT_MS = Number(process.env.SEED_TURSO_TIMEOUT_MS) || 30_000;
+
+function createTimedFetch(timeoutMs) {
+  const nativeFetch = globalThis.fetch;
+  return (input, init = {}) => {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal
+      ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, timeoutSignal]) : init.signal)
+      : timeoutSignal;
+    return nativeFetch(input, { ...init, signal });
+  };
+}
+
 // Fase aktif terakhir (untuk error context di level modul).
 let sectionLabel = 'inserts';
 
@@ -135,7 +164,13 @@ async function main() {
     process.exit(1);
   }
 
-  const turso = createClient({ url, authToken: token });
+  const turso = createClient({
+    url,
+    authToken: token,
+    // Timeout eksplisit per request (Sprint 0.7): request hang tidak lagi
+    // menggantung sampai timeout job GitHub; TimeoutError masuk jalur retry.
+    fetch: createTimedFetch(SEED_TURSO_TIMEOUT_MS),
+  });
   const rng = mulberry32(20260802); // seed tetap → dataset deterministik
 
   // Kolektor statement: INSERT independent di-queue lalu di-flush ber-batch
@@ -334,7 +369,7 @@ async function main() {
     console.log(`[seedE2e]    gmail_logs: ${counts.gmail_logs} (auto_accepted ${G_ACCEPTED} / needs_review ${G_NEEDS_REVIEW} / skip-reject ${G_SKIP_REJECT})`);
     console.log(`[seedE2e]    gmail_runs: ${counts.gmail_runs} · budgets: ${counts.budgets} · notifications: ${counts.notifications}`);
     console.log(`[seedE2e]    ADMIN_EMAILS harus memuat: ${seedEmail}`);
-    console.log(`[seedE2e]    ⏱️ ${(elapsedMs / 1000).toFixed(1)}s · ${batchCount} batch (${BATCH_SIZE}/batch) · retry transien diaktifkan`);
+    console.log(`[seedE2e]    ⏱️ ${(elapsedMs / 1000).toFixed(1)}s · ${batchCount} batch (${BATCH_SIZE}/batch) · retry transien + timeout ${SEED_TURSO_TIMEOUT_MS}ms`);
   } finally {
     // sengaja TIDAK memanggil turso.close() di sini: pada Windows, close()
     // koneksi native sqlite3 (file: DB) bisa hang intermittent; untuk one-shot
