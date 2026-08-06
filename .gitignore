@@ -51,3 +51,8 @@ public/logout-debug-viewport.png
 
 # Verifikasi visual lokal (screenshot bukti sementara)
 tmp-verify/
+
+# Benchmark live (Gemini nyata) — hasil ber-timestamp & non-deterministik
+# (biaya AI + fluktuasi model), jangan di-commit sebagai artifact
+# (docs/ai/benchmark-results.json = deterministik, tetap di-commit).
+docs/ai/benchmark-live-results.json

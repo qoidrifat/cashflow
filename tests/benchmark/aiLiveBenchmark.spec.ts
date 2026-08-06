@@ -1,0 +1,348 @@
+/**
+ * AI Quality Benchmark — LIVE integration mode (Gemini nyata).
+ *
+ * Menjalankan subset kasus (fixtures bagian 7) terhadap Vertex AI Gemini yang
+ * sungguh-sungguh — membuktikan bahwa prompt builders + parser produksi bekerja
+ * end-to-end dengan model nyata (bukan hanya fallback/lokal deterministik).
+ *
+ * SKIP secara default (CI aman — tidak butuh credentials/network/biaya).
+ * Aktifkan dengan:
+ *   npm run benchmark:ai:live          (set BENCH_LIVE=1) ← trigger resmi
+ *   BENCH_LIVE=1 npx vitest run tests/benchmark/aiLiveBenchmark.spec.ts
+ *
+ * Catatan: `vitest ... --live` TIDAK didukung (vitest menolak flag tak dikenal);
+ * `--live` di argv hanya fallback harmless.
+ *
+ * Requirements (server/.env):
+ *   GOOGLE_CLOUD_PROJECT | GCP_PROJECT_ID, GCP_LOCATION,
+ *   GEMINI_PRIMARY_MODEL, GEMINI_FALLBACK_MODEL,
+ *   GOOGLE_APPLICATION_CREDENTIALS (service account JSON + file ada).
+ *
+ * Hasil ditulis ke docs/ai/benchmark-live-results.json (ber-timestamp,
+ * non-deterministik → TIDAK di-commit; sudah di-.gitignore).
+ */
+import { describe, expect, it, beforeAll } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import {
+  configureVertexAI,
+  initGemini,
+  generateGeminiText,
+  parseGeminiResponse,
+  buildExtractionPrompt,
+  buildMonthlyReportPrompt,
+  buildAdvisorPrompt,
+} from '../../server/lib/vertexContext.js';
+import { evaluateFraudRules } from '../../server/lib/fraudEngine.js';
+import { buildFraudScoringPrompt } from '../../server/services/fraudDetectionService.js';
+import { buildFallbackMonthlyReport } from '../../src/services/aiInsightService';
+import { computeAdvisorMetrics } from '../../src/services/advisorService';
+import {
+  LIVE_FRAUD,
+  LIVE_GMAIL,
+  LIVE_INSIGHT,
+  LIVE_ADVISOR,
+} from './fixtures';
+
+const LIVE = process.env.BENCH_LIVE === '1' || process.argv.includes('--live');
+const RESULTS_FILE = path.resolve(process.cwd(), 'docs', 'ai', 'benchmark-live-results.json');
+
+const FRAUD_DECISIONS = ['allow', 'review', 'block'];
+const HEALTH_VALUES = ['sehat', 'stabil', 'waspada', 'kritis'];
+
+/** Parse server/.env secara manual (tanpa dependency) — set process.env bila kosong. */
+function loadServerEnv() {
+  const envPath = path.resolve(process.cwd(), 'server', '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq <= 0) continue;
+    const key = t.slice(0, eq).trim();
+    let value = t.slice(eq + 1).trim();
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+
+describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live)', () => {
+  let initError: string | null = null;
+
+  beforeAll(() => {
+    // Hasil live = snapshot sekali jalan: truncate file lama agar tidak menumpuk
+    // antar run (append antar test di dalam run ini tetap berlaku).
+    if (fs.existsSync(RESULTS_FILE)) {
+      fs.rmSync(RESULTS_FILE, { force: true });
+    }
+    loadServerEnv();
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID;
+    const rawCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+    const credentialsAbs = path.resolve(process.cwd(), 'server', rawCredentials.replace(/^\.\//, ''));
+
+    if (!projectId) {
+      initError = 'GOOGLE_CLOUD_PROJECT / GCP_PROJECT_ID tidak ada di server/.env';
+      return;
+    }
+    if (!rawCredentials) {
+      initError = 'GOOGLE_APPLICATION_CREDENTIALS tidak ada di server/.env (butuh service account JSON)';
+      return;
+    }
+    if (!fs.existsSync(credentialsAbs)) {
+      initError = `Service account tidak ditemukan: ${credentialsAbs}`;
+      return;
+    }
+
+    // GoogleGenAI (mode Vertex) membaca ADC via env var ini saat konstruksi.
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsAbs;
+    configureVertexAI({
+      primaryModel: process.env.GEMINI_PRIMARY_MODEL || '',
+      fallbackModel: process.env.GEMINI_FALLBACK_MODEL || '',
+      projectId,
+      location: process.env.GCP_LOCATION || 'us-central1',
+      rawCredentials,
+      credentialsAbs,
+      nodeEnv: 'test',
+    });
+    if (!initGemini()) {
+      initError = 'initGemini() gagal — cek model/project/credentials di server/.env';
+    }
+  });
+
+  /** Jalankan satu panggilan Gemini; catat latency, token, error. */
+  async function callGemini(prompt: string, feature: string) {
+    const startedAt = performance.now();
+    try {
+      const result = await generateGeminiText(prompt, { feature, cacheTtlMs: 0 });
+      const usage = result.response?.usageMetadata || {};
+      return {
+        ok: true,
+        latencyMs: Math.round(performance.now() - startedAt),
+        promptTokens: usage.promptTokenCount ?? 0,
+        completionTokens: usage.candidatesTokenCount ?? 0,
+        text: result.text,
+        model: result.modelUsed,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Math.round(performance.now() - startedAt),
+        promptTokens: 0,
+        completionTokens: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  it('fraud L2 — AI risk scoring setuju dengan rule engine L1', async () => {
+    if (initError) throw new Error(initError);
+    const rows: unknown[] = [];
+    let agree = 0; let parsed = 0; let totalTokens = 0;
+
+    for (const c of LIVE_FRAUD) {
+      const flags = evaluateFraudRules({ transaction: c.tx, aggregates: c.ag });
+      const prompt = buildFraudScoringPrompt({ transaction: c.tx, flags, aggregates: c.ag });
+      const res = await callGemini(prompt, 'fraud_detection');
+      totalTokens += res.promptTokens + res.completionTokens;
+
+      let schemaOk = false; let agreeOk = false; let detail: string | null = null;
+      if (res.ok) {
+        const parsedRes = parseGeminiResponse(res.text);
+        if (parsedRes.success && parsedRes.data) {
+          const d = parsedRes.data;
+          const score = Number(d.fraud_score);
+          const decision = d.decision;
+          schemaOk = Number.isFinite(score) && score >= 0 && score <= 1
+            && FRAUD_DECISIONS.includes(decision)
+            && Array.isArray(d.reasons);
+          // Agree L2 vs L1: ada flag L1 → jangan 'allow'; bersih → 'allow'.
+          agreeOk = c.exp.length > 0 ? decision !== 'allow' : decision === 'allow';
+          if (schemaOk) parsed += 1;
+          if (schemaOk && agreeOk) agree += 1;
+          detail = schemaOk
+            ? `score=${score} decision=${decision} reasons=${(d.reasons || []).length}`
+            : `schema invalid: ${JSON.stringify(d).slice(0, 120)}`;
+        } else {
+          detail = `unparseable: ${res.text.slice(0, 120)}`;
+        }
+      } else {
+        detail = `error: ${res.error}`;
+      }
+      rows.push({ name: c.name, ok: res.ok && schemaOk && agreeOk, flags: c.exp, latencyMs: res.latencyMs, detail });
+      // eslint-disable-next-line no-console
+      console.log(`  fraud  ${res.ok && schemaOk && agreeOk ? 'PASS' : 'FAIL'} ${c.name} → ${detail}`);
+    }
+
+    fs.mkdirSync(path.dirname(RESULTS_FILE), { recursive: true });
+    const report = {
+      category: 'fraud_l2_live', cases: LIVE_FRAUD.length,
+      parseRate: parsed / LIVE_FRAUD.length,
+      agreeRate: agree / LIVE_FRAUD.length,
+      totalTokens,
+      rows,
+    };
+    appendLiveResult(report);
+
+    // Floor lunak: mayoritas ter-parse & ≥1 case pass (live flaky — bukan gate CI).
+    expect(parsed / LIVE_FRAUD.length).toBeGreaterThanOrEqual(0.5);
+    expect(agree).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
+  it('gmail extraction — decision & amount cocok dengan ground truth', async () => {
+    if (initError) throw new Error(initError);
+    const rows: unknown[] = [];
+    let passed = 0; let totalTokens = 0;
+
+    for (const c of LIVE_GMAIL) {
+      const prompt = buildExtractionPrompt(c.email.body, c.email.subject, c.email.from, c.email.date);
+      const res = await callGemini(prompt, 'gmail_sync');
+      totalTokens += res.promptTokens + res.completionTokens;
+
+      let ok = false; let detail: string | null = null;
+      if (res.ok) {
+        const parsedRes = parseGeminiResponse(res.text);
+        if (parsedRes.success && parsedRes.data) {
+          const d = parsedRes.data;
+          const checks: string[] = [];
+          if (d.is_transaction === c.expected.isTransaction) checks.push('is_transaction');
+          if (c.expected.amount !== undefined && d.amount === c.expected.amount) checks.push('amount');
+          if (c.expected.transactionType !== undefined && d.transaction_type === c.expected.transactionType) checks.push('transaction_type');
+          const wanted = ['is_transaction', ...(c.expected.amount !== undefined ? ['amount'] : []), ...(c.expected.transactionType !== undefined ? ['transaction_type'] : [])];
+          ok = wanted.every((w) => checks.includes(w));
+          detail = `checks=${checks.join(',')} decision=${d.decision} amount=${d.amount} confidence=${d.confidence_score}`;
+        } else {
+          detail = `unparseable: ${res.text.slice(0, 120)}`;
+        }
+      } else {
+        detail = `error: ${res.error}`;
+      }
+      if (ok) passed += 1;
+      rows.push({ name: c.name, ok, latencyMs: res.latencyMs, detail });
+      // eslint-disable-next-line no-console
+      console.log(`  gmail  ${ok ? 'PASS' : 'FAIL'} ${c.name} → ${detail}`);
+    }
+
+    const report = {
+      category: 'gmail_extraction_live', cases: LIVE_GMAIL.length,
+      passRate: passed / LIVE_GMAIL.length,
+      totalTokens,
+      rows,
+    };
+    appendLiveResult(report);
+
+    expect(passed / LIVE_GMAIL.length).toBeGreaterThanOrEqual(0.5);
+    expect(passed).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
+  it('insight — health & score valid dan konsisten', async () => {
+    if (initError) throw new Error(initError);
+    const rows: unknown[] = [];
+    let passed = 0; let totalTokens = 0;
+
+    for (const c of LIVE_INSIGHT) {
+      const reportData = buildFallbackMonthlyReport(c.input);
+      const prompt = buildMonthlyReportPrompt(reportData);
+      const res = await callGemini(prompt, 'insight_generator');
+      totalTokens += res.promptTokens + res.completionTokens;
+
+      let ok = false; let detail: string | null = null;
+      if (res.ok) {
+        const parsedRes = parseGeminiResponse(res.text);
+        if (parsedRes.success && parsedRes.data) {
+          const d = parsedRes.data;
+          const score = Number(d.financialHealthScore);
+          const healthOk = HEALTH_VALUES.includes(d.cashflowHealth);
+          const scoreOk = Number.isFinite(score) && score >= 0 && score <= 100;
+          ok = healthOk && scoreOk && d.cashflowHealth === c.health;
+          detail = `health=${d.cashflowHealth} (exp ${c.health}) score=${score} summary="${String(d.summary || '').slice(0, 60)}"`;
+        } else {
+          detail = `unparseable: ${res.text.slice(0, 120)}`;
+        }
+      } else {
+        detail = `error: ${res.error}`;
+      }
+      if (ok) passed += 1;
+      rows.push({ name: c.name, ok, latencyMs: res.latencyMs, detail });
+      // eslint-disable-next-line no-console
+      console.log(`  insight ${ok ? 'PASS' : 'FAIL'} ${c.name} → ${detail}`);
+    }
+
+    const report = {
+      category: 'insight_live', cases: LIVE_INSIGHT.length,
+      passRate: passed / LIVE_INSIGHT.length,
+      totalTokens,
+      rows,
+    };
+    appendLiveResult(report);
+
+    expect(passed / LIVE_INSIGHT.length).toBeGreaterThanOrEqual(0.5);
+    expect(passed).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+
+  it('advisor — output JSON lengkap sesuai schema prompt', async () => {
+    if (initError) throw new Error(initError);
+    const rows: unknown[] = [];
+    let passed = 0; let totalTokens = 0;
+
+    for (const c of LIVE_ADVISOR) {
+      const metrics = computeAdvisorMetrics(c.input);
+      const prompt = buildAdvisorPrompt({ metrics, subscriptions: c.input.subscriptions || [] });
+      const res = await callGemini(prompt, 'financial_advisor');
+      totalTokens += res.promptTokens + res.completionTokens;
+
+      let ok = false; let detail: string | null = null;
+      if (res.ok) {
+        const parsedRes = parseGeminiResponse(res.text);
+        if (parsedRes.success && parsedRes.data) {
+          const d = parsedRes.data;
+          const missing = c.requiredKeys.filter((k) => !(k in d));
+          ok = missing.length === 0;
+          detail = ok
+            ? `keys=${c.requiredKeys.length} summary="${String(d.summary || '').slice(0, 60)}"`
+            : `missing keys: ${missing.join(', ')}`;
+        } else {
+          detail = `unparseable: ${res.text.slice(0, 120)}`;
+        }
+      } else {
+        detail = `error: ${res.error}`;
+      }
+      if (ok) passed += 1;
+      rows.push({ name: c.name, ok, latencyMs: res.latencyMs, detail });
+      // eslint-disable-next-line no-console
+      console.log(`  advisor ${ok ? 'PASS' : 'FAIL'} ${c.name} → ${detail}`);
+    }
+
+    const report = {
+      category: 'advisor_live', cases: LIVE_ADVISOR.length,
+      passRate: passed / LIVE_ADVISOR.length,
+      totalTokens,
+      rows,
+    };
+    appendLiveResult(report);
+
+    expect(passed / LIVE_ADVISOR.length).toBeGreaterThanOrEqual(0.5);
+    expect(passed).toBeGreaterThanOrEqual(1);
+  }, 180_000);
+});
+
+/** Kumpulkan hasil live ke satu file (append antar test, timestamp sekali). */
+function appendLiveResult(report: unknown) {
+  const dir = path.dirname(RESULTS_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  let existing: { generatedAt?: string; runner?: string; categories: unknown[] } = { categories: [] };
+  if (fs.existsSync(RESULTS_FILE)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(RESULTS_FILE, 'utf8'));
+    } catch {
+      existing = { categories: [] };
+    }
+  }
+  if (!Array.isArray(existing.categories)) existing.categories = [];
+  existing.categories.push(report);
+  existing.runner = 'tests/benchmark/aiLiveBenchmark.spec.ts (npm run benchmark:ai:live)';
+  existing.generatedAt = new Date().toISOString();
+  fs.writeFileSync(RESULTS_FILE, JSON.stringify(existing, null, 2));
+}

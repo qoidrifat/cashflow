@@ -5,8 +5,9 @@
  * offline (tanpa Gemini/DB/network): L1 fraud rule engine, fallback insight,
  * fallback advisor, re-rank search, local gmail parser, normalizer OCR.
  *
- * - 100 kasus per kategori (hand-crafted edge cases + generator deterministik
- *   ber-index, tanpa RNG liar) dengan ground-truth eksplisit.
+ * - 5 kategori × 100 kasus (hand-crafted edge cases + generator deterministik
+ *   ber-index, tanpa RNG liar) + kategori ke-6 hand_crafted (74 kasus bernama
+ *   dari fixtures.ts) dengan ground-truth eksplisit.
  * - Metrik: accuracy, precision, recall, F1, latency (ms), token input estimasi,
  *   cost estimasi (pricing AI_PRICING), distribusi confidence.
  * - Hasil ditulis ke docs/ai/benchmark-results.json (JANGAN hardcode hasil).
@@ -19,6 +20,16 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+
+// Hand-crafted edge cases (bagian 1 fixtures) — kategori benchmark ke-6.
+import {
+  HAND_CRAFTED_FRAUD,
+  HAND_CRAFTED_OCR,
+  HAND_CRAFTED_GMAIL,
+  HAND_CRAFTED_INSIGHT,
+  HAND_CRAFTED_ADVISOR,
+  HAND_CRAFTED_SEARCH,
+} from './fixtures';
 
 // ── Predictor deterministik (tanpa AI/DB/network) ──
 import { evaluateFraudRules, computeRuleRiskScore } from '../../server/lib/fraudEngine.js';
@@ -401,6 +412,106 @@ function runBenchmark() {
     });
   }
 
+  // 6) HAND-CRAFTED edge cases — 74 kasus bernama (fraud 20, OCR 20, gmail 10,
+  //    insight 8, advisor 8, search 8). Ground truth eksplisit + alasan tiap kasus.
+  //    (fixtures.ts — auditable, bukan generator acak.)
+  {
+    // 6a) Fraud L1
+    {
+      const samples: Array<{ pred: Set<string>; exp: Set<string> }> = [];
+      let totalMs = 0;
+      for (const c of HAND_CRAFTED_FRAUD) {
+        const t = timed(() => evaluateFraudRules({ transaction: c.tx, aggregates: c.ag }));
+        totalMs += t.ms;
+        samples.push({ pred: new Set(t.value.map((f: any) => f.rule)), exp: new Set(c.exp) });
+      }
+      const m = macroPrecisionRecallF1(samples);
+      reports.push({ category: 'hand_crafted_fraud', cases: HAND_CRAFTED_FRAUD.length, ...m, avgLatencyMs: totalMs / HAND_CRAFTED_FRAUD.length });
+    }
+
+    // 6b) OCR receipt normalizer
+    {
+      let checks = 0; let total = 0; let totalMs = 0;
+      for (const c of HAND_CRAFTED_OCR) {
+        const t = timed(() => normalizeReceiptResult(c.payload));
+        totalMs += t.ms;
+        for (const [key, val] of Object.entries(c.expect)) {
+          total += 1;
+          if (t.value[key] === val) checks += 1;
+        }
+      }
+      reports.push({ category: 'hand_crafted_ocr', cases: HAND_CRAFTED_OCR.length, receiptFieldAccuracy: checks / total, avgLatencyMs: totalMs / HAND_CRAFTED_OCR.length });
+    }
+
+    // 6c) Gmail L0 parser
+    {
+      let decisionOk = 0; let amountOk = 0; let withAmount = 0; let totalMs = 0;
+      for (const c of HAND_CRAFTED_GMAIL) {
+        const t = timed(() => evaluateLocalGmailParser(c.email));
+        totalMs += t.ms;
+        if (t.value.decision === c.decision) decisionOk += 1;
+        if (c.amount !== undefined) {
+          withAmount += 1;
+          if (t.value.extracted?.amount === c.amount) amountOk += 1;
+        }
+      }
+      reports.push({
+        category: 'hand_crafted_gmail', cases: HAND_CRAFTED_GMAIL.length,
+        gmailDecisionAccuracy: decisionOk / HAND_CRAFTED_GMAIL.length,
+        gmailAmountExtractionAccuracy: withAmount > 0 ? amountOk / withAmount : 1,
+        avgLatencyMs: totalMs / HAND_CRAFTED_GMAIL.length,
+      });
+    }
+
+    // 6d) Insight fallback
+    {
+      const samples: Array<{ pred: Set<string>; exp: Set<string> }> = [];
+      let totalMs = 0;
+      for (const c of HAND_CRAFTED_INSIGHT) {
+        const t = timed(() => buildFallbackMonthlyReport(c.input));
+        const report = t.value;
+        totalMs += t.ms;
+        const checks: string[] = [];
+        if (report.cashflowHealth === c.health) checks.push('health');
+        if (typeof report.financialHealthScore === 'number' && report.financialHealthScore >= c.score[0] && report.financialHealthScore <= c.score[1]) checks.push('score');
+        for (const needle of c.contains) if (needle && JSON.stringify(report).includes(needle)) checks.push('signal:' + needle);
+        samples.push({ pred: new Set(checks), exp: new Set(['health', 'score', ...c.contains.filter(Boolean).map((x) => 'signal:' + x)]) });
+      }
+      const m = macroPrecisionRecallF1(samples);
+      reports.push({ category: 'hand_crafted_insight', cases: HAND_CRAFTED_INSIGHT.length, ...m, avgLatencyMs: totalMs / HAND_CRAFTED_INSIGHT.length });
+    }
+
+    // 6e) Advisor fallback
+    {
+      const samples: Array<{ pred: Set<string>; exp: Set<string> }> = [];
+      let totalMs = 0;
+      for (const c of HAND_CRAFTED_ADVISOR) {
+        const t = timed(() => buildFallbackAdvisorReport(computeAdvisorMetrics(c.input)));
+        const text = JSON.stringify(t.value);
+        totalMs += t.ms;
+        samples.push({ pred: new Set(c.contains.filter((x) => text.includes(x))), exp: new Set(c.contains) });
+      }
+      const m = macroPrecisionRecallF1(samples);
+      reports.push({ category: 'hand_crafted_advisor', cases: HAND_CRAFTED_ADVISOR.length, ...m, avgLatencyMs: totalMs / HAND_CRAFTED_ADVISOR.length });
+    }
+
+    // 6f) Search re-rank
+    {
+      let top1 = 0; let totalMs = 0;
+      for (const c of HAND_CRAFTED_SEARCH) {
+        const t = timed(() => rankAndExplainResults(c.results, c.query, c.tab, c.filters));
+        const ranked = t.value;
+        totalMs += t.ms;
+        if (c.expectedTopId === undefined) {
+          if (ranked.length === 0) top1 += 1; // empty results → kosong, tidak crash
+        } else if (ranked[0]?.id === c.expectedTopId) {
+          top1 += 1;
+        }
+      }
+      reports.push({ category: 'hand_crafted_search', cases: HAND_CRAFTED_SEARCH.length, top1HitRate: top1 / HAND_CRAFTED_SEARCH.length, avgLatencyMs: totalMs / HAND_CRAFTED_SEARCH.length });
+    }
+  }
+
   return reports;
 }
 
@@ -416,7 +527,7 @@ function confidenceBucket(values: number[]): Record<string, number> {
 }
 
 describe('AI Quality Benchmark (Sprint 1 · Phase 1.6)', () => {
-  it('menjalankan 5 kategori benchmark deterministik & menulis docs/ai/benchmark-results.json', () => {
+  it('menjalankan 6 kategori benchmark deterministik (5×100 + 74 hand-crafted) & menulis docs/ai/benchmark-results.json', () => {
     const reports = runBenchmark();
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
     const output = {
@@ -437,6 +548,13 @@ describe('AI Quality Benchmark (Sprint 1 · Phase 1.6)', () => {
     const advisor = reports.find((r: any) => r.category === 'advisor_fallback');
     const search = reports.find((r: any) => r.category === 'search_rerank');
     const ocr = reports.find((r: any) => r.category === 'ocr_parsing_local');
+    // Hand-crafted (kategori 6)
+    const hcFraud = reports.find((r: any) => r.category === 'hand_crafted_fraud');
+    const hcOcr = reports.find((r: any) => r.category === 'hand_crafted_ocr');
+    const hcGmail = reports.find((r: any) => r.category === 'hand_crafted_gmail');
+    const hcInsight = reports.find((r: any) => r.category === 'hand_crafted_insight');
+    const hcAdvisor = reports.find((r: any) => r.category === 'hand_crafted_advisor');
+    const hcSearch = reports.find((r: any) => r.category === 'hand_crafted_search');
 
     expect(fraud.precision).toBeGreaterThanOrEqual(0.95);
     expect(fraud.recall).toBeGreaterThanOrEqual(0.95);
@@ -446,5 +564,14 @@ describe('AI Quality Benchmark (Sprint 1 · Phase 1.6)', () => {
     expect(search.suggestedQueriesValidRate).toBeGreaterThanOrEqual(0.99);
     expect(ocr.receiptFieldAccuracy).toBeGreaterThanOrEqual(0.9);
     expect(ocr.gmailDecisionAccuracy).toBeGreaterThanOrEqual(0.9);
+
+    // Floor kategori hand-crafted — edge case bernama wajib lulus (regression guard tambahan).
+    expect(hcFraud.precision).toBeGreaterThanOrEqual(0.95);
+    expect(hcFraud.recall).toBeGreaterThanOrEqual(0.95);
+    expect(hcOcr.receiptFieldAccuracy).toBeGreaterThanOrEqual(0.9);
+    expect(hcGmail.gmailDecisionAccuracy).toBeGreaterThanOrEqual(0.9);
+    expect(hcInsight.accuracy).toBeGreaterThanOrEqual(0.9);
+    expect(hcAdvisor.accuracy).toBeGreaterThanOrEqual(0.9);
+    expect(hcSearch.top1HitRate).toBeGreaterThanOrEqual(0.9);
   });
 });

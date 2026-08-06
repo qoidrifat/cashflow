@@ -1,9 +1,10 @@
 # AI Benchmark & Evaluation Suite
 
-> **Sprint 1 — Product Intelligence Refinement · Phase 1.6** (phase terpenting)
+> **Sprint 1 — Product Intelligence Refinement · Phase 1.6+** (phase terpenting)
 > Status: **SELESAI** · Tanggal: 2026-08-06
-> Runner: `tests/benchmark/aiQualityBenchmark.spec.ts` · Jalankan: `npm run benchmark:ai`
-> Hasil otomatis (JANGAN hardcode): `docs/ai/benchmark-results.json`
+> Runner offline: `tests/benchmark/aiQualityBenchmark.spec.ts` · `npm run benchmark:ai`
+> Runner live: `tests/benchmark/aiLiveBenchmark.spec.ts` · `npm run benchmark:ai:live`
+> Hasil otomatis (JANGAN hardcode): `docs/ai/benchmark-results.json` (deterministik, di-commit) · `docs/ai/benchmark-live-results.json` (live, ber-timestamp, di-.gitignore)
 
 ---
 
@@ -14,20 +15,25 @@ Benchmark resmi untuk mengukur kualitas **lapisan AI yang deterministik** (yang 
 2. **Regression guard** — floor assertion di CI: perubahan yang menurunkan kualitas deterministik → CI merah.
 3. **Estimasi biaya & token** per fitur (pricing `AI_PRICING` gemini_flash).
 
-**Catatan scope (jujur):** lapisan yang butuh model (Gemini/Discovery live) TIDAK diuji offline — yang di-benchmark adalah lapisan yang dapat diverifikasi secara deterministik: L1 fraud rule engine, fallback insight/advisor (yang juga menjadi fallback & jaminan kualitas AI), re-rank + suggested queries search, local gmail parser (L0), dan normalizer hasil OCR (post-AI). Evaluasi live-AI tetap via pengujian manual/E2E.
+**Catatan scope:** dua runner melengkapi satu sama lain:
+1. **Offline deterministik** — lapisan yang dapat diverifikasi tanpa model/DB/network: L1 fraud rule engine, fallback insight/advisor (jaminan kualitas AI), re-rank + suggested queries search, local gmail parser (L0), normalizer hasil OCR. Jalan di CI sebagai regression guard.
+2. **Live integration (Gemini nyata, opsional)** — membuktikan prompt builders + `parseGeminiResponse` + pipeline Vertex bekerja end-to-end dengan model sungguhan. **Skip default di CI** (butuh credentials + biaya AI); aktifkan eksplisit.
 
 ---
 
 ## 2. Metodologi
 
-- **5 kategori × 100 kasus** = 500 kasus sintetis; tiap kategori = hand-crafted edge cases + generator deterministik (mulberry32 ber-seed / indeks-siklik) dengan **ground-truth eksplisit**.
+- **6 kategori offline**: 5 kategori × 100 kasus sintetis (hand-crafted + generator deterministik ber-seed, **ground-truth eksplisit**) **+ kategori `hand_crafted`** = **74 kasus bernama** di `tests/benchmark/fixtures.ts` (fraud 20 · OCR 20 · gmail 10 · insight 8 · advisor 8 · search 8) — tiap kasus punya `reason` (alasan edge, auditable), bukan angka acak.
 - Metrik: accuracy, precision, recall, F1 (macro), latency (ms), input tokens (estimasi `estimateTokensFromText`), cost estimasi, distribusi confidence.
 - Prediktor = fungsi produksi nyata (bukan salinan): `evaluateFraudRules`, `buildFallbackMonthlyReport`, `buildFallbackAdvisorReport`+`computeAdvisorMetrics`, `rankAndExplainResults`+`buildSuggestedQueries`, `evaluateLocalGmailParser`, `normalizeReceiptResult`.
 - Deterministik: seed tetap → hasil identik tiap run.
+- **Live mode**: subset `fixtures.ts` bagian 7 (fraud L2 5 · gmail 5 · insight 3 · advisor 3) dipanggil ke Vertex AI Gemini via `generateGeminiText` (feature produksi, cache off); metrik = parse rate, agree/ pass rate, latency riil, token riil (`usageMetadata`).
 
 ---
 
 ## 3. Hasil (run 2026-08-06)
+
+### 3a. Offline deterministik — generator (5 × 100)
 
 | Kategori | Cases | Precision | Recall | F1 | Accuracy | Latency avg | Input tokens avg | Est cost USD/case |
 |---|---|---|---|---|---|---|---|---|
@@ -36,6 +42,28 @@ Benchmark resmi untuk mengukur kualitas **lapisan AI yang deterministik** (yang 
 | **advisor_fallback** | 100 | **1.000** | **1.000** | **1.000** | **1.000** | 0.05 ms | 147 | $0.000024 |
 | **search_rerank** | 100 | top1-hit **1.000** · explanation **1.000** · suggestions valid **1.000** | — | — | — | 0.02 ms | — | — |
 | **ocr_parsing_local** | 100 | gmail decision **1.000** · gmail amount **1.000** · receipt field **1.000** | — | — | — | 0.07 ms | — | — |
+
+### 3b. Offline deterministik — hand-crafted (74 kasus bernama)
+
+| Kategori | Cases | Metrik |
+|---|---|---|
+| hand_crafted_fraud | 20 | precision **1.000** · recall **1.000** · F1 **1.000** |
+| hand_crafted_ocr | 20 | receipt field **1.000** |
+| hand_crafted_gmail | 10 | decision **1.000** · amount **1.000** |
+| hand_crafted_insight | 8 | accuracy **1.000** |
+| hand_crafted_advisor | 8 | accuracy **1.000** |
+| hand_crafted_search | 8 | top1-hit **1.000** |
+
+### 3c. Live Gemini — integration (16 panggilan, `npm run benchmark:ai:live`)
+
+| Kategori | Cases | Pass rate | Total tokens | Latency avg |
+|---|---|---|---|---|
+| fraud_l2_live (agree L2↔L1) | 5 | **1.000** | ~2.0k | ~7.9 s |
+| gmail_extraction_live | 5 | **1.000** | ~3.5k | ~3.1 s |
+| insight_live | 3 | **1.000** | ~2.5k | ~13.8 s |
+| advisor_live | 3 | **1.000** | ~3.8k | ~18.8 s |
+
+Live lulus 2× run berurutan. Seluruh output JSON ter-parse oleh `parseGeminiResponse` produksi (0 gagal parse).
 
 Distribusi confidence (fraud L1): `0.0-0.5: 15` · `0.5-0.7: 49` · `0.7-0.85: 2` · `0.85-1.0: 17` — risk score menyebar sehat (bukan semua ekstrem).
 Distribusi confidence (gmail L0): `0.85-1.0: 50/50` — rules lokal yakin; ini benar karena L0 hanya reject/skip pola tegas, sisanya diteruskan ke AI.
@@ -82,24 +110,41 @@ Run pertama gagal floor `receiptFieldAccuracy ≥ 0.9` (dapat **0.74**). Investi
 | advisor_fallback | accuracy ≥ 0.9 |
 | search_rerank | top1-hit ≥ 0.95 · suggestions valid ≥ 0.99 |
 | ocr_parsing_local | receipt field ≥ 0.9 · gmail decision ≥ 0.9 |
+| **hand_crafted_fraud** | precision ≥ 0.95 · recall ≥ 0.95 |
+| **hand_crafted_ocr** | receipt field ≥ 0.9 |
+| **hand_crafted_gmail** | decision ≥ 0.9 |
+| **hand_crafted_insight** | accuracy ≥ 0.9 |
+| **hand_crafted_advisor** | accuracy ≥ 0.9 |
+| **hand_crafted_search** | top1-hit ≥ 0.9 |
+
+Live benchmark **tidak punya floor di CI** (di-skip otomatis) — hanya floor lunak lokal (parse rate ≥ 0.5 & ≥ 1 case pass per kategori) untuk mencegah laporan yang sepenuhnya kosong.
 
 ---
 
 ## 7. Cara Menjalankan & Memperluas
 
 ```bash
-npm run benchmark:ai          # jalankan + tulis docs/ai/benchmark-results.json
-npm run test:unit             # benchmark TURUT dijalankan (CI) — floor = guard
+npm run benchmark:ai          # offline: 6 kategori (500 + 74 kasus) → benchmark-results.json
+npm run benchmark:ai:live     # live Gemini: 16 panggilan → benchmark-live-results.json (skip di CI)
+npm run test:unit             # benchmark offline TURUT dijalankan (CI) — floor = guard
 ```
 
-**Memperluas kasus:** tambah ke builder per kategori di `tests/benchmark/aiQualityBenchmark.spec.ts` (pola: hand-crafted edge case + generator deterministik). Jangan mengubah prediktor benchmark — harus selalu fungsi produksi nyata.
+**Live = `npm run benchmark:ai:live` (BENCH_LIVE=1) saja** — `vitest ... --live` ditolak CLI vitest. File hasil di-truncate tiap run (snapshot sekali jalan).
 
-**Live AI mode (opsional, manual):** benchmark lapisan Gemini/Discovery tidak diotomatisasi (biaya + non-deterministik). Rekomendasi: jalankan E2E + evaluasi manual per fitur; catat hasil di dokumen review.
+**Live mode butuh `server/.env`** berisi `GOOGLE_CLOUD_PROJECT`/`GCP_PROJECT_ID`, `GCP_LOCATION`, `GEMINI_PRIMARY_MODEL`, `GEMINI_FALLBACK_MODEL`, `GOOGLE_APPLICATION_CREDENTIALS` (service account JSON yang file-nya ada) — persis konfigurasi boot server. Tanpa itu test gagal dengan pesan konfigurasi yang jelas.
+
+**Memperluas kasus:**
+- Hand-crafted: tambah ke `tests/benchmark/fixtures.ts` (bagian 1) + otomatis ter-cover floor kategori 6.
+- Generator: tambah ke builder per kategori di `aiQualityBenchmark.spec.ts`.
+- Live: tambah ke `fixtures.ts` (bagian 7). Jangan mengubah prediktor benchmark — harus selalu fungsi produksi nyata.
 
 ---
 
 ## 8. Interpretasi & Batasan
 
 - **Angka 1.0 di fraud/advisor/search** = kepastian pada fixture konstruksi sendiri — ini mengukur *regression* (jangan sampai turun), bukan akurasi dunia nyata. Akurasi nyata butuh label data produksi.
-- Insight 0.99: 1 miss boundary — ditoleransi; review bila floor dinaikkan.
+- **Non-determinisme LLM (ditemukan live run):** kasus data-kosong di insight — Gemini menjawab "stabil 70" di run pertama dan "sehat 88" di run kedua (input 0 transaksi → model menebak). Karena itu kasus data-kosong **tidak dipakai di live** (fallback offline tetap mengujinya); dokumen ini mencatatnya sebagai batas evaluasi live.
+- **Perilaku yang didokumentasikan hand-crafted** (bukan bug): spasi di payment method tidak di-trim (`' qris '`→`'cash'`); tanggal hanya format-check (`'2026-13-45'` lolos regex); filter rentang tanggal search hanya boosting (tidak drop hasil luar rentang); L0 gmail mengirim variasi QRIS ke AI (`send_to_ai`).
+- **Tech debt dari fixture (kandidat fix, bukan "intended behavior"):** `normalizeReceiptPaymentMethod` tidak men-trim spasi (`' qris '`→`'cash'`) dan `Number()` tidak memparse pemisah ribuan (`'150.000'`→150). Benchmark membekukan perilaku saat ini agar ada regression guard — bila kelak diperbaiki, update fixture expected + alasan.
 - Hallucination rate: untuk lapisan deterministik tidak ada konsep hallucination (output dari kode, bukan model); lapisan live-AI memakai `parseGeminiResponse` + fallback + `normalizeReportPayload` (field invalid → fallback) sebagai jaring anti-hallucination.
+- **Biaya live**: 16 panggilan ≈ 11.8k token ≈ **<$0.01** (gemini_flash). Jangan jalankan live di CI — bukan gate.

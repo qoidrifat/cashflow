@@ -9,7 +9,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.0064750000000026375,
+      "avgLatencyMs": 0.007330999999976484,
       "avgInputTokens": 280,
       "estCostUsdPerCase": 0.00004613325,
       "confidenceDistribution": {
@@ -26,7 +26,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.3209120000000212,
+      "avgLatencyMs": 0.3361299999999619,
       "avgInputTokens": 272,
       "estCostUsdPerCase": 0.00004484175000000001,
       "confidenceDistribution": {
@@ -43,7 +43,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.10538400000001047,
+      "avgLatencyMs": 0.46856100000002243,
       "avgInputTokens": 147,
       "estCostUsdPerCase": 0.00002426025000000002
     },
@@ -53,7 +53,7 @@
       "top1HitRate": 1,
       "explanationRate": 1,
       "suggestedQueriesValidRate": 1,
-      "avgLatencyMs": 0.06981699999999591
+      "avgLatencyMs": 0.04970999999999549
     },
     {
       "category": "ocr_parsing_local",
@@ -61,13 +61,59 @@
       "gmailDecisionAccuracy": 1,
       "gmailAmountExtractionAccuracy": 1,
       "receiptFieldAccuracy": 1,
-      "avgLatencyMs": 0.12215000000000373,
+      "avgLatencyMs": 0.30807800000000496,
       "confidenceDistribution": {
         "0.0-0.5": 0,
         "0.5-0.7": 0,
         "0.7-0.85": 0,
         "0.85-1.0": 50
       }
+    },
+    {
+      "category": "hand_crafted_fraud",
+      "cases": 20,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.0067849999998770725
+    },
+    {
+      "category": "hand_crafted_ocr",
+      "cases": 20,
+      "receiptFieldAccuracy": 1,
+      "avgLatencyMs": 0.007274999999890497
+    },
+    {
+      "category": "hand_crafted_gmail",
+      "cases": 10,
+      "gmailDecisionAccuracy": 1,
+      "gmailAmountExtractionAccuracy": 1,
+      "avgLatencyMs": 0.2961900000000696
+    },
+    {
+      "category": "hand_crafted_insight",
+      "cases": 8,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.026525000000049204
+    },
+    {
+      "category": "hand_crafted_advisor",
+      "cases": 8,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1,
+      "avgLatencyMs": 0.04993749999994179
+    },
+    {
+      "category": "hand_crafted_search",
+      "cases": 8,
+      "top1HitRate": 1,
+      "avgLatencyMs": 0.030562499999973625
     }
   ]
 }
