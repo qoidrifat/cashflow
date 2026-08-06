@@ -29,8 +29,11 @@ import {
   configureVertexAI,
   initGemini,
   generateGeminiText,
+  generateGeminiVision,
   parseGeminiResponse,
+  normalizeReceiptResult,
   buildExtractionPrompt,
+  buildReceiptExtractionPrompt,
   buildMonthlyReportPrompt,
   buildAdvisorPrompt,
 } from '../../server/lib/vertexContext.js';
@@ -43,6 +46,7 @@ import {
   LIVE_GMAIL,
   LIVE_INSIGHT,
   LIVE_ADVISOR,
+  LIVE_RECEIPT,
 } from './fixtures';
 
 const LIVE = process.env.BENCH_LIVE === '1' || process.argv.includes('--live');
@@ -117,6 +121,35 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     const startedAt = performance.now();
     try {
       const result = await generateGeminiText(prompt, { feature, cacheTtlMs: 0 });
+      const usage = result.response?.usageMetadata || {};
+      return {
+        ok: true,
+        latencyMs: Math.round(performance.now() - startedAt),
+        promptTokens: usage.promptTokenCount ?? 0,
+        completionTokens: usage.candidatesTokenCount ?? 0,
+        text: result.text,
+        model: result.modelUsed,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Math.round(performance.now() - startedAt),
+        promptTokens: 0,
+        completionTokens: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** Vision (OCR struk): gambar PNG base64 + prompt receipt → text + metrik. */
+  async function callGeminiVision(prompt: string, mimeType: string, data: string) {
+    const startedAt = performance.now();
+    try {
+      const result = await generateGeminiVision(
+        prompt,
+        { mimeType, data },
+        { feature: 'ocr_receipt', cacheTtlMs: 0 },
+      );
       const usage = result.response?.usageMetadata || {};
       return {
         ok: true,
@@ -281,6 +314,69 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     expect(passed / LIVE_INSIGHT.length).toBeGreaterThanOrEqual(0.5);
     expect(passed).toBeGreaterThanOrEqual(1);
   }, 180_000);
+
+  it('ocr receipt vision — ekstrak struk dari gambar nyata (generateGeminiVision)', async () => {
+    if (initError) throw new Error(initError);
+    const rows: unknown[] = [];
+    let passed = 0; let totalTokens = 0;
+
+    for (const r of LIVE_RECEIPT) {
+      const prompt = buildReceiptExtractionPrompt({});
+      const res = await callGeminiVision(prompt, r.mimeType, r.data);
+      totalTokens += res.promptTokens + res.completionTokens;
+
+      let ok = false; let detail: string | null = null;
+      if (res.ok) {
+        const parsedRes = parseGeminiResponse(res.text);
+        if (parsedRes.success && parsedRes.data) {
+          // Jalur produksi nyata: output Gemini → normalizeReceiptResult
+          // (sama seperti receiptScanService) sebelum dibandingkan.
+          const d = normalizeReceiptResult(parsedRes.data);
+          const checks: string[] = [];
+          const wanted: string[] = ['is_transaction'];
+          if (d.is_transaction === r.expected.isTransaction) checks.push('is_transaction');
+          if (r.expected.transactionType !== undefined) {
+            wanted.push('transaction_type');
+            if (d.transaction_type === r.expected.transactionType) checks.push('transaction_type');
+          }
+          if (r.expected.amount !== undefined) {
+            wanted.push('amount');
+            if (d.amount === r.expected.amount) checks.push('amount');
+          }
+          if (r.expected.paymentMethod !== undefined) {
+            wanted.push('payment_method');
+            if (d.payment_method === r.expected.paymentMethod) checks.push('payment_method');
+          }
+          if (r.expected.date !== undefined) {
+            wanted.push('date');
+            if (d.date === r.expected.date) checks.push('date');
+          }
+          ok = wanted.every((w) => checks.includes(w));
+          detail = `checks=${checks.join(',')} decision=${d.decision} amount=${d.amount} pay=${d.payment_method} date=${d.date}`;
+        } else {
+          detail = `unparseable: ${res.text.slice(0, 120)}`;
+        }
+      } else {
+        detail = `error: ${res.error}`;
+      }
+      if (ok) passed += 1;
+      rows.push({ name: r.name, ok, latencyMs: res.latencyMs, detail });
+      // eslint-disable-next-line no-console
+      console.log(`  receipt ${ok ? 'PASS' : 'FAIL'} ${r.name} → ${detail}`);
+    }
+
+    const report = {
+      category: 'ocr_receipt_vision_live', cases: LIVE_RECEIPT.length,
+      passRate: passed / LIVE_RECEIPT.length,
+      totalTokens,
+      rows,
+    };
+    appendLiveResult(report);
+
+    // Vision flaky pada kasus marginal — floor lunak (bukan gate CI).
+    expect(passed / LIVE_RECEIPT.length).toBeGreaterThanOrEqual(0.5);
+    expect(passed).toBeGreaterThanOrEqual(1);
+  }, 240_000);
 
   it('advisor — output JSON lengkap sesuai schema prompt', async () => {
     if (initError) throw new Error(initError);

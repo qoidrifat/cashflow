@@ -27,7 +27,7 @@ Benchmark resmi untuk mengukur kualitas **lapisan AI yang deterministik** (yang 
 - Metrik: accuracy, precision, recall, F1 (macro), latency (ms), input tokens (estimasi `estimateTokensFromText`), cost estimasi, distribusi confidence.
 - Prediktor = fungsi produksi nyata (bukan salinan): `evaluateFraudRules`, `buildFallbackMonthlyReport`, `buildFallbackAdvisorReport`+`computeAdvisorMetrics`, `rankAndExplainResults`+`buildSuggestedQueries`, `evaluateLocalGmailParser`, `normalizeReceiptResult`.
 - Deterministik: seed tetap → hasil identik tiap run.
-- **Live mode**: subset `fixtures.ts` bagian 7 (fraud L2 5 · gmail 5 · insight 3 · advisor 3) dipanggil ke Vertex AI Gemini via `generateGeminiText` (feature produksi, cache off); metrik = parse rate, agree/ pass rate, latency riil, token riil (`usageMetadata`).
+- **Live mode**: subset `fixtures.ts` bagian 7 (fraud L2 5 · gmail 5 · insight 3 · advisor 3 · **OCR receipt vision 4**) dipanggil ke Vertex AI Gemini via `generateGeminiText` (teks) & `generateGeminiVision` (gambar struk PNG); metrik = parse rate, agree/ pass rate, latency riil, token riil (`usageMetadata`). Gambar struk **di-generate programatik** (`tests/benchmark/receiptImage.ts` — PNG encoder murni + font bitmap 5×7) sehingga ground-truth diketahui persis & deterministik (0 byte biner di repo).
 
 ---
 
@@ -54,16 +54,21 @@ Benchmark resmi untuk mengukur kualitas **lapisan AI yang deterministik** (yang 
 | hand_crafted_advisor | 8 | accuracy **1.000** |
 | hand_crafted_search | 8 | top1-hit **1.000** |
 
-### 3c. Live Gemini — integration (16 panggilan, `npm run benchmark:ai:live`)
+### 3c. Live Gemini — integration (20 panggilan, `npm run benchmark:ai:live`)
 
 | Kategori | Cases | Pass rate | Total tokens | Latency avg |
 |---|---|---|---|---|
 | fraud_l2_live (agree L2↔L1) | 5 | **1.000** | ~2.0k | ~7.9 s |
 | gmail_extraction_live | 5 | **1.000** | ~3.5k | ~3.1 s |
-| insight_live | 3 | **1.000** | ~2.5k | ~13.8 s |
+| insight_live | 3 | **0.667** | ~2.5k | ~13.8 s |
 | advisor_live | 3 | **1.000** | ~3.8k | ~18.8 s |
+| **ocr_receipt_vision_live** | 4 | **1.000** | ~2.5k | ~11.2 s |
 
-Live lulus 2× run berurutan. Seluruh output JSON ter-parse oleh `parseGeminiResponse` produksi (0 gagal parse).
+Live lulus 2× run berurutan (16 panggilan teks) + 1× run vision (4 panggilan gambar, total 20). Seluruh output JSON ter-parse oleh `parseGeminiResponse` produksi (0 gagal parse).
+
+**Vision OCR (4/4 PASS):** struk QRIS (amount 150.000 · qris · 2026-08-01), struk tunai (25.000 · cash), bukti transfer bank (500.000 · transfer-bank · income), dokumen KTP → `auto_skip` (bukan transaksi). Output Gemini dinormalisasi lewat `normalizeReceiptResult` (jalur produksi `receiptScanService`) sebelum dibandingkan dengan ground-truth — membuktikan pipeline vision end-to-end, bukan sekadar parse.
+
+**Catatan non-determinisme (insight live):** `live_insight_healthy` bisa menghasilkan `stabil`/score 78 alih-alih `sehat` (input surplus 60% — batas klasifikasi dua label positif). Floor lunak kategori (2/3 ≥ 0.5) tetap lolos; ini bukan regresi melainkan non-determinisme LLM yang sudah didokumentasikan di §8.
 
 Distribusi confidence (fraud L1): `0.0-0.5: 15` · `0.5-0.7: 49` · `0.7-0.85: 2` · `0.85-1.0: 17` — risk score menyebar sehat (bukan semua ekstrem).
 Distribusi confidence (gmail L0): `0.85-1.0: 50/50` — rules lokal yakin; ini benar karena L0 hanya reject/skip pola tegas, sisanya diteruskan ke AI.
@@ -82,7 +87,7 @@ Dari avg input tokens × pricing gemini_flash ($0.075/1M in, $0.30/1M out, asums
 | Insight bulanan | ~262 | $0.00004 | + data metrics (cap 12.000 char) |
 | Advisor | ~147 | $0.00002 | + subscriptions (cap 9.000 char) |
 | Gmail L0 (gratis) | 0 | $0 | Menolak/meneruskan sebelum AI |
-| OCR receipt (vision) | — (gambar) | ~$0.0002-0.0005 | Bergantung ukuran gambar (di luar benchmark ini) |
+| OCR receipt (vision) | ~2.5k (4 gambar) | ~$0.0003-0.0006 | Diukur live benchmark §3c (gambar PNG 560×760 yang di-generate) |
 
 Referensi lengkap di Cost Monitoring dashboard (Sprint 2) & `docs/ai/COST_MONITORING.md`.
 
@@ -125,7 +130,7 @@ Live benchmark **tidak punya floor di CI** (di-skip otomatis) — hanya floor lu
 
 ```bash
 npm run benchmark:ai          # offline: 6 kategori (500 + 74 kasus) → benchmark-results.json
-npm run benchmark:ai:live     # live Gemini: 16 panggilan → benchmark-live-results.json (skip di CI)
+npm run benchmark:ai:live     # live Gemini: 20 panggilan (16 teks + 4 vision OCR) → benchmark-live-results.json (skip di CI)
 npm run test:unit             # benchmark offline TURUT dijalankan (CI) — floor = guard
 ```
 
@@ -143,8 +148,10 @@ npm run test:unit             # benchmark offline TURUT dijalankan (CI) — floo
 ## 8. Interpretasi & Batasan
 
 - **Angka 1.0 di fraud/advisor/search** = kepastian pada fixture konstruksi sendiri — ini mengukur *regression* (jangan sampai turun), bukan akurasi dunia nyata. Akurasi nyata butuh label data produksi.
-- **Non-determinisme LLM (ditemukan live run):** kasus data-kosong di insight — Gemini menjawab "stabil 70" di run pertama dan "sehat 88" di run kedua (input 0 transaksi → model menebak). Karena itu kasus data-kosong **tidak dipakai di live** (fallback offline tetap mengujinya); dokumen ini mencatatnya sebagai batas evaluasi live.
+- **Non-determinisme LLM (ditemukan live run):** kasus data-kosong di insight — Gemini menjawab "stabil 70" di run pertama dan "sehat 88" di run kedua (input 0 transaksi → model menebak). Karena itu kasus data-kosong **tidak dipakai di live** (fallback offline tetap mengujinya); dokumen ini mencatatnya sebagai batas evaluasi live. Pola serupa: `live_insight_healthy` (surplus 60%) bisa dijawab `stabil` (bukan `sehat`) — dua label positif yang berbatasan, bukan gagal ekstraksi.
+- **Vision OCR live memakai gambar yang di-generate** (`receiptImage.ts`, font bitmap 5×7 diskalakan 4×) — representatif untuk struk sederhana monokrom; struk kompleks (logo, tabel padat, pemisah ribuan) tidak dicakup. Ground-truth gambar diketahui persis karena kita yang menggambar.
 - **Perilaku yang didokumentasikan hand-crafted** (bukan bug): spasi di payment method tidak di-trim (`' qris '`→`'cash'`); tanggal hanya format-check (`'2026-13-45'` lolos regex); filter rentang tanggal search hanya boosting (tidak drop hasil luar rentang); L0 gmail mengirim variasi QRIS ke AI (`send_to_ai`).
+- **Fragilitas format amount (dokumentasi, bukan fix):** bila Gemini vision pernah membalas `amount: "150.000"` (pemisah ribuan), `Number()` normalizer → 150 → kasus gagal walau OCR benar. Ini perilaku produksi (`normalizeReceiptResult` memakai `Number()`); prompt meminta angka polos dan live run konsisten `150000`/`500000`, jadi batas ini hanya dicatat agar kegagalan masa depan dipahami sebagai known limit, bukan regresi.
 - **Tech debt dari fixture (kandidat fix, bukan "intended behavior"):** `normalizeReceiptPaymentMethod` tidak men-trim spasi (`' qris '`→`'cash'`) dan `Number()` tidak memparse pemisah ribuan (`'150.000'`→150). Benchmark membekukan perilaku saat ini agar ada regression guard — bila kelak diperbaiki, update fixture expected + alasan.
 - Hallucination rate: untuk lapisan deterministik tidak ada konsep hallucination (output dari kode, bukan model); lapisan live-AI memakai `parseGeminiResponse` + fallback + `normalizeReportPayload` (field invalid → fallback) sebagai jaring anti-hallucination.
-- **Biaya live**: 16 panggilan ≈ 11.8k token ≈ **<$0.01** (gemini_flash). Jangan jalankan live di CI — bukan gate.
+- **Biaya live**: 20 panggilan (16 teks + 4 vision) ≈ 14.3k token ≈ **<$0.01** (gemini_flash, vision sedikit lebih mahal per gambar). Jangan jalankan live di CI — bukan gate.

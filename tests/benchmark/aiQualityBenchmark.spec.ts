@@ -29,7 +29,9 @@ import {
   HAND_CRAFTED_INSIGHT,
   HAND_CRAFTED_ADVISOR,
   HAND_CRAFTED_SEARCH,
+  LIVE_RECEIPT,
 } from './fixtures';
+import { buildReceipt } from './receiptImage';
 
 // ── Predictor deterministik (tanpa AI/DB/network) ──
 import { evaluateFraudRules, computeRuleRiskScore } from '../../server/lib/fraudEngine.js';
@@ -573,5 +575,30 @@ describe('AI Quality Benchmark (Sprint 1 · Phase 1.6)', () => {
     expect(hcInsight.accuracy).toBeGreaterThanOrEqual(0.9);
     expect(hcAdvisor.accuracy).toBeGreaterThanOrEqual(0.9);
     expect(hcSearch.top1HitRate).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('receipt image generator — PNG valid, deterministik, ground-truth persis (regression guard vision)', () => {
+    // (1) Output benar-benar PNG (signature 8 byte) & deterministik antar panggilan.
+    const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (const r of LIVE_RECEIPT) {
+      expect(Buffer.from(r.data, 'base64').subarray(0, 8)).toEqual(PNG_SIG);
+      expect(r.mimeType).toBe('image/png');
+    }
+    const a = buildReceipt('dup-check', { header: 'TOKO MAKMUR', items: ['NASI GORENG RP 35.000'], total: 'TOTAL RP 150.000', payment: 'QRIS', date: '01/08/2026' });
+    const b = buildReceipt('dup-check', { header: 'TOKO MAKMUR', items: ['NASI GORENG RP 35.000'], total: 'TOTAL RP 150.000', payment: 'QRIS', date: '01/08/2026' });
+    expect(a.data).toBe(b.data); // byte-identik antar run
+
+    // (2) Ground-truth fixture = literal eksplisit (parseAmount/normalizePayment/
+    //     normalizeDate bekerja benar — TANPA Gemini). Jika helper ini berubah,
+    //     live vision bisa menghasilkan expected yang salah diam-diam.
+    const expectedTruth: Record<string, unknown> = {
+      live_receipt_expense_qris: { isTransaction: true, transactionType: 'expense', amount: 150000, paymentMethod: 'qris', date: '2026-08-01' },
+      live_receipt_expense_cash: { isTransaction: true, transactionType: 'expense', amount: 25000, paymentMethod: 'cash', date: '2026-08-02' },
+      live_receipt_income_transfer: { isTransaction: true, transactionType: 'income', amount: 500000, paymentMethod: 'transfer-bank', date: '2026-08-03' },
+      live_receipt_not_transaction: { isTransaction: false },
+    };
+    for (const r of LIVE_RECEIPT) {
+      expect(r.expected).toEqual(expectedTruth[r.name]);
+    }
   });
 });

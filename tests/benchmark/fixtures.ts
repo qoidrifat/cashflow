@@ -13,6 +13,7 @@
  * normalizeReceiptResult, prompt builders) — bukan asumsi.
  */
 import type { AdvisorInput, Transaction } from '../../src/types';
+import { buildReceipt } from './receiptImage';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. FRAUD L1 — hand-crafted edge cases (20)
@@ -805,3 +806,35 @@ export const LIVE_ADVISOR: LiveAdvisorCase[] = [
     requiredKeys: ['summary', 'actionList'],
   },
 ];
+
+// ════════════════════════════════════════════════════════════════════════════
+// 8. LIVE OCR RECEIPT — gambar struk digenerate programatik (receiptImage.ts)
+//    Ground truth = persis apa yang kita gambar (bukan asumsi model).
+// ════════════════════════════════════════════════════════════════════════════
+export const LIVE_RECEIPT = [
+  buildReceipt('live_receipt_expense_qris', {
+    header: 'TOKO MAKMUR',
+    items: ['NASI GORENG        RP 35.000', 'ES TEH             RP 15.000'],
+    total: 'TOTAL RP 150.000',
+    payment: 'QRIS',
+    date: '01/08/2026',
+  }),
+  buildReceipt('live_receipt_expense_cash', {
+    header: 'WARUNG BU TINI',
+    items: ['BAKSO              RP 25.000'],
+    total: 'TOTAL RP 25.000',
+    payment: 'TUNAI',
+    date: '02/08/2026',
+  }),
+  buildReceipt('live_receipt_income_transfer', {
+    header: 'TRANSFER MASUK',
+    items: ['DARI: BUDI           RP 500.000'],
+    total: 'JUMLAH RP 500.000',
+    payment: 'BANK BNI',
+    date: '03/08/2026',
+  }),
+  buildReceipt('live_receipt_not_transaction', {
+    header: 'CONTOH DOKUMEN',
+    notTransaction: 'FOTO KTP',
+  }),
+] as ReturnType<typeof buildReceipt>[];
