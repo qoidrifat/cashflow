@@ -28,7 +28,17 @@ export function getTurso() {
   });
 
   logger.info({ url }, 'Database client Turso siap');
-  initTursoSchema(client).catch((err) => logger.error({ err: err.message }, 'Error initializing schema'));
+  // Boot: initTursoSchema dijalankan fire-and-forget (tidak memblokir boot
+  // Express) dengan retry transien AKTIF. Alasan:
+  //   - Cold start (mis. Render free tier setelah idle) sering kena gangguan
+  //     transport sekali (DNS/TLS/429) — retry self-heal tanpa statement
+  //     schema diam-diam di-ignore (sebelumnya retry:false = senyap).
+  //   - Fire-and-forget → retry di background, tidak menunda readiness
+  //     (/api/ready tetap gate terpisah via execute('SELECT 1')).
+  //   - Transient persisten di-RE-THROW oleh initTursoSchema → sampai ke
+  //     logger.error di sini (kegagalan boot terlihat, bukan senyap);
+  //     loop berhenti di statement pertama yang gagal persist (±3s, fail-fast).
+  initTursoSchema(client, { retry: true }).catch((err) => logger.error({ err: err.message }, 'Error initializing schema'));
   return client;
 }
 

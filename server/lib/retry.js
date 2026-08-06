@@ -2,7 +2,8 @@
  * Network resilience helpers (Turso/libSQL) — single source of truth.
  *
  * Dipakai oleh:
- *   - server/lib/turso.js   → initTursoSchema({ retry: true }) saat apply schema
+ *   - server/lib/turso.js   → initTursoSchema({ retry: true }) saat boot (getTurso)
+ *                             & saat apply schema (idempoten)
  *   - scripts/seedE2eDataset.mjs  → batching + retry seed E2E (Sprint 0.7)
  *   - scripts/applyTursoSchema.mjs → retry apply schema (Sprint 0.7 lanjutan)
  *
