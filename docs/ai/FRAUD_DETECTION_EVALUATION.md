@@ -3,6 +3,7 @@
 > **Sprint 1 — Product Intelligence Refinement · Phase 1.2**
 > Status: **SELESAI** · Tanggal: 2026-08-06
 > Metode: audit kode + benchmark deterministik (lihat `AI_BENCHMARK.md`). Tidak membuat engine baru — evaluasi engine yang sudah ada.
+> Aktivasi produksi L2: [FRAUD_AI_SCORING_ENABLEMENT.md](FRAUD_AI_SCORING_ENABLEMENT.md)
 
 ---
 
