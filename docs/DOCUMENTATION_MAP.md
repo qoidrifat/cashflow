@@ -1,6 +1,7 @@
 # CashFlow — Documentation Map
 
-> **Status:** Approved · **Version:** 1.2 · **Owner:** Core Engineering · **Last Updated:** 2026-08-05
+> **Status:** Approved · **Version:** 1.3 · **Owner:** Core Engineering · **Last Updated:** 2026-08-06
+> **2026-08-06 (Sprint 0.7):** `docs/ci/` diperluas 1 → 7 file (CI architecture, testing strategy, Playwright guide, seed database guide, release process, troubleshooting, index) — stabilisasi pipeline CI (seed batch).
 > **2026-08-05 (sync audit):** 11 file one-off/duplikat di root docs/ di-archive ke `archive/root/` (lihat [audit/DOCUMENTATION_SYNC_AUDIT.md](audit/DOCUMENTATION_SYNC_AUDIT.md)); `docs/ci/` ditambahkan.
 > **2026-08-05 (Phase-2):** `docs/gmail-sync/` (19) + `docs/transactions/` (5) di-archive (self-declared "ARSIP HISTORIS" — era Supabase/Firebase); `docs/ai/` + `docs/deployment/` dibuat; ADR 008–011; `server/Dockerfile` + `/api/ready`; cache AI L2 + invalidation admin.
 > **Related:** [README](../README.md) · This file is the **single navigation hub** for all documentation.
@@ -42,7 +43,7 @@
 | `docs/google-cloud/` | 3 | 🟢 Active | GCP / Agent Builder / Discovery Engine setup |
 | `docs/meta/` | 8 | 🟢 Active | Documentation system itself (this layer) + documentation-consistency audit |
 | `docs/repository/` | 12 | 🟢 Active | Repository curation & GitHub publication prep (audit, security, readiness, commit guide) |
-| `docs/ci/` | 1 | 🟢 Active | CI/CD migration report (GitHub Actions upgrade, 2026-08-05) + P5 composite-actions assessment |
+| `docs/ci/` | 7 | 🟢 Active | CI architecture, testing strategy, Playwright guide, seed DB guide (Sprint 0.7), release process, troubleshooting + migration report |
 | `docs/ai/` | 2 | 🟢 Active | AI architecture: semantic cache (multi-layer) + fraud detection design |
 | `docs/deployment/` | 1 | 🟢 Active | Production readiness audit + deploy runbook (Docker / reverse proxy) |
 | `docs/review/` | 6 | 🟢 Active | Phase-1 hardening review (root-cause, security, perf, code, readiness, final) |

@@ -210,7 +210,7 @@ jobs:
           SEED_E2E: '1'
 
       # Stability gate 3× (roadmap CI_PIPELINE.md #1 — diterapkan saat suite > 20
-      # test; kini 38 test). scripts/e2e-stability-gate.sh menjalankan suite hingga
+      # test; kini 50 test — dihitung 2026-08-06). scripts/e2e-stability-gate.sh menjalankan suite hingga
       # 3 attempt dan GAGAL HANYA bila 3× gagal berturut (regresi riil). Flake
       # sesekali (1-2 attempt gagal lalu lulus) = job HIJAU + ::warning:: + arsip
       # per-attempt untuk forensik. Playwright retries:1 menangani flake per-test.

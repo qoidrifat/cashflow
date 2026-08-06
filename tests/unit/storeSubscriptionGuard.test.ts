@@ -77,5 +77,5 @@ describe('Store subscription isolation (regression guard)', () => {
     const { violations, checked } = scan();
     expect(checked).toBeGreaterThan(50); // sanity: file ter-scan cukup banyak
     expect(violations, violations.join('\n')).toEqual([]);
-  });
+  }, 15_000); // scan fs rekursif seluruh src/ — timeout lebih longgar utk FS dingin/CI (bukan melemahkan guard)
 });
