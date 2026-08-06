@@ -50,6 +50,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createClient } from '@libsql/client';
+// Retry/timeout single source of truth (dipakai server + scripts CI).
+// Re-export di bawah menjaga unit test seed tetap meng-import dari file ini.
+import { withRetry, createTimedFetch, TRANSIENT_RE } from '../server/lib/retry.js';
+export { withRetry, createTimedFetch, TRANSIENT_RE };
 
 // Hanya jalankan guard + main() saat file DIEKSEKUSI LANGSUNG — bukan saat
 // di-import oleh unit test (tests/unit/seedE2eDataset.test.ts meng-import
@@ -108,30 +112,8 @@ export function rpAmount(rng, min, max) {
 // ===========================================================================
 // BATCHING + RETRY (stabilitas CI — lihat header)
 // ===========================================================================
-// Error yang pantas di-retry: gangguan transport/HTTP transien. Error
-// constraint (UNIQUE dsb.) = bug deterministik → JANGAN di-retry (di-masking
-// hanya menunda kegagalan & menyulitkan diagnosis).
-export const TRANSIENT_RE = /network|timed?\s?out|timeout|econn|socket|fetch failed|too many requests|\b429\b|\b5\d\d\b|connection/i;
-
-// Asumsi klasifikasi berbasis pesan: pesan yang mengandung 'constraint'/'unique'
-// dianggap bug deterministik (fail-fast, TIDAK di-masking); pesan lain yang
-// cocok TRANSIENT_RE dianggap gangguan transport (retry). Trade-off diterima:
-// fail-fast lebih baik daripada retry yang menunda kegagalan deterministik.
-export async function withRetry(fn, { attempts = 4, baseMs = 400, label = 'query' } = {}) {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const msg = String(err?.message || err);
-      const isConstraint = /constraint|unique/i.test(msg);
-      const isTransient = TRANSIENT_RE.test(msg) && !isConstraint;
-      if (!isTransient || i === attempts - 1) throw err; // attempt terakhir: biarkan error asli naik
-      const delay = baseMs * 2 ** i + Math.round(Math.random() * 200);
-      console.warn(`[seedE2e] ⚠️ ${label} transien (${msg.slice(0, 140)}), retry ${i + 1}/${attempts - 1} dalam ${delay}ms`);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-}
+// withRetry/TRANSIENT_RE kini hidup di server/lib/retry.js (single source of
+// truth, dipakai juga oleh initTursoSchema & applyTursoSchema).
 
 export const BATCH_SIZE = 100;
 
@@ -153,28 +135,9 @@ export function chunkArray(arr, size) {
   return out;
 }
 
-/**
- * Timeout eksplisit per request Turso (lihat header, poin 3).
- *
- * createClient menerima opsi `fetch` (custom fetch untuk HTTP client — hanya
- * dipakai untuk URL http(s); DB file: lokal tidak terpengaruh). Wrapper ini
- * membungkus fetch native undici dengan AbortSignal.timeout: bila request HANG,
- * undici melempar DOMException 'TimeoutError' (pesan mengandung 'timeout' →
- * cocok TRANSIENT_RE → ditangani withRetry). Fallback aman bila signal lain
- * sudah ada (AbortSignal.any, Node 20+; CI & lokal Node 24).
- */
+// Timeout eksplisit per request Turso — konstanta lokal; wrapper createTimedFetch
+// kini di server/lib/retry.js (single source of truth).
 const SEED_TURSO_TIMEOUT_MS = Number(process.env.SEED_TURSO_TIMEOUT_MS) || 30_000;
-
-export function createTimedFetch(timeoutMs) {
-  const nativeFetch = globalThis.fetch;
-  return (input, init = {}) => {
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const signal = init.signal
-      ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, timeoutSignal]) : init.signal)
-      : timeoutSignal;
-    return nativeFetch(input, { ...init, signal });
-  };
-}
 
 // Fase aktif terakhir (untuk error context di level modul).
 let sectionLabel = 'inserts';

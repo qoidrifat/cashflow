@@ -13,11 +13,25 @@
  * Penggunaan:
  *   TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... node scripts/applyTursoSchema.mjs
  *   (server/.env juga dibaca bila env tidak di-set — pola sama dengan seed)
+ *
+ * ⚠️ STABILITAS CI (Sprint 0.7 lanjutan): versi lama hanya punya TIMEOUT
+ * eksplisit — error transient (network/TLS/429 Turso di runner shared) bisa
+ * mematikan job saat statement schema gagal di tengah. Versi ini:
+ *   1. RETRY — initTursoSchema({ retry: true }) menjalankan SETIAP statement
+ *      via withRetry (exponential backoff, 4 attempt) HANYA untuk error
+ *      transient; error constraint di-ignore (schema idempoten).
+ *   2. FAIL-FAST — transient persisten tidak lagi disembunyikan: initTursoSchema
+ *      me-rethrow → script exit 1 dengan pesan jelas (bukan "sukses" padahal
+ *      schema tidak lengkap). Default server (retry:false) TIDAK berubah.
+ *   3. TIMEOUT + RETRY — custom fetch (createTimedFetch) dari server/lib/retry.js
+ *      (single source of truth bersama seed); TimeoutError cocok TRANSIENT_RE →
+ *      masuk jalur retry (bukan menggantung / langsung gagal).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@libsql/client';
 import { initTursoSchema } from '../server/lib/turso.js';
+import { withRetry, createTimedFetch } from '../server/lib/retry.js';
 
 function loadEnv() {
   const envPath = path.resolve(process.cwd(), 'server', '.env');
@@ -43,27 +57,29 @@ if (!url) {
   process.exit(1);
 }
 
-// Timeout eksplisit per request (pola sama dengan scripts/seedE2eDataset.mjs):
-// request Turso yang HANG (network blackhole / TLS stall) menggantung tanpa
-// batas sampai timeout job GitHub. AbortSignal.timeout → DOMException
-// 'TimeoutError' yang fail cepat (bukan hang). Hanya berlaku untuk URL http(s);
-// DB file: lokal tidak terpengaruh. Default 30s, env SEED_TURSO_TIMEOUT_MS.
+// Timeout eksplisit per request (single source of truth: server/lib/retry.js —
+// createTimedFetch, pola sama dengan seedE2eDataset.mjs): request Turso yang
+// HANG (network blackhole / TLS stall) menggantung tanpa batas sampai timeout
+// job GitHub. AbortSignal.timeout → DOMException 'TimeoutError' yang fail
+// cepat (bukan hang) & cocok TRANSIENT_RE → ditangani withRetry.
+// Hanya berlaku untuk URL http(s); DB file: lokal tidak terpengaruh.
+// Default 30s, env SEED_TURSO_TIMEOUT_MS.
 const TIMEOUT_MS = Number(process.env.SEED_TURSO_TIMEOUT_MS) || 30_000;
-const timedFetch = (input, init = {}) => {
-  const timeoutSignal = AbortSignal.timeout(TIMEOUT_MS);
-  const signal = init.signal
-    ? (typeof AbortSignal.any === 'function' ? AbortSignal.any([init.signal, timeoutSignal]) : init.signal)
-    : timeoutSignal;
-  return globalThis.fetch(input, { ...init, signal });
-};
 
-const client = createClient({ url, authToken: authToken || undefined, fetch: timedFetch });
+const client = createClient({ url, authToken: authToken || undefined, fetch: createTimedFetch(TIMEOUT_MS) });
 
 try {
-  await initTursoSchema(client);
-  // Verifikasi tabel inti yang dibutuhkan seed benar-benar ada.
-  const { rows } = await client.execute(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('user','session','transactions','gmail_sync_logs','gmail_sync_runs','categories') ORDER BY name"
+  // retry: true → setiap statement di-retry saat transient; transient persisten
+  // di-rethrow (exit 1 dengan pesan jelas), bukan disembunyikan. Default server
+  // (retry:false) tidak berubah — hanya jalur apply schema CI yang aktif.
+  await initTursoSchema(client, { retry: true });
+  // Verifikasi tabel inti yang dibutuhkan seed benar-benar ada (dengan retry
+  // — verifikasi pun bisa kena flake transient yang sama).
+  const { rows } = await withRetry(
+    () => client.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('user','session','transactions','gmail_sync_logs','gmail_sync_runs','categories') ORDER BY name"
+    ),
+    { label: 'verify tables', logPrefix: '[applySchema]' },
   );
   const tables = rows.map((r) => r.name);
   const expected = ['user', 'session', 'transactions', 'gmail_sync_logs', 'gmail_sync_runs', 'categories'];
