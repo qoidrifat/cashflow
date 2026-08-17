@@ -57,7 +57,12 @@ test.describe('Admin Monitoring — chart multi-seri Tren Biaya (e2e)', () => {
     await setTheme(context, 'light'); // deterministik: mulai dari light
   });
 
-  const lineCount = (page: Page) => page.locator('.recharts-line').count();
+  // Scope ke CARD "Tren Biaya" — halaman punya panel lain dengan line chart
+  // (Rekomendasi AI — CTR per hari) yang JUGA mengeluarkan .recharts-line;
+  // tanpa scoping, lineCount global bisa >1 di mode fitur tunggal.
+  const chartCard = (title: import('playwright/test').Locator) =>
+    title.locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]');
+  const lineCount = (title: import('playwright/test').Locator) => chartCard(title).locator('.recharts-line').count();
 
   test('multi-seri: >1 garis + Legend; filter fitur → 1 garis; light/dark tanpa pageerror', async ({ page }) => {
     const pageErrors = collectPageErrors(page);
@@ -74,30 +79,31 @@ test.describe('Admin Monitoring — chart multi-seri Tren Biaya (e2e)', () => {
     const select = page.locator(FILTER_SELECT);
     await expect(select).toHaveValue('all');
     // Multi-seri: >1 garis recharts + Legend dengan label fitur ter-seed
-    await expect.poll(() => lineCount(page), { timeout: 20_000 }).toBeGreaterThan(1);
-    await expect(page.locator('.recharts-legend-wrapper')).toBeVisible();
-    await expect(page.locator('.recharts-legend-wrapper')).toContainText('Gmail Sync');
+    await expect.poll(() => lineCount(chartTitle), { timeout: 20_000 }).toBeGreaterThan(1);
+    const card = chartCard(chartTitle);
+    await expect(card.locator('.recharts-legend-wrapper')).toBeVisible();
+    await expect(card.locator('.recharts-legend-wrapper')).toContainText('Gmail Sync');
 
     // ── FILTER: fitur tunggal → tepat 1 garis, tanpa Legend ──
     await select.selectOption('gmail_sync');
     await expect(select).toBeEnabled({ timeout: 20_000 }); // refetch selesai
     await expect(chartTitle).toBeVisible();
-    await expect.poll(() => lineCount(page), { timeout: 20_000 }).toBe(1);
-    await expect(page.locator('.recharts-legend-wrapper')).toHaveCount(0);
+    await expect.poll(() => lineCount(chartTitle), { timeout: 20_000 }).toBe(1);
+    await expect(card.locator('.recharts-legend-wrapper')).toHaveCount(0);
 
     // ── KEMBALI ke "Semua Fitur" → multi-seri lagi ──
     await select.selectOption('all');
     await expect(select).toBeEnabled({ timeout: 20_000 });
-    await expect.poll(() => lineCount(page), { timeout: 20_000 }).toBeGreaterThan(1);
-    await expect(page.locator('.recharts-legend-wrapper')).toBeVisible();
+    await expect.poll(() => lineCount(chartTitle), { timeout: 20_000 }).toBeGreaterThan(1);
+    await expect(card.locator('.recharts-legend-wrapper')).toBeVisible();
 
     // ── DARK: set theme + reload → multi-seri tetap render ──
     await setTheme(page.context(), 'dark');
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForTheme(page, 'dark');
     await expect(chartTitle).toBeVisible({ timeout: 20_000 });
-    await expect.poll(() => lineCount(page), { timeout: 20_000 }).toBeGreaterThan(1);
-    await expect(page.locator('.recharts-legend-wrapper')).toBeVisible();
+    await expect.poll(() => lineCount(chartTitle), { timeout: 20_000 }).toBeGreaterThan(1);
+    await expect(card.locator('.recharts-legend-wrapper')).toBeVisible();
 
     pageErrors.expectClean();
   });

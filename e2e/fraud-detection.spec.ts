@@ -2,8 +2,13 @@
  * E2E: Fraud Detection (Sprint 1 — Core Product, ADR-011).
  *
  * Regression guard untuk pipeline fraud:
- *   1. POST /api/transactions dua kali dengan gmail_message_id SAMA →
- *      rule engine L1 menandai DUPLIKAT (severity critical) pada transaksi kedua.
+ *   1. POST /api/transactions dua kali dengan merchant + nominal SAMA (dalam
+ *      jendela 7 hari) → rule engine L1 menandai DUPLIKAT (basis
+ *      amount_merchant_window, severity high) pada transaksi kedua.
+ *      CATATAN P3.2 §12: basis duplikat gmail_message_id TIDAK bisa dipicu
+ *      via API — dedupe server-side P0/P1 mengembalikan replay (bukan baris
+ *      kedua) untuk gmailMessageId yang sudah ada (invariant "Gmail
+ *      duplicates = 0"). Basis itu tetap di-lock unit test fraudEngine.
  *   2. GET /api/fraud/summary menampilkan flag baru (recent) — deteksi berjalan
  *      async (fire-and-forget), jadi dipoll.
  *   3. Transaksi ter-flag: fraud_flag = 'review' + fraud_score numerik (0..1).
@@ -53,18 +58,24 @@ test.describe('Fraud Detection (e2e)', () => {
     await cleanupTestSessions();
   });
 
-  test('duplikat gmail_message_id → flag critical + notifikasi warning + review flow', async ({ request }) => {
+  test('P3.2 §12 — duplikat merchant+nominal (basis amount_merchant_window) → flag review + notifikasi warning + review flow', async ({ request }) => {
     const cookie = session.cookie;
-    const msgId = `fraud-msg-${runTag}`;
+    // Basis gmail_message_id TIDAK lagi bisa dipicu via API (P3.2 §12): dedupe
+    // server-side P0/P1 mengembalikan replay (bukan baris kedua) untuk
+    // gmailMessageId yang sudah ada — invariant "Gmail duplicates = 0" dijaga.
+    // Basis duplikat yang REACHABLE: merchant + nominal sama dalam 7 hari
+    // (FRAUD_RULES.duplicate, severity high → label 'review') — memakai dua
+    // transaksi dengan merchant & amount SAMA, tanpa gmailMessageId.
+    const merchant = `Merchant ${runTag}`;
     const createdTxIds: string[] = [];
 
     try {
     // Transaksi pertama: normal (tanpa flag).
-    const tx1 = await createExpense(request, cookie, { gmailMessageId: msgId });
+    const tx1 = await createExpense(request, cookie, { merchant });
     createdTxIds.push(tx1);
 
-    // Transaksi kedua dengan ID email Gmail sama → DUPLIKAT critical.
-    const tx2 = await createExpense(request, cookie, { gmailMessageId: msgId });
+    // Transaksi kedua: merchant + nominal SAMA dalam 7 hari → DUPLIKAT.
+    const tx2 = await createExpense(request, cookie, { merchant });
     createdTxIds.push(tx2);
 
     // Fraud detection berjalan async — poll summary sampai flag transaksi-2 muncul.
@@ -75,12 +86,12 @@ test.describe('Fraud Detection (e2e)', () => {
       return (body.recent || []).filter((f: { transaction_id?: string }) => f.transaction_id === tx2).length;
     }, { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
 
-    // Transaksi ter-flag: label 'review' (critical) + skor numerik.
+    // Transaksi ter-flag: label 'review' (severity high) + skor numerik.
     const txResp = await request.get('/api/transactions?limit=500', { headers: authHeaders(cookie) });
     const txs = (await txResp.json()) as Array<{ id: string; fraud_flag?: string | null; fraud_score?: number | null }>;
     const flagged = txs.find((t) => t.id === tx2);
     expect(flagged, 'transaksi kedua harus ditemukan').toBeTruthy();
-    expect(flagged?.fraud_flag, 'fraud_flag critical harus = review').toBe('review');
+    expect(flagged?.fraud_flag, 'fraud_flag duplikat harus = review').toBe('review');
     expect(typeof flagged?.fraud_score, 'fraud_score harus numerik').toBe('number');
 
     // Notifikasi warning di bell (dedupe fraud:<txId>).
@@ -116,17 +127,22 @@ test.describe('Fraud Detection (e2e)', () => {
 
   test('UI: halaman /fraud menampilkan flag + flow tandai sudah dicek', async ({ browser, playwright }) => {
     const cookie = session.cookie;
-    const msgId = `fraud-ui-msg-${runTag}`;
     const merchant = `Merchant UI ${runTag}`;
     const createdTxIds: string[] = [];
 
-    // API context terpisah (request fixture tidak tersedia di test bertipe browser).
-    const api = await playwright.request.newContext({ baseURL: 'http://localhost:5180' });
+    // API context terpisah — baseURL diambil dari CONFIG (bukan hardcode port):
+    // main config = 5180, config E2E terisolasi = 5190. Hardcode 5180 membuat
+    // spec ini menembak stack dev saat dijalankan di config terisolasi (cookie
+    // di-mint ke DB lokal → API dev 401 → POST tanpa id — regresi P1.7).
+    const baseURL = (test.info().project.use as { baseURL?: string }).baseURL ?? 'http://localhost:5180';
+    const api = await playwright.request.newContext({ baseURL });
 
     try {
-      const tx1 = await createExpense(api, cookie, { gmailMessageId: msgId, merchant });
+      // P3.2 §12 — basis duplikat REACHABLE: merchant + nominal sama dalam 7
+      // hari (gmail_message_id duplikat dicegah API oleh dedupe P0/P1).
+      const tx1 = await createExpense(api, cookie, { merchant });
       createdTxIds.push(tx1);
-      const tx2 = await createExpense(api, cookie, { gmailMessageId: msgId, merchant });
+      const tx2 = await createExpense(api, cookie, { merchant });
       createdTxIds.push(tx2);
 
       // Tunggu flag transaksi-2 muncul (deteksi async).
@@ -151,7 +167,7 @@ test.describe('Fraud Detection (e2e)', () => {
       await expect(card).toBeVisible({ timeout: 15_000 });
       await expect(card).toContainText('Duplikat');
       await expect(card).toContainText(merchant);
-      await expect(card).toContainText('Kritis');
+      await expect(card).toContainText('Tinggi'); // basis amount_merchant → severity high
 
       // Tombol "Sudah dicek" → status flag berubah jadi reviewed (API ground truth).
       await card.getByRole('button', { name: /Sudah dicek/ }).click();

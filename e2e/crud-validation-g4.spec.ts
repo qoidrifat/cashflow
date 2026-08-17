@@ -107,7 +107,10 @@ test.describe('P1-2 G4 — validasi agent-search & admin metrics (e2e)', () => {
     // Bila lingkungan berbeda (403), test admin di-skip — spec tidak boleh gagal
     // karena konfigurasi lingkungan, hanya karena regresi validasi.
     // GET /cache tanpa param: 200 hanya bila admin.
-    const context = await playwright.request.newContext({ baseURL: 'http://localhost:5180' });
+    // baseURL dari CONFIG (5180 main / 5190 isolated) — hardcode port membuat
+    // probe menembak stack yang salah di config E2E terisolasi (P1.7).
+    const baseURL = (test.info().project.use as { baseURL?: string }).baseURL ?? 'http://localhost:5180';
+    const context = await playwright.request.newContext({ baseURL });
     try {
       const probe = await context.get('/api/admin/metrics/cache', {
         headers: { Cookie: `better-auth.session_token=${adminSession.cookie}` },

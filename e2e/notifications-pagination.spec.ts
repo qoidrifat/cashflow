@@ -23,8 +23,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type APIRequestContext } from 'playwright/test';
-import { createClient } from '@libsql/client';
-import { mintSessionCookie, mintSessionCookieForEmail, cleanupTestSessions } from './helpers/mintSession';
+import { mintSessionCookie, mintSessionCookieForEmail, cleanupTestSessions, createE2eTursoClient } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
 
@@ -53,12 +52,9 @@ function loadEnv(): void {
   }
 }
 
-function openTurso() {
+async function openTurso() {
   loadEnv();
-  return createClient({
-    url: process.env.TURSO_DATABASE_URL as string,
-    authToken: process.env.TURSO_AUTH_TOKEN as string,
-  });
+  return await createE2eTursoClient();
 }
 
 /** Judul seed deterministik: index 2-digit, urut naik saat dibuat. */
@@ -118,7 +114,7 @@ async function seedFilteredNotifications(request: APIRequestContext, cookie: str
 
 /** Hapus semua notifikasi test berprefiks 'e2e-page-' (termasuk sisa run lama). */
 async function cleanupSeededNotifications(): Promise<void> {
-  const turso = openTurso();
+  const turso = await openTurso();
   try {
     await turso.execute({
       sql: `DELETE FROM notifications WHERE dedupe_key LIKE ?`,
@@ -136,7 +132,7 @@ async function cleanupSeededNotifications(): Promise<void> {
  * gagal SQLITE_CONSTRAINT untuk user sementara.
  */
 async function ensureLegacyUserRow(userId: string, email: string): Promise<void> {
-  const turso = openTurso();
+  const turso = await openTurso();
   try {
     await turso.execute({
       sql: `INSERT OR IGNORE INTO users (id, email, name) VALUES (?, ?, ?)`,
@@ -149,7 +145,7 @@ async function ensureLegacyUserRow(userId: string, email: string): Promise<void>
 
 /** Hapus baris user test dari tabel legacy `users` (email prefiks 'e2e-page-f-'). */
 async function cleanupLegacyTestUser(): Promise<void> {
-  const turso = openTurso();
+  const turso = await openTurso();
   try {
     await turso.execute({
       sql: `DELETE FROM users WHERE email LIKE 'e2e-page-f-%@e2e.local'`,
@@ -162,7 +158,7 @@ async function cleanupLegacyTestUser(): Promise<void> {
 
 /** Hitung total notifikasi user (untuk ekspektasi halaman terakhir). */
 async function countUserNotifications(userId: string): Promise<number> {
-  const turso = openTurso();
+  const turso = await openTurso();
   try {
     const res = await turso.execute({
       sql: `SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?`,

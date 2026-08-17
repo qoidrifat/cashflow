@@ -2,11 +2,16 @@
  * E2E: Halaman Dashboard (/dashboard)
  *
  * Login via cookie (pola sama dengan gmail-sync.spec.ts), lalu memverifikasi:
- *   1. Stat cards (Total Saldo, Pemasukan Bulan Ini, Pengeluaran Bulan Ini,
- *      Sisa Budget) tampil dan nilai "Total Saldo" cocok dengan balance yang
- *      dihitung dari 50 transaksi terbaru (API /api/transactions?limit=50 —
- *      sumber yang sama dengan yang dipakai halaman via listenToTransactions).
- *   2. Quick actions & seksi "Transaksi Terbaru" tampil (min 1 item dirender).
+ *   1. Stat cards (Arus Kas Bersih — P2.5 rename dari "Total Saldo", Pemasukan
+ *      Bulan Ini, Pengeluaran Bulan Ini,
+ *      Sisa Budget) tampil dan nilainya cocok dengan API ground truth
+ *      /api/transactions/summary (ringkasan WINDOWLESS server-side — sumber
+ *      kebenaran tunggal. Root cause insiden 2026-08-08: sebelumnya dashboard
+ *      menghitung saldo dari 50 transaksi terbaru sehingga saldo melompat
+ *      saat window bergeser).
+ *   2. Reload konsisten: nilai setelah reload = nilai API (tidak ada
+ *      optimistic-state/cache yang menyimpang dari database).
+ *   3. Quick actions & seksi "Transaksi Terbaru" tampil (min 1 item dirender).
  *
  * Menjalankan:
  *   npx playwright test e2e/dashboard.spec.ts
@@ -16,20 +21,17 @@ import { mintSessionCookie, cleanupTestSessions } from './helpers/mintSession';
 import { setupAuthContext } from './helpers/authContext';
 import { collectPageErrors } from './helpers/errors';
 
-interface TxRow {
-  type: string;
-  amount: number;
+interface SummaryTotals {
+  totalIncome: number;
+  totalExpense: number;
+  balance: number;
 }
 
-/** Replikasi calculateBalance() di src/services/transactionService.ts. */
-function calculateBalance(rows: TxRow[]): { totalIncome: number; totalExpense: number; balance: number } {
-  const totalIncome = rows
-    .filter((t) => t.type === 'income' || t.type === 'refund')
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  const totalExpense = rows
-    .filter((t) => t.type === 'expense' || t.type === 'transfer')
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  return { totalIncome, totalExpense, balance: totalIncome - totalExpense };
+interface SummaryResp {
+  month: number;
+  year: number;
+  lifetime: SummaryTotals;
+  monthly: SummaryTotals;
 }
 
 /**
@@ -68,33 +70,46 @@ test.describe('Dashboard page (e2e)', () => {
     await setupAuthContext(context, session);
   });
 
-  test('stat cards tampil & Total Saldo cocok dengan API ground truth', async ({ page, request }) => {
+  test('stat cards cocok dengan API summary (windowless) & konsisten setelah reload', async ({ page, request }) => {
     const pageErrors = collectPageErrors(page);
 
-    // Ground truth: 50 transaksi terbaru (sama dengan fetch halaman)
-    const apiResp = await request.get('/api/transactions?limit=50', {
+    // Ground truth: ringkasan windowless server-side (bulan berjalan).
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    const apiResp = await request.get(`/api/transactions/summary?month=${month}&year=${year}`, {
       headers: { Cookie: `better-auth.session_token=${session.cookie}` },
     });
     expect(apiResp.ok()).toBeTruthy();
-    const rows = (await apiResp.json()) as TxRow[];
-    expect(rows.length).toBe(50);
-    const expected = calculateBalance(rows);
+    const summary = (await apiResp.json()) as SummaryResp;
 
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
 
-    // Tunggu data dirender (skeleton → stat cards)
-    await expect(page.getByText('Total Saldo', { exact: true }).first()).toBeVisible();
+    // Tunggu data dirender (skeleton → stat cards)    await expect(page.getByText('Arus Kas Bersih', { exact: true }).first()).toBeVisible();
+    // Arus Kas Bersih = LIFETIME net cash flow (windowless) — abs karena formatCurrency
+    // memakai Math.abs.
+    const balanceDigits = await getStatCardValue(page, 'Arus Kas Bersih');
+    expect(balanceDigits).toBe(formatCurrencyId(summary.lifetime.balance).replace(/[^\d]/g, ''));
 
-    // Total Saldo (abs karena formatCurrency memakai Math.abs)
-    const balanceDigits = await getStatCardValue(page, 'Total Saldo');
-    expect(balanceDigits).toBe(formatCurrencyId(expected.balance).replace(/[^\d]/g, ''));
+    // Pemasukan / Pengeluaran Bulan Ini = summary.monthly.
+    const incomeDigits = await getStatCardValue(page, 'Pemasukan Bulan Ini');
+    expect(incomeDigits).toBe(formatCurrencyId(summary.monthly.totalIncome).replace(/[^\d]/g, ''));
+    const expenseDigits = await getStatCardValue(page, 'Pengeluaran Bulan Ini');
+    expect(expenseDigits).toBe(formatCurrencyId(summary.monthly.totalExpense).replace(/[^\d]/g, ''));
 
-    // Cards lain minimal tampil dengan nilai non-negatif (tidak error/skeleton)
-    for (const title of ['Pemasukan Bulan Ini', 'Pengeluaran Bulan Ini', 'Sisa Budget']) {
-      const digits = await getStatCardValue(page, title);
-      expect(digits.length).toBeGreaterThan(0);
-    }
+    // Sisa Budget minimal tampil (tidak error/skeleton)
+    const budgetDigits = await getStatCardValue(page, 'Sisa Budget');
+    expect(budgetDigits.length).toBeGreaterThan(0);
+
+    // RELOAD CONSISTENCY (T23): nilai sebelum & sesudah reload harus identik
+    // dan sama dengan API — frontend state tidak boleh menyimpang dari DB.
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByText('Arus Kas Bersih', { exact: true }).first()).toBeVisible();
+    expect(await getStatCardValue(page, 'Arus Kas Bersih')).toBe(balanceDigits);
+    expect(await getStatCardValue(page, 'Pemasukan Bulan Ini')).toBe(incomeDigits);
+    expect(await getStatCardValue(page, 'Pengeluaran Bulan Ini')).toBe(expenseDigits);
 
     pageErrors.expectClean();
   });
@@ -104,7 +119,7 @@ test.describe('Dashboard page (e2e)', () => {
 
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText('Total Saldo', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Arus Kas Bersih', { exact: true }).first()).toBeVisible();
 
     // Quick actions (aria-label = label)
     for (const label of ['Pemasukan', 'Pengeluaran', 'Scan Gmail', 'Laporan']) {
