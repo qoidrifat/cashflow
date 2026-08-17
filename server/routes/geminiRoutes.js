@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import multer from 'multer';
 import metricsService from '../services/metricsService.js';
+import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { logger } from '../lib/logger.js';
 import { validateRequiredString, validateInt, validateBody } from '../lib/validation.js';
@@ -31,6 +32,7 @@ import {
   classifyVertexError,
   sendGeminiError,
 } from '../lib/vertexContext.js';
+import { insertTimelineEvent } from '../lib/timelineEvents.js';
 
 const receiptImageUpload = multer({
   storage: multer.memoryStorage(),
@@ -58,6 +60,42 @@ const receiptImageUpload = multer({
  */
 const EMAIL_TEXT_MAX_LENGTH = 50_000;
 
+/**
+ * Ambil baris ai_memory user untuk injeksi ke prompt advisor/insight (P7).
+ * User-scoped (WHERE user_id = ?). Gagal aman → [] agar memory TIDAK pernah
+ * menggagalkan generate — memory adalah konteks tambahan, bukan kritikal.
+ */
+async function loadUserMemory(userId) {
+  try {
+    const turso = getTurso();
+    const result = await turso.execute({
+      sql: 'SELECT category, key, value FROM ai_memory WHERE user_id = ? ORDER BY category ASC, key ASC',
+      args: [userId],
+    });
+    return result.rows || [];
+  } catch (err) {
+    logger.warn({ message: err.message }, 'Memuat AI memory untuk prompt gagal (diabaikan)');
+    return [];
+  }
+}
+
+/**
+ * Observability memory → prompt (P10.1): catat `ai_memory_used` saat memory
+ * selesai dimuat untuk injeksi (advisor/monthly-report). Non-PII: hanya user_id
+ * internal + jumlah item. Numerator memory_utilization_rate = ai_memory_used
+ * (count>0); denominator = total panggilan advisor+insight (ai_usage_metrics
+ * feature financial_advisor/insight_generator). Fire-and-forget.
+ */
+function recordMemoryUsageObservability(userId, rows, context) {
+  const count = Array.isArray(rows) ? rows.length : 0;
+  metricsService.recordSystemMetric({
+    metricName: 'ai_memory_used',
+    metricValue: count,
+    feature: 'ai_memory',
+    userId,
+    metadata: { context, used: count > 0 },
+  }).catch(() => {});
+}
 /** Rentang tahun monthly report: data app mulai 2026; 2020–2100 aman. */
 const REPORT_YEAR_MIN = 2020;
 const REPORT_YEAR_MAX = 2100;
@@ -159,6 +197,16 @@ function validateSubscriptionsArray(value, opts) {
     });
   }
   return { ok: true, value: cleaned };
+}
+
+/**
+ * Catat hasil AI ke ai_timeline (P9) — fire-and-forget, kegagalan TIDAK
+ * menggagalkan respons (pola recordTimeline di conversationRoutes).
+ * event_type dihitung dari feature (advisor→recommendation, insight→insight).
+ */
+function recordTimeline(userId, input) {
+  insertTimelineEvent(getTurso(), userId, input)
+    .catch((err) => logger.warn({ message: err.message }, 'AI timeline record gagal (diabaikan)'));
 }
 
 export function registerGeminiRoutes(app) {
@@ -472,6 +520,8 @@ export function registerGeminiRoutes(app) {
     }
 
     try {
+      const memory = await loadUserMemory(req.user.id);
+      recordMemoryUsageObservability(req.user.id, memory, 'monthly-report');
       const prompt = buildMonthlyReportPrompt({
         month,
         year,
@@ -479,6 +529,7 @@ export function registerGeminiRoutes(app) {
         sampleTransactions: Array.isArray(sampleTransactions)
           ? sampleTransactions.slice(0, 30)
           : [],
+        memory,
       });
 
       const generated = await generateGeminiText(prompt, {
@@ -511,6 +562,16 @@ export function registerGeminiRoutes(app) {
           requestId,
         });
       }
+
+      // P9: rekam insight ke timeline (fire-and-forget) — snapshot ringkas,
+      // tanpa raw response; confidence null (tidak dikarang).
+      recordTimeline(req.user.id, {
+        feature: 'insight',
+        title: `Insight ${month}/${year}`,
+        body: String(parsed.data?.summary || parsed.data?.insight || '').slice(0, 2000),
+        confidence: null,
+        payload: { month, year },
+      });
 
       return res.json({
         success: true,
@@ -571,7 +632,9 @@ export function registerGeminiRoutes(app) {
     }
 
     try {
-      const prompt = buildAdvisorPrompt({ metrics, subscriptions });
+      const memory = await loadUserMemory(req.user.id);
+      recordMemoryUsageObservability(req.user.id, memory, 'advisor');
+      const prompt = buildAdvisorPrompt({ metrics, subscriptions, memory });
       const generated = await generateGeminiText(prompt, {
         feature: 'financial_advisor',
         userId: req.user.id,
@@ -601,6 +664,16 @@ export function registerGeminiRoutes(app) {
           requestId,
         });
       }
+
+      // P9: rekam rekomendasi advisor ke timeline (fire-and-forget) — payload
+      // ringkas periode agar detail view punya evidence konteks.
+      recordTimeline(req.user.id, {
+        feature: 'advisor',
+        title: 'Rekomendasi Advisor',
+        body: String(parsed.data?.summary || '').slice(0, 2000),
+        confidence: null,
+        payload: { month: metrics?.month, year: metrics?.year },
+      });
 
       return res.json({
         success: true,

@@ -15,6 +15,15 @@ import { getTurso } from '../lib/turso.js';
 import { AI_PRICING, USD_TO_IDR } from '../config/metricsConfig.js';
 import { notifyTriggeredAlerts } from './alertNotifier.js';
 import { aggregateAgentSearchEngagement, emptyAgentSearchEngagement } from '../lib/agentSearchEngagement.js';
+import {
+  aggregateRecommendationEngagement,
+  aggregateRecommendationByDay,
+  aggregateRecommendationByEventType,
+  emptyRecommendationEngagement,
+} from '../lib/recommendationEngagement.js';
+import { computeRetention, MIN_COHORT_USERS } from '../lib/retentionMetrics.js';
+import { aggregateFeedbackRate, emptyFeedbackRate } from '../lib/feedbackRate.js';
+import { aggregateTelemetryUsers, emptyTelemetryUsers } from '../lib/telemetryUsers.js';
 
 function getMetricsClient() {
   return getTurso();
@@ -477,6 +486,226 @@ export async function getAgentSearchEngagement({ from, to } = {}) {
 }
 
 /**
+ * Recommendation engagement (P10.2): recommendation_shown/_opened dari
+ * system_metrics → { shown, opened, ctr, byFeature }. Agregasi via fungsi murni
+ * (lib/recommendationEngagement.js); LIMIT 5000 pola getAgentSearchEngagement.
+ * Opsional `userId` → funnel scoped ke satu user (view per-user admin, P10.2).
+ */
+export async function getRecommendationEngagement({ from, to, userId = null } = {}) {
+  const client = getMetricsClient();
+  if (!client) return emptyRecommendationEngagement();
+
+  const clamped = clampRange({ from, to });
+  const clauses = ['metric_name IN (?, ?)'];
+  const args = ['recommendation_shown', 'recommendation_opened'];
+  if (clamped.from) { clauses.push('created_at >= ?'); args.push(toDbTime(clamped.from)); }
+  if (clamped.to) { clauses.push('created_at <= ?'); args.push(toDbTime(clamped.to)); }
+  if (userId) { clauses.push('user_id = ?'); args.push(userId); }
+
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT metric_name, metric_value, metadata, created_at
+            FROM system_metrics
+            WHERE ${clauses.join(' AND ')}
+            ORDER BY created_at DESC
+            LIMIT 5000`,
+      args,
+    });
+    const shownRows = rows.filter((r) => r.metric_name === 'recommendation_shown');
+    const openedRows = rows.filter((r) => r.metric_name === 'recommendation_opened');
+    return {
+      ...aggregateRecommendationEngagement({ shownRows, openedRows }),
+      byDay: aggregateRecommendationByDay({ shownRows, openedRows }),
+      byEventType: aggregateRecommendationByEventType({ shownRows, openedRows }),
+    };
+  } catch {
+    return emptyRecommendationEngagement();
+  }
+}
+
+/**
+ * Retention D1/D7/D14/D28 (P10.2): cohort dari tabel Better Auth `user`
+ * (createdAt epoch) + sinyal aktivitas `user_active` (system_metrics).
+ * Guard sample: cohort < MIN_COHORT_USERS tidak dilaporkan; total < threshold
+ * → cohortGuardActive (admin menampilkan empty state, bukan angka kosong).
+ */
+export async function getRetentionMetrics({ from, to } = {}) {
+  const client = getMetricsClient();
+  if (!client) return emptyRetentionPayload();
+
+  const clamped = clampRange({ from, to });
+  try {
+    // Cohort: semua user yang registrasi dalam rentang (kap 5000 — beta 10-30).
+    // createdAt bisa INTEGER (unixepoch) ATAU TEXT ISO (adapter Better Auth
+    // menulis '2026-08-01T08:09:57.508Z'). SQLite membandingkan INTEGER < TEXT
+    // selalu → bound numerik mentah (createdAt <= ?) mengecualikan user TEXT
+    // (bug ditemukan E2E P10.2k: retention selalu kosong untuk user riil).
+    // Normalisasi tipe via CASE typeof di SQL agar kedua bentuk dibandingkan
+    // sebagai epoch sekon. strftime('%s', ISO) didukung (Z suffix OK).
+    const epochExpr = `(CASE WHEN typeof(createdAt) = 'text'
+      THEN CAST(strftime('%s', createdAt) AS INTEGER)
+      ELSE CAST(createdAt AS INTEGER) END)`;
+    const cohortClauses = ['createdAt IS NOT NULL'];
+    const cohortArgs = [];
+    if (clamped.from) { cohortClauses.push(`${epochExpr} >= ?`); cohortArgs.push(Math.floor(new Date(clamped.from).getTime() / 1000)); }
+    if (clamped.to) { cohortClauses.push(`${epochExpr} <= ?`); cohortArgs.push(Math.ceil(new Date(clamped.to).getTime() / 1000)); }
+    // Aktivitas user_active dalam rentang (bound dengan `from` — pola query
+    // metrics lain; user_active direkam 1×/user/hari jadi volume terbatas).
+    const activeClauses = ["metric_name = 'user_active'"];
+    const activeArgs = [];
+    if (clamped.from) { activeClauses.push('created_at >= ?'); activeArgs.push(toDbTime(clamped.from)); }
+    const [cohortRes, activeRes] = await Promise.all([
+      client.execute({
+        sql: `SELECT id, createdAt FROM user
+              WHERE ${cohortClauses.join(' AND ')}
+              ORDER BY createdAt ASC LIMIT 5000`,
+        args: cohortArgs,
+      }),
+      client.execute({
+        sql: `SELECT user_id, metadata FROM system_metrics
+              WHERE ${activeClauses.join(' AND ')}
+              ORDER BY created_at DESC
+              LIMIT 20000`,
+        args: activeArgs,
+      }),
+    ]);
+    const result = computeRetention(
+      cohortRes.rows || [],
+      activeRes.rows || [],
+      clamped.to ? new Date(clamped.to) : new Date(),
+    );
+    return { ok: true, minCohortUsers: MIN_COHORT_USERS, ...result };
+  } catch {
+    return emptyRetentionPayload();
+  }
+}
+
+export async function getFeedbackRate({ from, to, userId = null } = {}) {
+  const client = getMetricsClient();
+  if (!client) return emptyFeedbackRate();
+
+  const clamped = clampRange({ from, to });
+  try {
+    const fClauses = [];
+    const fArgs = [];
+    if (clamped.from) { fClauses.push('created_at >= ?'); fArgs.push(toDbTime(clamped.from)); }
+    if (clamped.to) { fClauses.push('created_at <= ?'); fArgs.push(toDbTime(clamped.to)); }
+    if (userId) { fClauses.push('user_id = ?'); fArgs.push(userId); }
+
+    const viewClauses = ["metric_name = 'ai_result_shown'"];
+    const viewArgs = [];
+    if (clamped.from) { viewClauses.push('created_at >= ?'); viewArgs.push(toDbTime(clamped.from)); }
+    if (clamped.to) { viewClauses.push('created_at <= ?'); viewArgs.push(toDbTime(clamped.to)); }
+    if (userId) { viewClauses.push('user_id = ?'); viewArgs.push(userId); }
+
+    const [feedbackRes, viewsRes] = await Promise.all([
+      client.execute({
+        sql: `SELECT feature, rating FROM ai_feedback${fClauses.length ? ` WHERE ${fClauses.join(' AND ')}` : ''} ORDER BY created_at ASC LIMIT 20000`,
+        args: fArgs,
+      }),
+      client.execute({
+        sql: `SELECT metric_value, metadata FROM system_metrics
+              WHERE ${viewClauses.join(' AND ')}
+              ORDER BY created_at DESC
+              LIMIT 20000`,
+        args: viewArgs,
+      }),
+    ]);
+
+    return aggregateFeedbackRate({
+      feedbackRows: feedbackRes.rows || [],
+      viewRows: viewsRes.rows || [],
+    });
+  } catch {
+    return emptyFeedbackRate();
+  }
+}
+
+/**
+ * Daftar user dengan aktivitas telemetry AI pada rentang (P10.2 view per-user):
+ * system_metrics recommendation_shown/_opened/ai_result_shown + ai_feedback,
+ * di-join label dari tabel Better Auth `user` (system_metrics.user_id FK).
+ * Output { users: [...] } urut activity desc (cap 200) — sumber dropdown admin.
+ * MURNI: query SQL ringkas (GROUP BY) + agregasi lib/telemetryUsers.js.
+ */
+export async function getTelemetryUsers({ from, to } = {}) {
+  const client = getMetricsClient();
+  if (!client) return emptyTelemetryUsers();
+
+  const clamped = clampRange({ from, to });
+  try {
+    const actClauses = ["user_id IS NOT NULL", 'metric_name IN (?, ?, ?)'];
+    const actArgs = ['recommendation_shown', 'recommendation_opened', 'ai_result_shown'];
+    const fbClauses = ['user_id IS NOT NULL'];
+    const fbArgs = [];
+    if (clamped.from) { actClauses.push('created_at >= ?'); actArgs.push(toDbTime(clamped.from)); fbClauses.push('created_at >= ?'); fbArgs.push(toDbTime(clamped.from)); }
+    if (clamped.to) { actClauses.push('created_at <= ?'); actArgs.push(toDbTime(clamped.to)); fbClauses.push('created_at <= ?'); fbArgs.push(toDbTime(clamped.to)); }
+
+    // Trade-off LIMIT (vs pola LIMIT 5000 kakak-beradik): GROUP BY user_id
+    // tidak bisa dibatasi baris tanpa kehilangan user — window dikendalikan
+    // clampRange (≤ 90 hari), volume beta kecil (10-30 user); admin-only.
+    const [activityRes, feedbackRes] = await Promise.all([
+      client.execute({
+        sql: `SELECT user_id,
+                COALESCE(SUM(CASE WHEN metric_name IN ('recommendation_shown', 'recommendation_opened') THEN metric_value ELSE 0 END), 0) AS recommendations,
+                COALESCE(SUM(CASE WHEN metric_name = 'ai_result_shown' THEN metric_value ELSE 0 END), 0) AS views
+              FROM system_metrics
+              WHERE ${actClauses.join(' AND ')}
+              GROUP BY user_id`,
+        args: actArgs,
+      }),
+      client.execute({
+        sql: `SELECT user_id, COUNT(*) AS feedback
+              FROM ai_feedback
+              WHERE ${fbClauses.join(' AND ')}
+              GROUP BY user_id`,
+        args: fbArgs,
+      }),
+    ]);
+
+    const activityRows = (activityRes.rows || []).map((r) => ({
+      user_id: r.user_id,
+      recommendations: Number(r.recommendations) || 0,
+      views: Number(r.views) || 0,
+    }));
+    const feedbackRows = (feedbackRes.rows || []).map((r) => ({
+      user_id: r.user_id,
+      feedback: Number(r.feedback) || 0,
+    }));
+    const users = aggregateTelemetryUsers({ activityRows, feedbackRows });
+
+    // Label dari tabel Better Auth `user` — hanya untuk user yang masuk hasil
+    // (cap 200). Bila user row hilang (user dihapus / referensi orphaning),
+    // lib memberi fallback label ke userId.
+    const userRows = [];
+    if (users.length > 0) {
+      const ids = users.map((u) => u.userId);
+      const placeholders = ids.map(() => '?').join(', ');
+      const userRes = await client.execute({
+        sql: `SELECT id, name, email FROM user WHERE id IN (${placeholders})`,
+        args: ids,
+      });
+      userRows.push(...(userRes.rows || []));
+    }
+    return { users: aggregateTelemetryUsers({ activityRows, feedbackRows, userRows }) };
+  } catch {
+    return emptyTelemetryUsers();
+  }
+}
+
+function emptyRetentionPayload() {
+  return {
+    ok: true,
+    minCohortUsers: MIN_COHORT_USERS,
+    totalCohortUsers: 0,
+    totalCohorts: 0,
+    cohortGuardActive: true,
+    cohorts: [],
+    days: [1, 7, 14, 28].map((day) => ({ day, users: 0, rate: null })),
+  };
+}
+
+/**
  * Feature health: success rate, failure count, avg time, total calls (H-1: SQL
  * aggregate — tidak transfer semua rows). Output shape tidak berubah.
  */
@@ -789,6 +1018,7 @@ export default {
   calculateCost,
   recordAIUsage,
   recordSystemMetric,
+  getMetricsClient,
   getAIUsageSummary,
   getCostTrend,
   getCostTrendByFeature,
@@ -797,6 +1027,10 @@ export default {
   getSystemMetrics,
   aggregateAgentSearchEngagement,
   getAgentSearchEngagement,
+  getRecommendationEngagement,
+  getFeedbackRate,
+  getTelemetryUsers,
+  getRetentionMetrics,
   getFeatureHealth,
   getFeatureCalls,
   sanitizeErrorMessage,

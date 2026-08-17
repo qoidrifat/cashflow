@@ -21,6 +21,8 @@ import {
   getInflightAICache,
   setInflightAICache,
 } from './aiCache.js';
+import { formatMemoryPrompt } from './aiMemoryContext.js';
+import { isGeminiMockEnabled, runGeminiMock } from './aiMock.js';
 
 // ===================== Retry & Cache Tuning (Sprint 3) =====================
 // Retry exponential backoff hanya untuk error retryable (quota/timeout/network).
@@ -168,6 +170,11 @@ ${userHint.date ? `Petunjuk: Tanggal default: ${userHint.date}.` : ''}`;
 }
 
 export function buildMonthlyReportPrompt(reportData) {
+  // Memory (P7) disisipkan sebagai section "AI ingat" — dipisah dari data agar
+  // tidak ikut di-serialize mentah (anti prompt-injection & hemat token).
+  const { memory, ...reportCore } = reportData || {};
+  const memorySection = formatMemoryPrompt(memory);
+
   return `Kamu adalah AI financial analyst untuk aplikasi CashFlow Indonesia.
 
 Tugas: Buat insight laporan keuangan bulanan yang praktis, ringkas, profesional, dan mudah dipahami user muda.
@@ -188,9 +195,10 @@ ATURAN OUTPUT WAJIB:
    - positiveNotes: array string, maksimal 3 item.
 3. Jangan gunakan trailing comma, undefined, NaN, atau null.
 4. Jangan menyebut kamu punya akses rekening bank. Analisis hanya dari data aplikasi.
-
-Data laporan:
-${JSON.stringify(reportData).substring(0, 12000)}`;
+${memorySection ? `
+${memorySection}
+` : ''}Data laporan:
+${JSON.stringify(reportCore).substring(0, 12000)}`;
 }
 
 // ===================== Financial Advisor Prompt (Sprint 1.3) =====================
@@ -200,8 +208,11 @@ ${JSON.stringify(reportData).substring(0, 12000)}`;
  * saran pengeluaran, strategi tabungan, strategi budget, dana darurat, optimasi
  * langganan, dan daftar aksi personal ber-prioritas. Data di-ringkas (metrics +
  * subscriptions) — tanpa PII mentah. Caller wajib punya fallback deterministik.
+ * `memory` (opsional): baris ai_memory user → section "AI ingat" (P7).
  */
-export function buildAdvisorPrompt({ metrics, subscriptions = [] }) {
+export function buildAdvisorPrompt({ metrics, subscriptions = [], memory = [] }) {
+  const memorySection = formatMemoryPrompt(memory);
+
   return `Kamu adalah AI personal financial coach untuk aplikasi CashFlow Indonesia.
 
 Tugas: Beri coaching keuangan personal yang praktis berdasarkan ringkasan data pengguna.
@@ -237,8 +248,9 @@ ATURAN:
 6. actionList: maksimal 5 item, diurutkan prioritas (high dulu), action singkat & executable.
 7. Jangan gunakan trailing comma, undefined, NaN, atau null.
 8. Gunakan angka bulat untuk nominal (IDR).
-
-Data ringkasan pengguna (JSON):
+${memorySection ? `
+${memorySection}
+` : ''}Data ringkasan pengguna (JSON):
 ${JSON.stringify({ metrics, subscriptions }).substring(0, 9000)}`;
 }
 
@@ -576,6 +588,16 @@ export async function generateVertexContent({
   metricMeta = {},
   cacheTtlMs = 0,
 }) {
+  // P1.8: AI MOCK BOUNDARY — deterministik & offline untuk E2E.
+  // Berjalan SEBELUM check geminiReady: mock TIDAK butuh kredensial Vertex
+  // (justru tujuannya — E2E deterministik tanpa network/quota). Fail-fast di
+  // production dijamin isGeminiMockEnabled() (throw bila NODE_ENV=production).
+  // Mock TIDAK mencatat AI usage / metrics (tidak ada token terpakai) dan
+  // TIDAK retry (skenario error deterministik & cepat).
+  if (isGeminiMockEnabled()) {
+    return runGeminiMock({ label, feature });
+  }
+
   if (!state.geminiReady || !state.vertexAI) {
     const error = new Error('Vertex AI Gemini belum dikonfigurasi di server.');
     error.code = 'VERTEX_NOT_CONFIGURED';

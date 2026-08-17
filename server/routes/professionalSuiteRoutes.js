@@ -14,6 +14,7 @@
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import { publicProviderList, isProviderEnabled, matchProviderByInstitutionOrName } from '../lib/providerCatalog.js';
 import {
   validateBody,
   sendValidationError,
@@ -68,6 +69,19 @@ export const WALLET_CREATE_SCHEMA = {
   // zod client: balance min(0) → negatif ditolak (tidak ada caller sah negatif).
   balance: { validate: validateAmount, options: { field: 'balance' } },
   color: { validate: validateOptionalString, options: { field: 'color', max: 50 } },
+  // P2.5 account-based ledger: saldo awal per akun. allowNegative:true —
+  // saldo awal credit card memang bisa negatif; tidak sama dengan `balance`
+  // (snapshot min 0). NULL = belum dikonfigurasi → currentBalance unknown.
+  openingBalance: { validate: validateAmount, options: { field: 'openingBalance', allowNegative: true } },
+  openingBalanceDate: { validate: validateRawIsoDate, options: { field: 'openingBalanceDate' } },
+  currency: { validate: validateOptionalString, options: { field: 'currency', max: 8 } },
+  // P2.9 §41 — idempotensi aktivasi akun dari kandidat: bila `activation:true`
+  // dan akun dengan nama sama sudah ada (case-insensitive, per user), POST
+  // mengembalikan id existing — TANPA membuat duplikat (double-click/retry).
+  activation: { validate: whenPresent(validateBoolean), options: { field: 'activation' } },
+  // P0.11 — kode provider dari katalog (hubungkan wallet ke provider; diverifikasi
+  // server terhadap katalog → provider tak dikenal ditolak fail-closed).
+  providerCode: { validate: validateOptionalString, options: { field: 'providerCode', max: 60 } },
 };
 
 export const WALLET_UPDATE_SCHEMA = {
@@ -77,6 +91,10 @@ export const WALLET_UPDATE_SCHEMA = {
   balance: { validate: whenPresent(validateAmount), options: { field: 'balance' } },
   color: { validate: whenPresent(validateOptionalString), options: { field: 'color', max: 50 } },
   archived: { validate: whenPresent(validateBoolean), options: { field: 'archived' } },
+  openingBalance: { validate: whenPresent(validateAmount), options: { field: 'openingBalance', allowNegative: true } },
+  openingBalanceDate: { validate: whenPresent(validateRawIsoDate), options: { field: 'openingBalanceDate' } },
+  currency: { validate: whenPresent(validateOptionalString), options: { field: 'currency', max: 8 } },
+  providerCode: { validate: whenPresent(validateOptionalString), options: { field: 'providerCode', max: 60 } },
 };
 
 export const GOAL_CREATE_SCHEMA = {
@@ -139,10 +157,22 @@ export function registerProfessionalSuiteRoutes(app) {
         sql: `SELECT * FROM wallet_accounts WHERE user_id = ? ORDER BY archived ASC, created_at DESC`,
         args: [userId],
       });
-      res.json(result.rows);
+      // P0.11 — fallback derived: bila provider_code belum terpasang, cocokkan
+      // institution/name ke katalog (tanpa mutasi DB). Server tetap berdaulat.
+      const rows = result.rows.map((row) => {
+        const pc = row.provider_code || matchProviderByInstitutionOrName(row);
+        return pc ? { ...row, provider_code: pc } : row;
+      });
+      res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // P0.11 — Provider Catalog: daftar institusi yang didukung untuk onboarding.
+  // Hanya field publik; TIDAK ada secret/credential. Wajib authenticated.
+  app.get('/api/wallet-providers', requireAuth, (req, res) => {
+    res.json(publicProviderList());
   });
 
   app.post('/api/wallets', requireAuth, async (req, res) => {
@@ -155,13 +185,57 @@ export function registerProfessionalSuiteRoutes(app) {
       // dikenal dibuang (anti mass-assignment).
       const result = validateBody(req.body, WALLET_CREATE_SCHEMA);
       if (!result.ok) return sendValidationError(res, result);
-      const { name, type, institution = '', balance = 0, color = '#8b5cf6' } = result.value;
+      const {
+        name,
+        type,
+        institution = '',
+        balance = 0,
+        color = '#8b5cf6',
+        openingBalance = null,
+        openingBalanceDate = null,
+        currency = 'IDR',
+        activation = false,
+        providerCode = null,
+      } = result.value;
+      // P0.11 — provider tak dikenal DITOLAK fail-closed. Provider yang belum
+      // punya integrasi otomatis tetap boleh dibuat (manual) — hanya kode yang
+      // bukan dari katalog yang ditolak, agar tidak ada provider nazir arbitrary.
+      if (providerCode && !isProviderEnabled(providerCode)) {
+        return res.status(400).json({ error: `Provider "${providerCode}" tidak dikenal.`, errorCode: 'VALIDATION_ERROR' });
+      }
       const now = new Date().toISOString();
 
+      // P2.9 §41 — aktivasi idempoten: nama sama + user sama → akun existing
+      // dikembalikan (tidak ada duplikat, tidak ada double audit).
+      if (activation === true) {
+        const existing = await turso.execute({
+          sql: `SELECT id FROM wallet_accounts WHERE user_id = ? AND LOWER(name) = LOWER(?) AND archived = 0 LIMIT 1`,
+          args: [userId, name],
+        });
+        if (existing.rows?.[0]) {
+          res.json({ id: String(existing.rows[0].id), idempotent: true });
+          return;
+        }
+      }
+
       await turso.execute({
-        sql: `INSERT INTO wallet_accounts (id, user_id, name, type, institution, balance, color, archived, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        args: [id, userId, name, type, institution, Number(balance), color, now, now],
+        sql: `INSERT INTO wallet_accounts (id, user_id, name, type, institution, balance, color, archived, opening_balance, opening_balance_date, currency, created_at, updated_at, provider_code)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          userId,
+          name,
+          type,
+          institution,
+          Number(balance),
+          color,
+          openingBalance === null ? null : Number(openingBalance),
+          openingBalanceDate || null,
+          String(currency || 'IDR').toUpperCase(),
+          now,
+          now,
+          providerCode,
+        ],
       });
 
       notifyUser(userId, 'wallet:changed', { id });
@@ -192,6 +266,15 @@ export function registerProfessionalSuiteRoutes(app) {
       if (data.balance !== undefined) { updates.push('balance = ?'); args.push(Number(data.balance)); }
       if (data.color !== undefined) { updates.push('color = ?'); args.push(data.color); }
       if (data.archived !== undefined) { updates.push('archived = ?'); args.push(data.archived ? 1 : 0); }
+      // P2.5: saldo awal (nullable — null/undefined = belum dikonfigurasi).
+      if (data.openingBalance !== undefined) { updates.push('opening_balance = ?'); args.push(data.openingBalance === null ? null : Number(data.openingBalance)); }
+      if (data.openingBalanceDate !== undefined) { updates.push('opening_balance_date = ?'); args.push(data.openingBalanceDate || null); }
+      if (data.currency !== undefined) { updates.push('currency = ?'); args.push(String(data.currency || 'IDR').toUpperCase()); }
+      // P0.11 — provider_code hanya boleh di-update ke nilai dari katalog.
+      if (data.providerCode !== undefined) {
+        if (data.providerCode === null || !isProviderEnabled(data.providerCode)) return res.status(400).json({ error: `Provider "${data.providerCode}" tidak dikenal.`, errorCode: 'VALIDATION_ERROR' });
+        updates.push('provider_code = ?'); args.push(data.providerCode);
+      }
 
       if (updates.length > 0) {
         updates.push("updated_at = datetime('now')");

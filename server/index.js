@@ -65,15 +65,23 @@ import { registerProfessionalSuiteRoutes } from './routes/professionalSuiteRoute
 import { registerGmailRoutes } from './routes/gmailRoutes.js';
 import { registerGeminiRoutes } from './routes/geminiRoutes.js';
 import { registerAgentSearchRoutes } from './routes/agentSearchRoutes.js';
+import { registerKnowledgeRoutes } from './routes/knowledgeRoutes.js';
 import { registerAdminMetricsRoutes } from './routes/adminMetricsRoutes.js';
 import { registerHealthRoutes } from './routes/healthRoutes.js';
 import { registerAiProductRoutes } from './routes/aiProductRoutes.js';
+import { registerConversationRoutes } from './routes/conversationRoutes.js';
+import { registerPrivacyRoutes } from './routes/privacyRoutes.js';
+import { registerFinancialSettingsRoutes } from './routes/financialSettingsRoutes.js';
+import { registerReconciliationRoutes } from './routes/reconciliationRoutes.js';
 import { getTurso, closeTurso } from './lib/turso.js';
 import { runAlertEvaluation } from './services/metricsService.js';
+import { cleanupExpiredSessions } from './lib/sessionCleanup.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { logger } from './lib/logger.js';
 import { requestIdMiddleware, httpMetricsMiddleware } from './middleware/observabilityMiddleware.js';
+import { handleServerError } from './middleware/errorHandler.js';
+import { assertGeminiMockSafe } from './lib/aiMock.js';
 import {
   configureVertexAI,
   initGemini,
@@ -175,6 +183,10 @@ configureVertexAI({
 });
 
 initGemini();
+
+// P1.8: AI mock boundary — fail-fast di boot bila GEMINI_MOCK=1 diaktifkan di
+// produksi (mock hanya untuk E2E/test; tidak pernah boleh aktif di production).
+assertGeminiMockSafe();
 
 // ===================== Security Hardening (Sprint 1.1) =====================
 // Helmet + rate limiting (express-rate-limit v7, kompatibel Express 4).
@@ -321,50 +333,17 @@ registerProfessionalSuiteRoutes(app);
 registerGmailRoutes(app);
 registerGeminiRoutes(app);
 registerAgentSearchRoutes(app);
+registerKnowledgeRoutes(app);
 registerAdminMetricsRoutes(app);
-registerHealthRoutes(app);
-registerAiProductRoutes(app);
+registerHealthRoutes(app);  registerAiProductRoutes(app);
+  registerConversationRoutes(app);
+registerPrivacyRoutes(app);  registerFinancialSettingsRoutes(app);
+  registerReconciliationRoutes(app);
 
 // ===================== Error Middleware =====================
-
-app.use((err, _req, res, next) => {
-  if (!err) {
-    next();
-    return;
-  }
-
-  if (err.code === 'LIMIT_FILE_SIZE' || err.type === 'entity.too.large') {
-    return res.status(413).json({
-      success: false,
-      ok: false,
-      errorCode: 'PAYLOAD_TOO_LARGE',
-      code: 'PAYLOAD_TOO_LARGE',
-      userMessage: 'Gambar terlalu besar untuk diproses. Kompres gambar atau upload file yang lebih kecil.',
-      message: 'Gambar terlalu besar untuk diproses. Kompres gambar atau upload file yang lebih kecil.',
-    });
-  }
-
-  if (err.message?.includes('File harus berupa gambar')) {
-    return res.status(400).json({
-      success: false,
-      ok: false,
-      errorCode: 'INVALID_IMAGE_TYPE',
-      code: 'INVALID_IMAGE_TYPE',
-      userMessage: err.message,
-      message: err.message,
-    });
-  }
-
-  return res.status(500).json({
-    success: false,
-    ok: false,
-    errorCode: 'SERVER_ERROR',
-    code: 'SERVER_ERROR',
-    userMessage: 'Terjadi error teknis di server AI.',
-    message: 'Terjadi error teknis di server AI.',
-    ...(!isProduction() ? { detail: err.message } : {}),
-  });
-});
+// Global error handler (shape kanonik §0: error + errorCode + requestId) —
+// dipasang TERAKHIR; route memanggil next(err) untuk menyerahkan ke sini.
+app.use(handleServerError);
 
 // ===================== Start Server =====================
 
@@ -395,6 +374,43 @@ function startAlertScheduler() {
   // unref: timer tidak menahan proses shutdown
   alertSchedulerTimer.unref();
   logger.info({ intervalMs: ALERT_SCHEDULER_INTERVAL_MS }, 'Alert scheduler aktif (evaluasi berkala)');
+}
+
+// ===================== Session Cleanup Scheduler (2026-08-09) ================
+// Pembersihan sesi KEDALUWARSA dari tabel `session` (better-auth TIDAK pernah
+// menghapus baris kedaluwarsa sendiri — hanya sign-out/rotasi yang hapus →
+// akumulasi sampah tanpa batas). Pola IDENTIK alert scheduler:
+//   Env: SESSION_CLEANUP_ENABLED=false utk matikan; SESSION_CLEANUP_INTERVAL_MS
+//   utk ubah interval (default 24 jam = 86_400_000).
+// Nonaktif otomatis di server uji (PORT 5182 — rate-limit spec) & 5183
+// (webhook spec) agar tidak ada side-effect saat E2E.
+const SESSION_CLEANUP_ENABLED =
+  process.env.SESSION_CLEANUP_ENABLED !== 'false' && PORT !== 5182 && PORT !== 5183;
+const SESSION_CLEANUP_INTERVAL_MS = (() => {
+  const v = parseInt(process.env.SESSION_CLEANUP_INTERVAL_MS, 10);
+  return Number.isFinite(v) && v > 0 ? v : 86_400_000; // 24 jam
+})();
+
+let sessionCleanupTimer = null;
+function startSessionCleanupScheduler() {
+  if (!SESSION_CLEANUP_ENABLED) {
+    logger.info({ port: PORT }, 'Session cleanup scheduler dinonaktifkan (env/test server)');
+    return;
+  }
+  sessionCleanupTimer = setInterval(() => {
+    cleanupExpiredSessions()
+      .catch((err) => logger.warn({ err: err.message }, 'Session cleanup gagal'));
+  }, SESSION_CLEANUP_INTERVAL_MS);
+  // unref: timer tidak menahan proses shutdown
+  sessionCleanupTimer.unref();
+  logger.info({ intervalMs: SESSION_CLEANUP_INTERVAL_MS }, 'Session cleanup scheduler aktif (harian)');
+
+  // RUN PERTAMA LANGSUNG di boot: server baru / redeploy tidak perlu menunggu
+  // interval 24 jam untuk membersihkan sesi kedaluwarsa yang sudah menumpuk.
+  // (Alert scheduler tidak punya ini; untuk cleanup nilainya murah & jelas.)
+  cleanupExpiredSessions()
+    .then(({ deleted }) => logger.info({ deleted }, 'Session cleanup boot: sesi kedaluwarsa dibersihkan'))
+    .catch((err) => logger.warn({ err: err.message }, 'Session cleanup boot gagal'));
 }
 
 const server = app.listen(PORT, '0.0.0.0', () => {
@@ -445,6 +461,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   }
 
   startAlertScheduler();
+  startSessionCleanupScheduler();
 });
 
 // ===================== Graceful Shutdown (Sprint 1.2) =====================
@@ -455,6 +472,10 @@ function shutdown(signal) {
   if (alertSchedulerTimer) {
     clearInterval(alertSchedulerTimer);
     alertSchedulerTimer = null;
+  }
+  if (sessionCleanupTimer) {
+    clearInterval(sessionCleanupTimer);
+    sessionCleanupTimer = null;
   }
   // PENTING: tutup SSE SEBELUM menunggu server.close(). server.close() menunggu
   // seluruh koneksi existing selesai; koneksi SSE (keep-alive) tidak pernah selesai

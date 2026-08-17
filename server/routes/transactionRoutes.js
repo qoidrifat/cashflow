@@ -26,6 +26,12 @@
 import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
+import { logger } from '../lib/logger.js';
+import { computeFinancialSummary, parseOwnAccounts } from '../lib/financialSummary.js';
+import { computeAccountLedger } from '../lib/financialLedger.js';
+import { buildReconciliationSummary } from '../lib/reconciliationEngine.js';
+import metricsService from '../services/metricsService.js';
+import { isConstraintError } from '../lib/retry.js';
 import { runFraudDetection, isFraudDetectionEnabled } from '../services/fraudDetectionService.js';
 import {
   validateBody,
@@ -128,6 +134,15 @@ export const TRANSACTION_CREATE_SCHEMA = {
   gmailMessageId: { validate: validateClearableString, options: { max: 191 } },
   confidenceScore: CONFIDENCE_SCORE_FIELD,
   metadata: { validate: validateMetadataObject },
+  // P2.5 account-based ledger (migration 0006/0007): akun + grup transfer
+  // eksplisit. Opsional — NULL = legacy (unclassified / heuristic pairing).
+  accountId: { validate: validateClearableString, options: { max: 191 } },
+  transferGroupId: { validate: validateClearableString, options: { max: 191 } },
+  // Idempotency-Key (2026-08-09): key opsional utk create-once di server.
+  // Dibaca dari header `Idempotency-Key` ATAU body `idempotencyKey` (body
+  // field dipakai unit-test harness tanpa header support). Key sama + user
+  // sama → kembalikan transaksi existing (replayed), TANPA insert baru.
+  idempotencyKey: { validate: validateClearableString, options: { max: 191 } },
 };
 
 /**
@@ -143,6 +158,8 @@ export const TRANSACTION_UPDATE_SCHEMA = {
   paymentMethod: { validate: validateClearableString, options: { max: 100 } },
   note: { validate: validateClearableString },
   date: { validate: validateDateKeepFormat },
+  accountId: { validate: validateClearableString, options: { max: 191 } },
+  transferGroupId: { validate: validateClearableString, options: { max: 191 } },
 };
 
 /** Saring skema partial update: hanya field yang benar-benar hadir di body. */
@@ -157,6 +174,10 @@ export function presentFieldsSchema(body, schema) {
 
 export function registerTransactionRoutes(app) {
   // GET /api/transactions — fetch recent transactions (default 50)
+  // `id` OPSIONAL (2026-08-09): query point untuk getTransaction(id) — filter
+  // user-scoped `AND id = ?`, [] = tidak ada (bukan 404/ambigu). Menutup bug
+  // laten roadmap: client sebelumnya mengambil 500 baris terbaru lalu mencari
+  // id di memori → transaksi lebih tua dari 500 baris kembali null.
   app.get('/api/transactions', requireAuth, async (req, res) => {
     try {
       const turso = getTurso();
@@ -164,15 +185,19 @@ export function registerTransactionRoutes(app) {
 
       // P1-2 quick win: clamp limit via validateInt (clamp:true) — nilai di
       // luar rentang dipotong, bukan ditolak; absen → default lama (50).
+      // id pakai validateClearableString (BUKAN validateId yang wajib-required):
+      // absen → tanpa filter; > 191 char → 400 fail-closed.
       const queryCheck = validateQuery(req.query, {
         limit: { validate: validateInt, options: { min: 1, max: TRANSACTIONS_LIMIT_MAX, clamp: true } },
+        id: { validate: validateClearableString, options: { max: 191 } },
       });
       if (!queryCheck.ok) return sendValidationError(res, queryCheck);
       const limit = queryCheck.value.limit ?? TRANSACTIONS_LIMIT_DEFAULT;
+      const id = queryCheck.value.id;
 
       const result = await turso.execute({
-        sql: `SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC, created_at DESC LIMIT ?`,
-        args: [userId, limit],
+        sql: `SELECT * FROM transactions WHERE user_id = ?${id ? ' AND id = ?' : ''} ORDER BY date DESC, created_at DESC LIMIT ?`,
+        args: id ? [userId, id, limit] : [userId, limit],
       });
 
       res.json(result.rows);
@@ -281,6 +306,118 @@ export function registerTransactionRoutes(app) {
     }
   });
 
+  // GET /api/transactions/summary — ringkasan keuangan WINDOWLESS
+  // (lifetime + bulan berjalan + pengeluaran per kategori). Root cause insiden
+  // 2026-08-08: dashboard menghitung saldo dari 50 baris terbaru (windowed)
+  // sehingga saldo melompat saat window bergeser. Endpoint ini agregasi atas
+  // SELURUH transaksi user via SQL — sumber kebenaran tunggal.
+  // Observability (audit 2026-08-10): financial_summary_requested / _completed
+  // / _failed dicatat non-blocking (recordSystemMetric internal try/catch —
+  // kegagalan metrics TIDAK boleh memengaruhi respons). TIDAK ada payload
+  // finansial/nominal yang di-log — hanya requestId + duration.
+  app.get('/api/transactions/summary', requireAuth, async (req, res) => {
+    const userId = req.user.id;
+    const startMs = Date.now();
+    metricsService.recordSystemMetric({
+      metricName: 'financial_summary_requested',
+      feature: 'financial',
+      userId,
+      metadata: { requestId: req.id },
+    });
+    try {
+      const turso = getTurso();
+
+      // month/year opsional (default = bulan server berjalan); clamp ke rentang
+      // sah. Gagal → 400 VALIDATION_ERROR (konsisten P1-2).
+      const queryCheck = validateQuery(req.query, {
+        month: { validate: validateInt, options: { min: 1, max: 12, clamp: true } },
+        year: { validate: validateInt, options: { min: 2000, max: 2100, clamp: true } },
+      });
+      if (!queryCheck.ok) return sendValidationError(res, queryCheck);
+      const month = queryCheck.value.month ?? new Date().getMonth() + 1;
+      const year = queryCheck.value.year ?? new Date().getFullYear();
+
+      // Semantik "transfer internal = netral" (2026-08-11, §10.13): transfer ke
+      // akun milik sendiri (user_financial_settings.own_accounts) TIDAK
+      // mengurangi saldo. Tabel settings OPSIONAL — bila tidak ada baris /
+      // tabel belum ada, parseOwnAccounts('') → [] → perilaku legacy (semua
+      // transfer = expense, backward-compat). Baca settings SEKALI per
+      // request summary (bukan per query).
+      let ownAccounts = [];
+      try {
+        const settingsRes = await turso.execute({
+          sql: 'SELECT own_accounts FROM user_financial_settings WHERE user_id = ?',
+          args: [userId],
+        });
+        ownAccounts = parseOwnAccounts(settingsRes.rows?.[0]?.own_accounts);
+      } catch (err) {
+        // Review 2026-08-11: fallback legacy HANYA wajar bila error = tabel
+        // settings belum ada (DB tanpa migration 0004). Error lain (koneksi
+        // DB, dll.) tidak boleh senyap — log warning agar operasi tidak
+        // mengira konfigurasi own_accounts tidak ada padahal read-nya yang
+        // gagal. Tanpa payload finansial (hanya userId + pesan error).
+        logger.warn(
+          { userId, err: err?.message },
+          'Gagal membaca user_financial_settings — summary memakai own_accounts kosong (legacy). Periksa migration 0004.',
+        );
+        ownAccounts = [];
+      }
+
+      const summary = await computeFinancialSummary(turso, userId, { month, year, ownAccounts });
+      // P2.5: canonical ledger — Current Balance account-based (status jujur
+      // known/partial/unknown) terpisah dari Net Cash Flow (lifetime).
+      // Append-only: seluruh field existing TIDAK berubah (backward-compat
+      // contract e2e/contract). Ledger gagal TIDAK boleh mematikan summary
+      // (di-log, ledger null) — kartu lama tetap berfungsi.
+      // netCashFlow dirakit dari summary yang sudah dihitung (TANPA agregasi
+      // ulang — satu panggilan computeFinancialSummary per request).
+      let ledger = null;
+      try {
+        const accountLedger = await computeAccountLedger(turso, userId);
+        ledger = {
+          ...accountLedger,
+          netCashFlow: {
+            amount: summary.lifetime.balance,
+            totalIncome: summary.lifetime.totalIncome,
+            totalExpense: summary.lifetime.totalExpense,
+          },
+        };
+      } catch (ledgerErr) {
+        logger.warn(
+          { userId, err: ledgerErr?.message, requestId: req.id },
+          'computeAccountLedger gagal — respons tanpa ledger (summary tetap valid)',
+        );
+      }
+      // P2.6: reconciliation summary ringan (counts + status only) —
+      // append-only di samping ledger; gagal → reconciliation null, summary
+      // tetap valid. Dashboard memakainya untuk banner status + coverage.
+      let reconciliation = null;
+      try {
+        reconciliation = await buildReconciliationSummary(turso, userId);
+      } catch (reconErr) {
+        logger.warn(
+          { userId, err: reconErr?.message, requestId: req.id },
+          'buildReconciliationSummary gagal — respons tanpa reconciliation (summary tetap valid)',
+        );
+      }
+      metricsService.recordSystemMetric({
+        metricName: 'financial_summary_completed',
+        feature: 'financial',
+        userId,
+        metadata: { requestId: req.id, durationMs: Date.now() - startMs },
+      });
+      res.json({ ...summary, ledger, reconciliation });
+    } catch (err) {
+      metricsService.recordSystemMetric({
+        metricName: 'financial_summary_failed',
+        feature: 'financial',
+        userId,
+        metadata: { requestId: req.id, durationMs: Date.now() - startMs },
+      });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/transactions — create transaction
   app.post('/api/transactions', requireAuth, async (req, res) => {
     try {
@@ -305,14 +442,84 @@ export function registerTransactionRoutes(app) {
         gmailMessageId = null,
         confidenceScore = null,
         metadata = {},
+        accountId = null,
+        transferGroupId = null,
       } = result.value;
+
+      // Idempotency-Key: header mendominasi; body `idempotencyKey` dipakai
+      // sebagai fallback (utamanya test harness tanpa header). Key None →
+      // perilaku lama sepenuhnya (tanpa pre-SELECT, tanpa jaminan create-once).
+      let idempotencyKey =
+        (typeof req.get === 'function' ? req.get('Idempotency-Key') : undefined) ||
+        result.value.idempotencyKey ||
+        null;
+      // Key divalidasi PERSIS sama dari sumber mana pun (header TIDAK boleh
+      // bypass batas body): trim, max 191 — gagal → 400 fail-closed; kosong
+      // setelah trim → dianggap absen (perilaku lama).
+      if (idempotencyKey !== null) {
+        const trimmedKey = String(idempotencyKey).trim();
+        if (trimmedKey.length === 0) {
+          idempotencyKey = null;
+        } else if (trimmedKey.length > 191) {
+          return sendValidationError(res, {
+            error: 'Idempotency-Key maksimal 191 karakter.',
+            errors: ['Idempotency-Key maksimal 191 karakter.'],
+          });
+        } else {
+          idempotencyKey = trimmedKey;
+        }
+      }
+
+      if (idempotencyKey) {
+        const existing = await turso.execute({
+          sql: 'SELECT id FROM transactions WHERE user_id = ? AND idempotency_key = ?',
+          args: [userId, idempotencyKey],
+        });
+        if (existing.rows.length > 0) {
+          // Replay sah (retry/timeout): kembalikan transaksi yang sudah ada.
+          // SSE + fraud TIDAK di-fire ulang (bukan create baru).
+          return res.json({ id: String(existing.rows[0].id), replayed: true });
+        }
+      }
+
+      // Gmail dedupe server-side penuh (2026-08-11) — menutup gap audit
+      // FINANCIAL_CALCULATION_INTEGRITY §10.2: cek duplikat klien
+      // (findDuplicateTransaction) hanya memeriksa window 100 transaksi
+      // terbaru → pesan LAMA (mis. Maret) di luar window lolos dan di-import
+      // ulang setiap sync ulang batch (631 baris duplikat historis).
+      // Idempotency-Key di atas hanya menutup request BARU (baris lama punya
+      // idempotency_key NULL); cek gmail_message_id penuh (user-scoped, via
+      // index idx_transactions_gmail_msg) menutup baris lama juga.
+      // TOCTOU antar request baru tetap ditangani unique partial index
+      // (user_id, idempotency_key) — klien selalu mengirim Idempotency-Key
+      // untuk import gmail (createFingerprint = gmail::userId::gmailMessageId).
+      //
+      // P3.2 §12 — unik index (user_id, gmail_message_id) BERSIFAT UNCONDITIONAL
+      // (bukan hanya source='gmail'); replay karena itu TIDAK boleh di-gate
+      // source. Sebelumnya POST non-gmail (mis. source='manual') yang membawa
+      // gmailMessageId sudah ada → jatuh ke INSERT mentah → 500 UNIQUE
+      // constraint. Kontrak yang konsisten dengan index: SETIAP transaksi yang
+      // membawa gmailMessageId yang sudah tercatat → replay { id, replayed:
+      // true } (deterministik 200, invariant "Gmail duplicates = 0" tetap).
+      if (gmailMessageId) {
+        // ORDER BY created_at,id → keep-oldest deterministik (semantik sama
+        // tool cleanup §10.7 & unik index 2026-08-11 menjamin ≤ 1 baris).
+        const existingGmail = await turso.execute({
+          sql: 'SELECT id FROM transactions WHERE user_id = ? AND gmail_message_id = ? ORDER BY created_at ASC, id ASC',
+          args: [userId, gmailMessageId],
+        });
+        if (existingGmail.rows.length > 0) {
+          // Pesan sudah pernah di-import → replay (jangan buat baris kedua).
+          return res.json({ id: String(existingGmail.rows[0].id), replayed: true });
+        }
+      }
 
       const now = new Date().toISOString();
 
-      await turso.execute({
+      try {      await turso.execute({
         sql: `INSERT INTO transactions 
-              (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, gmail_message_id, confidence_score, metadata, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (id, user_id, type, amount, category_id, category_name, merchant, payment_method, note, date, transaction_date, source, gmail_message_id, confidence_score, metadata, idempotency_key, account_id, transfer_group_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           id,
           userId,
@@ -329,10 +536,50 @@ export function registerTransactionRoutes(app) {
           gmailMessageId,
           confidenceScore,
           JSON.stringify(metadata),
+          idempotencyKey,
+          accountId,
+          transferGroupId,
           now,
           now,
         ],
       });
+      } catch (err) {
+        // Race TOCTOU: dua request key sama sama-sama lolos pre-SELECT → SATU
+        // insert menang, satunya kena unique partial index → replay, bukan 500.
+        // Hanya di-handle untuk constraint (unique idempotency); error lain
+        // tetap naik (500, tidak disembunyikan).
+        const msg = String(err?.message || err);
+        if (isConstraintError(msg)) {
+          // 1) Idempotency-Key replay (jika ada) — unique partial index
+          //    (user_id, idempotency_key).
+          if (idempotencyKey) {
+            const existing = await turso.execute({
+              sql: 'SELECT id FROM transactions WHERE user_id = ? AND idempotency_key = ?',
+              args: [userId, idempotencyKey],
+            });
+            if (existing.rows.length > 0) {
+              return res.json({ id: String(existing.rows[0].id), replayed: true });
+            }
+          }
+          // 2) Gmail unique partial index (user_id, gmail_message_id) —
+          //    hardening TOCTOU FINAL (2026-08-11, turso-schema.sql
+          //    idx_transactions_gmail_msg_unique): request gmail TANPA
+          //    Idempotency-Key (direct API / importer batch masa depan) yang
+          //    kalah race → replay via gmail lookup, bukan 500.
+          //    P3.2 §12 — gate source dihapus (index unconditional; replay
+          //    konsisten untuk SEMUA source yang membawa gmailMessageId).
+          if (gmailMessageId) {
+            const existingGmail = await turso.execute({
+              sql: 'SELECT id FROM transactions WHERE user_id = ? AND gmail_message_id = ? ORDER BY created_at ASC, id ASC',
+              args: [userId, gmailMessageId],
+            });
+            if (existingGmail.rows.length > 0) {
+              return res.json({ id: String(existingGmail.rows[0].id), replayed: true });
+            }
+          }
+        }
+        throw err;
+      }
 
       notifyUser(userId, 'transaction:created', { id, date });
 
@@ -375,7 +622,7 @@ export function registerTransactionRoutes(app) {
       // Partial update: HANYA field yang hadir divalidasi (pola undefined-skip).
       const result = validateBody(req.body, presentFieldsSchema(req.body, TRANSACTION_UPDATE_SCHEMA));
       if (!result.ok) return sendValidationError(res, result);
-      const { type, amount, categoryId, categoryName, merchant, paymentMethod, note, date } = result.value;
+      const { type, amount, categoryId, categoryName, merchant, paymentMethod, note, date, accountId, transferGroupId } = result.value;
 
       const updates = [];
       const args = [];
@@ -391,6 +638,8 @@ export function registerTransactionRoutes(app) {
         updates.push('date = ?'); args.push(date);
         updates.push('transaction_date = ?'); args.push(date);
       }
+      if (accountId !== undefined) { updates.push('account_id = ?'); args.push(accountId || null); }
+      if (transferGroupId !== undefined) { updates.push('transfer_group_id = ?'); args.push(transferGroupId || null); }
 
       if (updates.length === 0) return res.json({ success: true });
 

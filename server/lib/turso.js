@@ -11,6 +11,24 @@ let client = null;
 import fs from 'node:fs';
 import path from 'node:path';
 
+export function describeTursoUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return {
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || undefined,
+      path: parsed.pathname || '/',
+    };
+  } catch {
+    return {
+      protocol: 'invalid',
+      hostname: 'invalid',
+      path: '/',
+    };
+  }
+}
+
 export function getTurso() {
   if (client) return client;
 
@@ -27,7 +45,21 @@ export function getTurso() {
     authToken: authToken || undefined,
   });
 
-  logger.info({ url }, 'Database client Turso siap');
+  // DB LOKAL (file:): set PRAGMA busy_timeout per-koneksi — WAL (di-set
+  // scripts/prepare-e2e-local-db.mjs) sudah memisahkan reader dari writer,
+  // tapi writer-vs-writer (server API + helper test = dua proses pada file
+  // yang sama) masih bisa kena SQLITE_BUSY instan (default timeout 0) saat
+  // kedua sisi menulis bersamaan. busy_timeout membuat sisi ini MENUNGGU
+  // alih-alih langsung gagal. Remote Turso TIDAK terpengaruh (URL bukan
+  // file: → pragma tidak dijalankan). Statement di-antri pada koneksi yang
+  // sama → pragma selalu berlaku sebelum query bisnis berikutnya.
+  if (url.startsWith('file:')) {
+    client
+      .execute({ sql: 'PRAGMA busy_timeout = 10000', args: [] })
+      .catch((err) => logger.warn({ err: err.message }, 'PRAGMA busy_timeout gagal (non-blocking)'));
+  }
+
+  logger.info({ database: describeTursoUrl(url) }, 'Database client Turso siap');
   // Boot: initTursoSchema dijalankan fire-and-forget (tidak memblokir boot
   // Express) dengan retry transien AKTIF. Alasan:
   //   - Cold start (mis. Render free tier setelah idle) sering kena gangguan
@@ -115,4 +147,3 @@ export async function initTursoSchema(tursoClient, { retry = false } = {}) {
     if (retry) throw err;
   }
 }
-
