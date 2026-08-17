@@ -12,7 +12,27 @@ otomatis — mencegah regresi tak terlihat antara server Express/Turso dan clien
 
 | Grup | Endpoints |
 |---|---|
-| **Transactions** | `GET /api/transactions`, `GET /api/transactions/paginated`, `POST/PUT/DELETE /api/transactions/:id` |
+| **Transactions** | `GET /api/transactions`, `GET /api/transactions/paginated`, `GET /api/transactions/summary`, `POST/PUT/DELETE /api/transactions/:id` |
+
+### Idempotency-Key pada POST /api/transactions (2026-08-09)
+
+`POST /api/transactions` menerima header **`Idempotency-Key`** (atau body `idempotencyKey`, fallback;
+header mendominasi) — retry dari klien mana pun (tab lain, request langsung) dijamin **create-once** di
+server: key sama + user sama → `200 { id, replayed: true }` (transaksi existing, tanpa insert baru).
+
+- **Kontrak key**: string, max **191 karakter** (trim dulu) — header dan body divalidasi sama; gagal →
+  `400 VALIDATION_ERROR`; kosong/absen → perilaku lama (tanpa jaminan dedup).
+- **Semantik dedup** (keputusan desain): key klien diturunkan dari **fingerprint identitas**
+  (`userId::date::type::amount::merchant|kategori`, gmail berbasis `messageId`) — DUA transaksi dengan
+  payload identik sengaja di-merge menjadi satu baris selamanya (konsisten dengan guard duplikat
+  client `findDuplicateTransaction`; `note`/`paymentMethod` sengaja TIDAK masuk key). Konsekuensi:
+  konsumen API langsung kehilangan kemampuan membuat 2 transaksi benar-benar identik — harap
+  dokumentasikan untuk integrator.
+- **Race safety**: pre-SELECT + unique partial index `(user_id, idempotency_key)`; dua request serentak
+  key sama → satu INSERT menang, satunya replay (bukan 500). Constraint error tanpa row hasil
+  re-SELECT → tetap 500 (tidak disembunyikan).
+- **Test**: `tests/unit/transactionIdempotency.test.ts` (11) + `transactionServiceWindowless.test.ts`
+  (13, key stabil per fingerprint). E2E existing tanpa key → jalur lama, tidak terpengaruh.
 | **Gmail Sync** | `GET /api/gmail/logs`, `GET /api/gmail/runs`, `GET/PUT /api/gmail/settings`, `GET /api/gmail/token`, `POST /api/gmail/logs` |
 | **Budgets** | `GET/POST /api/budgets`, `PUT/DELETE /api/budgets/:id`, `POST /api/budgets/update-usage` |
 | **Categories** | `GET/POST /api/categories`, `PUT/DELETE /api/categories/:id`, `POST /api/categories/init-defaults` |

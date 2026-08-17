@@ -9,6 +9,8 @@ feedback (UI) → POST /api/ai-product/feedback → ai_feedback table
     ↓
 evaluation dataset (query by feature/rating)
     ↓
+PRIORITAS PERBAIKAN PROMPT (SELESAI — §7) → benchmark AI
+    ↓
 future training (BELUM diimplementasikan — pipeline siap)
 ```
 
@@ -48,9 +50,22 @@ Tabel `ai_feedback` menyimpan: `id, user_id, feature, item_id, rating, reason, c
 
 Keputusan desain: feedback **tidak** memodifikasi respons AI saat itu juga (menghindari feedback-loop bias & non-determinisme). Penggunaan:
 1. Admin/metrics dapat mengekspor dataset evaluasi per fitur/rating.
-2. Roadmap: bobot feedback pada evaluasi benchmark, lalu fine-tuning/prompt-engineering berbasis dataset.
+2. **Integrasi ke benchmark (SELESAI — §7)**: dataset dipakai memprioritaskan perbaikan prompt per feature.
+3. Roadmap lanjutan: fine-tuning/prompt-engineering berbasis dataset.
 
 ## 6. Privasi
 
 - Hanya `user_id` internal; tidak ada PII eksternal.
 - `reason` bebas teks (max 500 char) — tetap user-scoped.
+
+## 7. Feedback → Prioritas Perbaikan Prompt (Benchmark AI)
+
+Dataset `ai_feedback` kini menjadi **input evaluasi benchmark** untuk memprioritaskan perbaikan prompt:
+
+- **Agregasi murni** (`server/lib/feedbackMetrics.js`): per feature → counts per rating, `negativeRate` (not_helpful + mismatched + irrelevant), `priorityScore` (0-100), `confidence` (high ≥15 · medium ≥5 · low). Ranking = score desc, volume tie-break.
+- **Action plan**: rating negatif dominan memetakan arah perbaikan prompt — `not_helpful` → saran terlalu generik (tambah konteks & angka); `mismatched` → perkuat skema/instruksi; `irrelevant` → filter data pendukung; `already_done ≥ 30%` → hindari saran berulang; `skip ≥ 40%` → kurangi frekuensi. Tiap feature dipetakan ke prompt builder & file sumber (`FEATURE_PROMPT_MAP`).
+- **Script CLI**: `node scripts/feedbackPromptPriorities.mjs` — memuat `ai_feedback` asli dari Turso → tabel prioritas + action plan + snapshot `docs/ai/feedback-prompt-priorities.json`. Jalankan sebelum `npm run benchmark:ai:live` — live benchmark **otomatis membaca snapshot ini** dan hanya menjalankan kategori live dari fitur `topPriority` (feedback-driven selection; `BENCH_LIVE_ALL=1` untuk memaksa full run).
+- **Benchmark offline**: kategori ke-7 `feedback_prioritization` di `aiQualityBenchmark.spec.ts` (dataset sintetis ber-label, floor deterministik — regression guard agregasi).
+- **Endpoint admin**: `GET /api/admin/metrics/feedback-summary` (admin-only via `resolveAdmin`) — query seluruh `ai_feedback` → `buildFeedbackPriorityReport` → JSON; 401 tanpa user, 403 non-admin, 500 bila Turso gagal.
+- **Panel monitoring**: `/admin/monitoring` menampilkan kartu "Prioritas Perbaikan Prompt" — ranking per feature (skor 0-100 merah/amber/mint, bar negativeRate, rating negatif dominan, prompt builder & file sumber, arah perbaikan) + ringkasan total feedback/negatif rate + empty state.
+- **Sinkronisasi enum**: `FEEDBACK_RATINGS` di-uji sama dengan `aiProductRoutes` (unit test).

@@ -1,7 +1,7 @@
 # E2E Coverage Report — CashFlow
 
 > Phase 3 · Coverage analysis & roadmap
-> Date: 2026-08-01 · Diperbarui 2026-08-03 (angka suite: **41 test / 14 spec UI + 1 spec API contract = 15 file**; gap P1 Categories ditutup) · 2026-08-02 (P1: core-pages.spec.ts — Budgets/Reports/Notifications, menutup gap 9b)
+> Date: 2026-08-01 · Diperbarui 2026-08-03 (angka suite: **41 test / 14 spec UI + 1 spec API contract = 15 file**; gap P1 Categories ditutup) · 2026-08-02 (P1: core-pages.spec.ts — Budgets/Reports/Notifications, menutup gap 9b) · 2026-08-07 (angka suite: **65 test / 21 spec UI + 1 spec API contract = 22 file**; +admin-monitoring-chart, +admin-monitoring-recommendation, +ai-timeline, +agent-search-engagement, +crud-validation-g4, +fraud-detection, +notification-metadata-guard, +notifications-pagination) · 2026-08-07 P10.2k (angka suite: **68 test / 22 spec UI + 1 spec API contract = 23 file**; +admin-monitoring-retention) · 2026-08-08 P10.2m (angka suite: **71 test / 24 spec UI + 1 spec API contract = 25 file**; +admin-monitoring-feedback-rate 3 test; angka spec di-rekonsiliasi dengan `playwright test --list --grep-invert '@visual|@perf'`)
 
 ## 1. Ringkasan Cakupan Saat Ini
 
@@ -18,9 +18,19 @@
 | **Auth gate Admin Metrics** | `admin-metrics-auth.spec.ts` | 3 | `/api/admin/metrics/*`: 401/403/200 (regresi `resolveAdmin`) |
 | **Admin Cache Panel** | `admin-cache.spec.ts` | 3 | Panel AI Response Cache di `/admin/monitoring` (hit rate bar + stat) |
 | **Rate Limit** | `rate-limit.spec.ts` | 1 | `POST /api/auth/*` → 429 setelah limit (dedicated server 5182) |
-| **API Contract** | `contract/contract-check.spec.ts` | 9 | Schema drift detection (Transactions / Gmail / Agent-Search / Admin API) |
+| **AI Timeline** | `ai-timeline.spec.ts` | 1 | Halaman `/ai/timeline` render (P9) |
+| **Admin Monitoring Chart** | `admin-monitoring-chart.spec.ts` | 1 | Chart multi-seri Tren Biaya (filter fitur → 1 garis; light/dark) |
+| **Admin Monitoring Rekomendasi** | `admin-monitoring-recommendation.spec.ts` | 3 | Panel Rekomendasi AI: auth gate 401, shape endpoint + CTR, render light/dark (P10.2g) |
+| **Admin Monitoring Retensi** | `admin-monitoring-retention.spec.ts` | 3 | Panel Retensi Pengguna: auth gate 401, shape endpoint + cohort seed EKSAK, render ringkasan D1/D7/D14/D28 (P10.2k) |
+| **Admin Monitoring Feedback Rate** | `admin-monitoring-feedback-rate.spec.ts` | 3 | Panel Feedback Rate: auth gate 401, shape + kontrak rate deterministik `round(fb/views,3)`, render light/dark (P10.2m) |
+| **Agent Search Engagement** | `agent-search-engagement.spec.ts` | 3 | Event engagement agent search (klik/suggested — P1.4) |
+| **Fraud Detection** | `fraud-detection.spec.ts` | 2 | Alur fraud detection (rules + AI scoring decision) |
+| **CRUD Validation G4** | `crud-validation-g4.spec.ts` | 5 | Regression guard CRUD + validasi G4 |
+| **Notification Metadata Guard** | `notification-metadata-guard.spec.ts` | 4 | Webhook metadata guard notifikasi (P1-4) |
+| **Notifications Pagination** | `notifications-pagination.spec.ts` | 4 | Pagination notifikasi |
+| **API Contract** | `contract/contract-check.spec.ts` | 10 | Schema drift detection (Transactions / Gmail / Agent-Search / Admin API) |
 
-**Total: 41 test · 15 file spec · 0 failure · 0 flaky (full-suite 2026-08-03)** — `14 spec` UI/bisnis + `1 spec` API contract (`contract-check.spec.ts`, 9 test). Diverifikasi via `npx playwright test --list --grep-invert '@visual|@perf'` (sumber otoritatif).
+**Total: 71 test · 25 file spec** (2026-08-08, P10.2m) — `24 spec` UI/bisnis (61 test) + `1 spec` API contract (`contract-check.spec.ts`, 10 test). Diverifikasi via `npx playwright test --list --grep-invert '@visual|@perf'` (sumber otoritatif).
 
 > ℹ️ **Bonus stabilitas (2026-08-03)**: saat menambahkan `categories.spec.ts`, ditemukan & diperbaiki bug laten flake di `notifications-realtime.spec.ts` — test memakai `Date.now()` sendiri sebagai messageId padahal `seedGmailReviewEmail` membuat id sendiri (race 1ms → card tidak pernah ditemukan, lolos di retry). Keempat test kini memakai **return value helper** sebagai `testMessageId` (pola sama dengan 4 spec review).
 

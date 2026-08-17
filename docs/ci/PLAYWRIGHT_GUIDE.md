@@ -25,7 +25,7 @@
 |---|---|---|
 | 5180 | Vite dev | frontend |
 | 5181 | `node server/index.js` | API utama (PORT via env, bukan watch — watch = restart tengah suite = flake) |
-| 5182 | `node server/index.js` | **rate-limit spec** (isolasi IP limiter: `RATE_LIMIT_AUTH_MAX=25`) |
+| 5182 | `node server/index.js` | **keluarga rate-limit spec** (isolasi IP/user limiter: `RATE_LIMIT_AUTH_MAX=25` · `RATE_LIMIT_GENERAL_MAX=20` · `RATE_LIMIT_AI_MAX=8` — kontras AI<GENERAL wajib dijaga, lihat `e2e/rate-limit-ai-general.spec.ts` + [`../security/RATE_LIMITING.md`](../security/RATE_LIMITING.md)) |
 | 5183 | `node server/index.js` | **notification webhook spec** (`GMAIL_WEBHOOK_URL` → sink 5184) |
 | 5184 | `webhookSinkServer.mjs` | webhook sink (side-effect assert deterministik) |
 

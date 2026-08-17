@@ -49,7 +49,7 @@
 | 30 | Security | 🟡 | Parameterized SQL + whitelists; CORS/helmet/cookies solid; SSE user isolation correct | 4 unauthenticated endpoints; refreshToken to browser; forged notification metadata; health leak | P0/P1 fixes per [IMPLEMENTATION_PRIORITY.md](./IMPLEMENTATION_PRIORITY.md) |
 | 31 | Privacy | ✅ | Privacy page | No E2E coverage | Add E2E (P2) |
 | 32 | Deployment / CI | ⚪ | `.github/workflows/` present | Pipeline behavior not verified in this audit | Verify workflow coverage (P3) |
-| 33 | Testing | 🟡 | `tests/unit/` (11 files); `e2e/` (15 specs + contract/performance/visual) | No unit tests for `vertexContext`/`metricsService` core/`agentSearchService`/routes; E2E missing for Recurring, Professional Suite, Receipt OCR, Auth flow, Profile, Settings, Privacy, AI Search UI, Monitoring UI, Landing/Splash; rate-limit E2E covers `authLimiter` only; contract tests GET-only | Close gaps per priority (P2) |
+| 33 | Testing | 🟡 | `tests/unit/` (62 files); `e2e/` (24 specs + contract/performance/visual) | No unit tests for `vertexContext`/`metricsService` core/`agentSearchService`/routes; E2E missing for Recurring, Professional Suite, Receipt OCR, Auth flow, Profile, Settings, Privacy, AI Search UI, Monitoring UI, Landing/Splash; rate-limit E2E covers `authLimiter` only; contract tests GET-only | Close gaps per priority (P2) |
 | 34 | Landing / Splash | 🟡 | `/landing` route; `PublicLandingPage` | `/landing` dead route (zero inbound links); `PublicLandingPage` is the real pre-login page | Remove dead route (P3) |
 | 35 | Professional Suite (overall) | 🟡 | `ProfessionalSuitePage` (only zod consumer) | No edit UI, no loading states, silent errors, hardcoded `EXPENSE_CATEGORIES`, no dedicated documentation | Composite fix (P2) |
 

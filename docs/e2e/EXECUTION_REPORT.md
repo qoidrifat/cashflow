@@ -2,6 +2,7 @@
 
 > Phase 10 — ringkasan eksekutif seluruh modernisasi E2E.
 > Tanggal: 1 Agustus 2026 · Scope: infra, helpers, 3 spec (8 test), hardening reliabilitas, CI, dokumentasi.
+> **Status terbaru (2026-08-08, P10.2m):** suite kini **71 test / 25 file spec** (61 UI + 10 contract) · unit **786 passed + 5 skipped (62 files)** — angka snapshot historis di bawah (113 unit / 41 e2e) adalah baseline 2026-08-03; angka terkini lihat [E2E_COVERAGE_REPORT.md](E2E_COVERAGE_REPORT.md).
 
 ## 1.1 Snapshot Produksi — 2026-08-03 (full stack validation)
 

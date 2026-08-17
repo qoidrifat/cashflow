@@ -75,7 +75,7 @@ Documentation was compared against the code ground truth (React 18 + TS + Vite 5
 | # | Implementation | Missing Documentation |
 |---|---|---|
 | U1 | `GMAIL_WEBHOOK_URL` | Absent from README env table |
-| U2 | `RATE_LIMIT_*` variables | Code-comments only |
+| U2 | `RATE_LIMIT_*` variables | Code-comments only — **RESOLVED 2026-08-09**: [`../security/RATE_LIMITING.md`](../security/RATE_LIMITING.md) (keputusan single source of truth, 4 limiter, env override, guards) |
 | U3 | `AI_CACHE_MAX_ENTRIES` | Code-comments only |
 | U4 | `AI_RETRY_*` variables | Code-comments only |
 | U5 | Health endpoints | No FEATURE_MATRIX rows |

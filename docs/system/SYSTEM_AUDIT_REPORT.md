@@ -27,7 +27,7 @@ CashFlow is a production-shaped, AI-native personal finance platform. Authentica
 | Observability | request-ID middleware, pino structured logs, HTTP metrics | Sprint-2 delivery |
 
 ### Endpoint surface (sampled, verified)
-`/api/health`, `/api/transactions`, `/api/transactions/paginated`, `/api/budgets`, `/api/categories`, `/api/gmail/logs`, `/api/gmail/runs`, `/api/gmail/settings`, `/api/gmail/token`, `/api/notifications*`, `/api/recurring`, `/api/wallets`, `/api/goals`, `/api/subscriptions`, `/api/ai/extract-receipt-image`, `/api/gemini/*`, `/api/agent-search/*`, `/api/admin/metrics/*` (summary, ai-usage, system, feature-health, feature calls, cache, alerts), plus Better Auth `/api/auth/*`.
+`/api/health`, `/api/transactions`, `/api/transactions/paginated`, `/api/budgets`, `/api/categories`, `/api/gmail/logs`, `/api/gmail/runs`, `/api/gmail/settings`, `/api/gmail/token`, `/api/notifications*`, `/api/recurring`, `/api/wallets`, `/api/goals`, `/api/subscriptions`, `/api/ai/extract-receipt-image`, `/api/gemini/*`, `/api/agent-search/*`, `/api/admin/metrics/*` (summary, ai-usage, system, feature-health, feature calls, cache, alerts), plus `POST /api/admin/users/:id/suspend` (logout paksa: revoke semua sesi + audit trail `admin_audit_log` — SESSION_LIFECYCLE.md §5.2), plus Better Auth `/api/auth/*`.
 
 ---
 

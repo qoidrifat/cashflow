@@ -12,9 +12,9 @@ CashFlow memakai **satu workflow** `.github/workflows/e2e.yml` dengan 5 job + wo
 
 | Job | Trigger | Needs | Durasi khas | Gate |
 |---|---|---|---|---|
-| `quality` (Lint · Typecheck · Build) | setiap push/PR | — | ~3 menit | lint, `tsc` src, typecheck e2e, unit 471, build |
+| `quality` (Lint · Typecheck · Build) | setiap push/PR | — | ~3 menit | lint, `tsc` src, typecheck e2e, unit 786, build |
 | `gitleaks` (secret scan) | setiap push/PR | — | ~1 menit | full-history secret scan |
-| `e2e` (Playwright) | push/PR | `quality` | ~10–12 menit | stability gate 3× (50 test) + contract 10 |
+| `e2e` (Playwright) | push/PR | `quality` | ~10–12 menit | stability gate 3× (71 test, incl. 10 contract) + contract step |
 | `visual-regression` | push/PR | `quality`, `e2e` | ~4 menit | snapshot check (10 baseline) |
 | `performance` (budget) | push/PR | `quality`, `e2e`, `visual-regression` | ~5 menit | stability gate 3× (3 spec) |
 | Pages (built-in) | push ke `gh-pages`/`main` | — | ~1 menit | deploy SPA + `.nojekyll` |

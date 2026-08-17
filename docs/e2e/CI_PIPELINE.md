@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────┐   ┌──────────────────────────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
-│  quality    │──▶│  e2e (Playwright, 41 test + 9 contract) │──▶│  visual-regression   │──▶│  performance         │
+│  quality    │──▶│  e2e (Playwright, 61 test + 10 contract)│──▶│  visual-regression   │──▶│  performance         │
 │  lint+tc+b   │   │  stability gate 3×: fail only on 3× flaky│   │  10 snapshot (theme) │   │  budget: load/API/   │
 └─────────────┘   │  webServer: Vite 5180 + API 5181/5182   │   │  desktop+mobile      │   │  pagination          │
                   └──────────────────────────────────────────┘   └──────────────────────┘   └──────────────────────┘
@@ -65,7 +65,7 @@ Retensi 14 hari. Trace Playwright diaktifkan per-test via `trace: 'retain-on-fai
 
 ## Stability Gate 3×
 
-> ✅ **Roadmap #1 SELESAI** (2026-08-03) — diterapkan saat suite > 20 test (kini 38 test + 9 contract).
+> ✅ **Roadmap #1 SELESAI** (2026-08-03) — diterapkan saat suite > 20 test (kini 71 test — 61 UI + 10 contract).
 
 **Tujuan**: membedakan **flake** (kegagalan sesaat, lalu lulus) dari **regresi riil** (kegagalan konsisten) tanpa menyerah pada flake — dan tanpa membiarkan regresi lolos.
 

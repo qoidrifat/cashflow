@@ -30,7 +30,7 @@ CashFlow is a full-stack AI-native personal finance platform (React + Vite + Exp
 | Working tree (post-cleanup) | 62 staged deletions (untrack cleanup) + 3 scrubbed docs + updated `.gitignore` + audit docs | `git status --short` |
 | Tracked docs | 192 `.md` (157 real + 35 `INDEX.md`) | `find docs -name '*.md'` |
 | Archived docs | 63 (workflow-reviews 43, feature-docs 13, root 6, + `ARCHIVE.md`) | `find docs/archive` |
-| Unit tests | `tests/` (11 files, Vitest) | `git ls-files tests/` |
+| Unit tests | `tests/` (59 files, Vitest) | `git ls-files tests/` |
 | E2E specs | 13 specs + 9 helpers + contract/perf/visual (37 files) | `git ls-files e2e/` |
 | npm scripts | 26 | `package.json` |
 

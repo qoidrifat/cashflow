@@ -9,7 +9,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.006302999999988969,
+      "avgLatencyMs": 0.008094000000007782,
       "avgInputTokens": 280,
       "estCostUsdPerCase": 0.00004613325,
       "confidenceDistribution": {
@@ -26,7 +26,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.27841299999983676,
+      "avgLatencyMs": 0.3284150000000045,
       "avgInputTokens": 272,
       "estCostUsdPerCase": 0.00004484175000000001,
       "confidenceDistribution": {
@@ -43,7 +43,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.14596700000007332,
+      "avgLatencyMs": 0.1641680000000042,
       "avgInputTokens": 147,
       "estCostUsdPerCase": 0.00002426025000000002
     },
@@ -53,7 +53,7 @@
       "top1HitRate": 1,
       "explanationRate": 1,
       "suggestedQueriesValidRate": 1,
-      "avgLatencyMs": 0.06893099999993865
+      "avgLatencyMs": 0.05483300000000327
     },
     {
       "category": "ocr_parsing_local",
@@ -61,7 +61,7 @@
       "gmailDecisionAccuracy": 1,
       "gmailAmountExtractionAccuracy": 1,
       "receiptFieldAccuracy": 1,
-      "avgLatencyMs": 0.1345869999999377,
+      "avgLatencyMs": 0.1478330000000051,
       "confidenceDistribution": {
         "0.0-0.5": 0,
         "0.5-0.7": 0,
@@ -76,20 +76,20 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.006585000000086438
+      "avgLatencyMs": 0.013364999999976136
     },
     {
       "category": "hand_crafted_ocr",
       "cases": 20,
       "receiptFieldAccuracy": 1,
-      "avgLatencyMs": 0.007304999999996653
+      "avgLatencyMs": 0.017479999999989105
     },
     {
       "category": "hand_crafted_gmail",
       "cases": 10,
       "gmailDecisionAccuracy": 1,
       "gmailAmountExtractionAccuracy": 1,
-      "avgLatencyMs": 0.21833999999980733
+      "avgLatencyMs": 0.2974100000000135
     },
     {
       "category": "hand_crafted_insight",
@@ -98,7 +98,7 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.02108749999979409
+      "avgLatencyMs": 0.025300000000015643
     },
     {
       "category": "hand_crafted_advisor",
@@ -107,13 +107,26 @@
       "recall": 1,
       "f1": 1,
       "accuracy": 1,
-      "avgLatencyMs": 0.03048750000016298
+      "avgLatencyMs": 0.051212500000019645
     },
     {
       "category": "hand_crafted_search",
       "cases": 8,
       "top1HitRate": 1,
-      "avgLatencyMs": 0.021374999999807187
+      "avgLatencyMs": 0.032774999999958254
+    },
+    {
+      "category": "feedback_prioritization",
+      "cases": 48,
+      "rankingOrder": "advisor,search,conversation,insight,fraud,ocr",
+      "topFeature": "advisor",
+      "advisorScore": 70,
+      "searchScore": 50,
+      "conversationScore": 50,
+      "insightScore": 20,
+      "fraudScore": 0,
+      "actionPlanSize": 6,
+      "actionPlanDirection": "Saran terlalu generik — tambahkan konteks data spesifik user, angka kunci, dan alasan tiap rekomendasi."
     }
   ]
 }

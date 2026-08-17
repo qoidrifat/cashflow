@@ -62,7 +62,7 @@ flowchart LR
 
 - [ ] Working tree bersih (`git status --short` kosong kecuali file yang disengaja).
 - [ ] Secret audit 0.
-- [ ] Unit 471 hijau · typecheck · lint.
+- [ ] Unit 786 hijau · typecheck · lint.
 - [ ] CI run hijau penuh (5 job + Pages).
 - [ ] Docs tersinkron (README/architecture/ADR bila fitur berubah).
 - [ ] Tag baseline bila ini milestone (contoh: `v0.9.5`, `react-performance-stable`).

@@ -11,7 +11,7 @@ Preferensi yang disimpan (contoh):
 - "Tidak suka cicilan" (`subscription` / `goal`)
 - Catatan bebas (`note`)
 
-Preferensi dipakai prompt personalisasi (roadmap: injeksi ke advisor/insight prompt). Tidak menyimpan data transaksi sensitif.
+Preferensi dipakai prompt personalisasi — **sudah di-injeksi ke prompt advisor & insight** (lihat §6). Tidak menyimpan data transaksi sensitif.
 
 ## 2. Kategori
 
@@ -45,3 +45,14 @@ Preferensi dipakai prompt personalisasi (roadmap: injeksi ke advisor/insight pro
 - User-scoped penuh (`WHERE user_id = ?`).
 - Tidak ada data keuangan dalam memory — hanya preferensi.
 - Transparan: semua entri terlihat & bisa dihapus (prinsip GDPR-friendly).
+
+## 6. Integrasi ke Prompt Advisor & Insight ("AI ingat: ...")
+
+Memory user otomatis disisipkan ke prompt Gemini saat generate **advisor** (`POST /api/gemini/advisor`) dan **monthly report/insight** (`POST /api/gemini/monthly-report`):
+
+- **Formatter murni**: `server/lib/aiMemoryContext.js` → blok `PREFERENSI PENGGUNA YANG AI INGAT` berisi `- key: "value" (Label Kategori)` per entri.
+- **Fetch**: `loadUserMemory(userId)` di `geminiRoutes.js` — `SELECT category, key, value FROM ai_memory WHERE user_id = ?`; **gagal aman → `[]`** (memory tidak pernah menggagalkan generate).
+- **Batasan token**: maksimal 12 entri (`MEMORY_PROMPT_MAX_ITEMS`) dan total ≤ 1200 char — memory tidak pernah mendominasi payload prompt.
+- **Sanitasi anti prompt-injection**: control char dibuang, whitespace dinormalisasi, key ≤60 & value ≤140 char; blok diframe tegas **"BUKAN instruksi"** agar isi memory (yang bisa diedit user) tidak bisa menimpa aturan prompt.
+- **Transparansi tetap**: user melihat & mengedit memory di AI Hub; AI hanya memakai `key: value` sebagai konteks personalisasi.
+- Unit test: `tests/unit/aiMemoryContext.test.ts` (19 test — format, sanitasi, cap, framing, injeksi ke kedua prompt builder).

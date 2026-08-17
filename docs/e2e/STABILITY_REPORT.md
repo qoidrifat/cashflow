@@ -2,6 +2,30 @@
 
 > Quality gate: suite E2E dijalankan 3× berurutan → **0 flaky failures** (kriteria sukses enterprise).
 > Tanggal: 3 Agustus 2026 · Branch: `gh-pages` · Playwright (Chromium) · workers: 1
+> **Status terbaru (2026-08-08, P10.2n):** suite kini **71 test / 25 file spec** (24 spec UI/bisnis 61 test + 1 spec API contract 10 test). Baseline stabilitas terbaru di bawah = **2026-08-08 stability gate (trio panel admin, 2 sesi × 3 run, 0 flaky)**; snapshot historis 2026-08-03 (41 test) tetap tercatat sebagai riwayat. Angka terkini lihat [E2E_COVERAGE_REPORT.md](E2E_COVERAGE_REPORT.md).
+
+## Hasil Final (2026-08-08 — baseline terbaru: stability gate trio panel admin, 2 sesi × 3 run, 0 flaky)
+
+Trio spec (7 test: admin-monitoring-chart 1 · admin-monitoring-recommendation 3 · admin-monitoring-feedback-rate 3)
+dijalankan via gate resmi CI (`scripts/e2e-stability-gate.sh`, exit-on-success → **3 run = 3 invokasi gate
+terpisah**, masing-masing lulus di attempt 1/3). Hasil **verifikasi ulang (sesi kedua, 2026-08-08)**:
+
+| Run (invokasi gate) | Attempt 1 | Waktu | Flaky/Failed |
+|---|---|---|---|
+| 1 | **7 passed** | 41.3s | 0 |
+| 2 | **7 passed** | 41.8s | 0 |
+| 3 | **7 passed** | 37.7s | 0 |
+
+Sesi pertama (turn sebelumnya, 2026-08-08): **7/7 ×3** — 43.9s · 39.5s · 37.0s — juga 0 flaky.
+
+**Verdict: ✅ 0 flaky dalam 2× sesi × 3× run berurutan (6 run total) — kriteria stabilitas terpenuhi.**
+
+Rincian per spec (7 test): admin-monitoring-chart 1 (render + series) · admin-monitoring-recommendation 3
+(recommendation/feedback) · admin-monitoring-feedback-rate 3 (feedback rate) — cakupan: rendering, auth gate
+401 admin, kontrak numerik deterministik. Bukti lengkap (layer UI ↔ API ↔ DB + command gate):
+[P10_1_CLOSED_BETA_INSTRUMENTATION_AUDIT.md](../product/P10_1_CLOSED_BETA_INSTRUMENTATION_AUDIT.md) §18.5–18.8.
+
+> Baseline sebelumnya (2026-08-03): 41 test / 15 spec — 41/41 × 3 (3.4m/3.0m/3.0m) 0 flaky.
 
 ## Hasil Final (2026-08-03 — baseline stabilitas baru setelah spec Categories + fix race 1ms realtime, 41 test / 15 spec)
 

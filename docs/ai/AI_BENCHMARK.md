@@ -129,12 +129,27 @@ Live benchmark **tidak punya floor di CI** (di-skip otomatis) — hanya floor lu
 ## 7. Cara Menjalankan & Memperluas
 
 ```bash
-npm run benchmark:ai          # offline: 6 kategori (500 + 74 kasus) → benchmark-results.json
+npm run benchmark:ai          # offline: 7 kategori (500 + 74 + 48 feedback) → benchmark-results.json
 npm run benchmark:ai:live     # live Gemini: 20 panggilan (16 teks + 4 vision OCR) → benchmark-live-results.json (skip di CI)
+BENCH_LIVE_ALL=1 npm run benchmark:ai:live  # full run semua kategori (lewati seleksi feedback)
 npm run test:unit             # benchmark offline TURUT dijalankan (CI) — floor = guard
+node scripts/feedbackPromptPriorities.mjs  # dataset ai_feedback NYATA → prioritas perbaikan prompt (opsional, butuh Turso)
+node scripts/promptChangeEvaluate.mjs --help  # alur evaluasi before/after perbaikan prompt (lihat §9)
 ```
 
+**Feedback → prioritas perbaikan prompt (Sprint 1.5):**
+- `server/lib/feedbackMetrics.js` (murni): agregasi `ai_feedback` per feature/rating → `priorityScore` (negativeRate × 100), `confidence`, ranking, dan `promptActionPlan` (arah perbaikan per rating negatif dominan + threshold already_done/skip).
+- Benchmark kategori ke-7 `feedback_prioritization` (dataset sintetis ber-label 48 baris): floor deterministik memastikan agregasi & ranking tidak berubah diam-diam (regression guard).
+- Script CLI memuat dataset NYATA dari Turso → tabel prioritas + action plan + snapshot `docs/ai/feedback-prompt-priorities.json` (di-refresh manual, sebelum live run).
+
 **Live = `npm run benchmark:ai:live` (BENCH_LIVE=1) saja** — `vitest ... --live` ditolak CLI vitest. File hasil di-truncate tiap run (snapshot sekali jalan).
+
+**Feedback-driven selection (Sprint 1.5):** bila snapshot `docs/ai/feedback-prompt-priorities.json` ada dan `topPriority` punya live category, live benchmark **hanya menjalankan kategori fitur paling dikeluhkan user** (fokus biaya AI + evaluasi prompt yang bermasalah):
+- Mapping: `advisor→advisor_live` · `insight→insight_live` · `fraud→fraud_l2_live` · `gmail→gmail_extraction_live` · `ocr→ocr_receipt_vision_live`; `search`/`conversation` (tanpa live category) → fallback ke fitur ranking berikutnya yang punya mapping.
+- Banner 🎯 dicetak saat run + `feedbackSelection` disertakan di `benchmark-live-results.json` (alasan: `topPriority` / `firstMappedFeature`).
+- Alur lengkap: `node scripts/feedbackPromptPriorities.mjs` (refresh snapshot dari Turso) → `npm run benchmark:ai:live`.
+- Override: `BENCH_LIVE_ALL=1 npm run benchmark:ai:live` memaksa full run semua kategori (mis. sebelum release / untuk baseline lengkap).
+- Tanpa snapshot / data feedback kosong → full run (perilaku default).
 
 **Live mode butuh `server/.env`** berisi `GOOGLE_CLOUD_PROJECT`/`GCP_PROJECT_ID`, `GCP_LOCATION`, `GEMINI_PRIMARY_MODEL`, `GEMINI_FALLBACK_MODEL`, `GOOGLE_APPLICATION_CREDENTIALS` (service account JSON yang file-nya ada) — persis konfigurasi boot server. Tanpa itu test gagal dengan pesan konfigurasi yang jelas.
 
@@ -155,3 +170,37 @@ npm run test:unit             # benchmark offline TURUT dijalankan (CI) — floo
 - **Tech debt dari fixture (kandidat fix, bukan "intended behavior"):** `normalizeReceiptPaymentMethod` tidak men-trim spasi (`' qris '`→`'cash'`) dan `Number()` tidak memparse pemisah ribuan (`'150.000'`→150). Benchmark membekukan perilaku saat ini agar ada regression guard — bila kelak diperbaiki, update fixture expected + alasan.
 - Hallucination rate: untuk lapisan deterministik tidak ada konsep hallucination (output dari kode, bukan model); lapisan live-AI memakai `parseGeminiResponse` + fallback + `normalizeReportPayload` (field invalid → fallback) sebagai jaring anti-hallucination.
 - **Biaya live**: 20 panggilan (16 teks + 4 vision) ≈ 14.3k token ≈ **<$0.01** (gemini_flash, vision sedikit lebih mahal per gambar). Jangan jalankan live di CI — bukan gate.
+
+---
+
+## 9. Evaluasi Before/After Perbaikan Prompt (alur kerja, Sprint 1.5)
+
+Mengubah prompt builder fitur **ber-prioritas tertinggi** (dari `scripts/feedbackPromptPriorities.mjs`) lalu membuktikan dampaknya dengan diff benchmark — bukan feeling.
+
+```bash
+# 1) Sebelum mengubah prompt — snapshot kondisi saat ini:
+node scripts/promptChangeEvaluate.mjs --baseline "sebelum ubah prompt advisor"
+
+# 2) Ubah prompt builder fitur prioritas (mis. server/lib/vertexContext.js)
+
+# 3) Setelah mengubah — jalankan benchmark ulang & bandingkan dengan baseline:
+node scripts/promptChangeEvaluate.mjs --compare "setelah ubah prompt advisor"
+
+# Alternatif: hanya jalankan benchmark tanpa diff
+node scripts/promptChangeEvaluate.mjs --run-only
+```
+
+Output `--compare`: tabel delta per kategori + verdict (`MEMBAIK` / `MENGALAMI REGRESI` / `TIDAK BERUBAH`).
+
+**Aturan verdict (evidence-based):**
+- Yang menentukan verdict: **metrik kualitas** (precision/recall/f1/accuracy/top1HitRate/dst) + **estCostUsdPerCase** (deterministik, turunan token).
+- **avgLatencyMs bersifat informational** — TIDAK ikut verdict secara default. Bukti runtime 2026-08-07: jitter 18–71% antar-run pada 11 kategori dengan **kode yang sama** (latensi mikrodetik pure-JS di vitest tidak bisa membedakan perubahan prompt dari noise). Tersedia strict mode di lib (`includeLatencyInVerdict: true`) bila ingin membandingkan latensi.
+- **Latensi riil Gemini** (dampak ukuran prompt ke waktu model) dipantau oleh **live benchmark** (npm run benchmark:ai:live) — diff offline hanya menilai kualitas & biaya deterministik. Jangan berasumsi verdict offline mencakup latensi model.
+
+**Artefak:**
+- `scripts/benchmarkDiff.mjs` — diff murni & deterministik (tanpa I/O, unit-testable): delta per metrik, direction good/bad, verdict per kategori & overall, kategori hilang/baru.
+- `scripts/promptChangeEvaluate.mjs` — CLI pembungkus: baseline snapshot → jalankan vitest → diff. Cross-platform (Windows `npx.cmd` via shell).
+- `tests/unit/benchmarkDiff.test.ts` — 12 test (identik → unchanged; naik → improved; turun → regressed; cost turun → membaik; latency default informational; strict mode; sinyal campur kualitas+latency; kategori hilang/baru).
+- Snapshot `docs/ai/benchmark-before.json` = **artefak kerja, tidak di-commit** (buat ulang kapan saja via `--baseline`).
+
+**Demo validasi (kontrol, tanpa ubah prompt):** `--baseline` → `--compare` → seluruh kategori `unchanged`, verdict **TIDAK BERUBAH (deterministik)** — membuktikan alur tidak menghasilkan verdict palsu.

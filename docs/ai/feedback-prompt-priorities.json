@@ -1,0 +1,183 @@
+{
+  "source": "scripts/feedbackPromptPriorities.mjs",
+  "totalFeedback": 21,
+  "overallNegativeRate": 0.42857142857142855,
+  "featuresWithFeedback": 6,
+  "features": [
+    {
+      "feature": "search",
+      "total": 3,
+      "counts": {
+        "helpful": 1,
+        "not_helpful": 1,
+        "mismatched": 1,
+        "irrelevant": 0,
+        "already_done": 0,
+        "skip": 0
+      },
+      "positiveRate": 0.3333333333333333,
+      "negativeRate": 0.6666666666666666,
+      "skipRate": 0,
+      "alreadyDoneRate": 0,
+      "priorityScore": 67,
+      "confidence": "low"
+    },
+    {
+      "feature": "advisor",
+      "total": 7,
+      "counts": {
+        "helpful": 2,
+        "not_helpful": 3,
+        "mismatched": 1,
+        "irrelevant": 0,
+        "already_done": 1,
+        "skip": 0
+      },
+      "positiveRate": 0.2857142857142857,
+      "negativeRate": 0.5714285714285714,
+      "skipRate": 0,
+      "alreadyDoneRate": 0.14285714285714285,
+      "priorityScore": 57,
+      "confidence": "medium"
+    },
+    {
+      "feature": "gmail",
+      "total": 2,
+      "counts": {
+        "helpful": 1,
+        "not_helpful": 1,
+        "mismatched": 0,
+        "irrelevant": 0,
+        "already_done": 0,
+        "skip": 0
+      },
+      "positiveRate": 0.5,
+      "negativeRate": 0.5,
+      "skipRate": 0,
+      "alreadyDoneRate": 0,
+      "priorityScore": 50,
+      "confidence": "low"
+    },
+    {
+      "feature": "ocr",
+      "total": 2,
+      "counts": {
+        "helpful": 1,
+        "not_helpful": 0,
+        "mismatched": 0,
+        "irrelevant": 1,
+        "already_done": 0,
+        "skip": 0
+      },
+      "positiveRate": 0.5,
+      "negativeRate": 0.5,
+      "skipRate": 0,
+      "alreadyDoneRate": 0,
+      "priorityScore": 50,
+      "confidence": "low"
+    },
+    {
+      "feature": "insight",
+      "total": 5,
+      "counts": {
+        "helpful": 3,
+        "not_helpful": 1,
+        "mismatched": 0,
+        "irrelevant": 0,
+        "already_done": 0,
+        "skip": 1
+      },
+      "positiveRate": 0.6,
+      "negativeRate": 0.2,
+      "skipRate": 0.2,
+      "alreadyDoneRate": 0,
+      "priorityScore": 20,
+      "confidence": "medium"
+    },
+    {
+      "feature": "fraud",
+      "total": 2,
+      "counts": {
+        "helpful": 2,
+        "not_helpful": 0,
+        "mismatched": 0,
+        "irrelevant": 0,
+        "already_done": 0,
+        "skip": 0
+      },
+      "positiveRate": 1,
+      "negativeRate": 0,
+      "skipRate": 0,
+      "alreadyDoneRate": 0,
+      "priorityScore": 0,
+      "confidence": "low"
+    }
+  ],
+  "actionPlan": [
+    {
+      "feature": "search",
+      "label": "AI Search",
+      "prompt": "rankAndExplainResults / buildSuggestedQueries",
+      "file": "server/services/agentSearchService.js",
+      "priorityScore": 67,
+      "total": 3,
+      "dominantNegative": "not_helpful",
+      "direction": "Saran terlalu generik — tambahkan konteks data spesifik user, angka kunci, dan alasan tiap rekomendasi."
+    },
+    {
+      "feature": "advisor",
+      "label": "Financial Advisor",
+      "prompt": "buildAdvisorPrompt",
+      "file": "server/lib/vertexContext.js",
+      "priorityScore": 57,
+      "total": 7,
+      "dominantNegative": "not_helpful",
+      "direction": "Saran terlalu generik — tambahkan konteks data spesifik user, angka kunci, dan alasan tiap rekomendasi."
+    },
+    {
+      "feature": "gmail",
+      "label": "Gmail Sync",
+      "prompt": "buildExtractionPrompt",
+      "file": "server/lib/vertexContext.js",
+      "priorityScore": 50,
+      "total": 2,
+      "dominantNegative": "not_helpful",
+      "direction": "Saran terlalu generik — tambahkan konteks data spesifik user, angka kunci, dan alasan tiap rekomendasi."
+    },
+    {
+      "feature": "ocr",
+      "label": "OCR Receipt",
+      "prompt": "buildReceiptExtractionPrompt",
+      "file": "server/lib/vertexContext.js",
+      "priorityScore": 50,
+      "total": 2,
+      "dominantNegative": "irrelevant",
+      "direction": "Rekomendasi tak relevan — perketat filter data pendukung dan hindari saran di luar cakupan."
+    },
+    {
+      "feature": "insight",
+      "label": "AI Insight",
+      "prompt": "buildMonthlyReportPrompt",
+      "file": "server/lib/vertexContext.js",
+      "priorityScore": 20,
+      "total": 5,
+      "dominantNegative": "not_helpful",
+      "direction": "Saran terlalu generik — tambahkan konteks data spesifik user, angka kunci, dan alasan tiap rekomendasi."
+    },
+    {
+      "feature": "fraud",
+      "label": "Fraud Detection L2",
+      "prompt": "buildFraudScoringPrompt",
+      "file": "server/services/fraudDetectionService.js",
+      "priorityScore": 0,
+      "total": 2,
+      "dominantNegative": null,
+      "direction": "Tidak ada sinyal negatif — pertahankan prompt saat ini."
+    }
+  ],
+  "topPriority": {
+    "feature": "search",
+    "priorityScore": 67,
+    "total": 3
+  }
+}

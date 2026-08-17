@@ -20,7 +20,7 @@
 | Tipe | Jumlah | Idempoten? | Auto-retry aman? |
 |---|---|---|---|
 | `SELECT` (read) | 51 | Ya (read-only) | Aman, TAPI tidak perlu |
-| `INSERT` | 19 | **Tidak** (UUID baru, tanpa `ON CONFLICT` — lihat `POST /api/transactions`) | ❌ Berbahaya — duplikat |
+| `INSERT` | 19 | **Sebagian** — `POST /api/transactions` kini punya **Idempotency-Key** (kolom `idempotency_key` + unique partial index, 2026-08-09); 18 lainnya tetap UUID baru tanpa key | ⚠️ Kecuali create transaksi (kini aman); sisanya ❌ berbahaya — duplikat |
 | `UPDATE` | 24 | **Tidak** | ❌ Berbahaya — efek ganda |
 | `DELETE` | 8 | Tidak (delete 2× = no-op, tapi retry pasca-komit menghapus data lain bila WHERE berubah) | ⚠️ Risiko |
 | `ON CONFLICT` (upsert idempoten) | 8 saja (gmailRoutes 3, fraud 2, category 1, notification 1, alertNotifier 1) | Ya | Aman, tapi sudah self-heal |
@@ -29,7 +29,7 @@
 
 ## 3. Mengapa Tidak Menambah Retry Runtime (analisis risiko)
 
-1. **Risiko double-commit (bencana di app finansial).** `POST /api/transactions` melakukan `INSERT ... VALUES (?, ...)` dengan UUID baru — TIDAK ada `ON CONFLICT`. Bila request pertama sebenarnya ter-commit tapi respons hilang (timeout), retry otomatis membuat **transaksi ganda**. Fail-fast saat ini sudah benar: server kembalikan 500, client tampilkan ErrorState — user yang memutuskan retry (dengan sadar).
+1. **Risiko double-commit (bencana di app finansial).** `POST /api/transactions` melakukan `INSERT ... VALUES (?, ...)` dengan UUID baru — TIDAK ada `ON CONFLICT`. Bila request pertama sebenarnya ter-commit tapi respons hilang (timeout), retry otomatis membuat **transaksi ganda**. ~~Fail-fast saat ini sudah benar~~ → **DITUTUP 2026-08-09**: server kini menerima header `Idempotency-Key` (atau body `idempotencyKey`); retry dengan key yang sama → pre-SELECT → kembalikan transaksi existing (`{ id, replayed: true }`), dan race TOCTOU dua-request-serentak dijamin create-once oleh unique partial index `(user_id, idempotency_key)` (constraint error → re-SELECT → replay). Client `addTransaction` otomatis mengirim key berbasis fingerprint (identik dengan map in-flight) — retry dari klien mana pun (tab lain, request langsung) ikut terlindungi. Tanpa key → perilaku lama dipertahankan (backward-compatible).
 2. **Background async sudah self-heal.** Fraud (`runFraudDetection`), `alertNotifier`, `metricsService` — semuanya fail-open (error di-swallow + log) dan memakai `dedupe_key` / `gmail_message_id` / next-event sebagai mekanisme idempotensi. Retry tambahan = redundant.
 3. **Reads sudah ditangani di client.** Sprint 1.5 menambahkan ErrorState + tombol retry di halaman (Transactions, Profile, Notifications). Retry server menyembunyikan masalah nyata (DB down) dan menambah latensi; fail-fast lebih transparan & bisa didiagnosis via requestId.
 4. **Retry hanya berharga untuk jalur one-time & idempoten.** Boot schema (CREATE IF NOT EXISTS), seed (ON CONFLICT DO NOTHING), apply schema — tepat karena (a) sekali jalan, (b) deterministik, (c) gagal = state rusak permanen yang tak terlihat. Semua sudah dilengkapi.
@@ -44,7 +44,7 @@
 ## 5. Kapan Audit Ini Perlu Direvisi (trigger re-evaluasi)
 
 - [ ] Observability mencatat **Turso network/timeout error rate > 0.5%** pada request user (saat ini tidak di-track per route — catat sebagai debt).
-- [ ] Ada laporan **transaksi ganda** dari user (kalau ini muncul, solusinya dedupe key di INSERT, BUKAN retry).
+- [x] Ada laporan **transaksi ganda** dari user → **SOLUSI DIJALANKAN 2026-08-09**: dedupe key di INSERT (`idempotency_key` + unique partial index + pre-SELECT/replay di `POST /api/transactions`), BUKAN retry. Unit test: `tests/unit/transactionIdempotency.test.ts` (9) + `transactionServiceWindowless.test.ts` (13) — normal/replay/race TOCTOU/key beda/key panjang/header/tanpa-key, semua hijau.
 - [ ] Turso pindah ke model multi-writer (SQLITE_BUSY lebih sering) → pertimbangkan retry khusus `busy`/`locked` pada writes idempoten saja.
 - [ ] Read dari backend dipakai oleh job batch (bukan user) → retry read batch masuk akal.
 

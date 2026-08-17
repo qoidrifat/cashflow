@@ -152,11 +152,11 @@ The application is **substantially implemented (~90% of planned features by coun
 
 | Layer | Status | Notes |
 |---|---|---|
-| Unit tests | ✅ Present for AI utilities | `tests/unit/` (11 files) |
+| Unit tests | ✅ Present for AI utilities | `tests/unit/` (62 files) |
 | Unit test gaps | 🔴 None for `vertexContext`, `metricsService` core, `agentSearchService`, routes | — |
 | E2E coverage | 🟡 Present for dashboard, transactions, categories, Gmail review flows, notifications realtime, rate-limit, admin cache/metrics, agent-search auth | `e2e/` |
 | E2E gaps | 🔴 Recurring, Professional Suite, Receipt OCR, Auth flow, Profile, Settings, Privacy, AI Search page UI, Monitoring UI, Landing/Splash | — |
-| Rate-limit E2E | 🟡 Covers `authLimiter` only | `e2e/rate-limit.spec.ts` |
+| Rate-limit E2E | 🟡→✅ **auth + AI + general** (diperluas 2026-08-09) | `e2e/rate-limit.spec.ts` + `e2e/rate-limit-ai-general.spec.ts` (server 5182; lihat [`../security/RATE_LIMITING.md`](../security/RATE_LIMITING.md)) |
 | Contract tests | 🟡 GET-only | `e2e/contract/` |
 
 ---
