@@ -174,13 +174,35 @@ Verifikasi cross-context (Freebuff):
 3. Callback TIDAK boleh state_mismatch (P3)
 ```
 
-### Real Google OAuth
+### Real Google OAuth — checklist verifikasi manual (status: NOT VERIFIED)
 
 Alur Google asli (account selection → code exchange → session) TIDAK bisa
 di-otomasi tanpa kredensial Google sungguhan. Guard otomatis mengunci seluruh
 lifecycle STATE (valid/tampered/missing/expired/replay) — lihat
-`e2e/oauth-state.spec.ts`; penyelesaian login Google nyata tetap diverifikasi
-manual di atas.
+`e2e/oauth-state.spec.ts` (35/35 PASS, 2026-08-17). **Status `VERIFIED` hanya
+boleh diberikan setelah checklist di bawah selesai dengan akun Google nyata.**
+
+```text
+[ ] 1. Buka http://localhost:5180/login — halaman login render
+[ ] 2. Klik "Masuk dengan Google" — redirect ke accounts.google.com
+[ ] 3. Otorisasi URL berisi: client_id, redirect_uri=http://localhost:5181/api/auth/callback/google,
+         response_type=code, scope, state (random, non-empty)
+[ ] 4. Pilih akun Google nyata (consent bila diminta)
+[ ] 5. Callback http://localhost:5181/api/auth/callback/google — TIDAK state_mismatch
+[ ] 6. Dashboard terbuka (tidak redirect balik ke login)
+[ ] 7. GET /api/auth/session → authenticated (user id + email)
+[ ] 8. Refresh /dashboard → sesi tetap ada
+[ ] 9. Tab baru → /dashboard → tetap authenticated
+[ ] 10. Logout → GET /api/auth/session → unauthenticated; /dashboard → redirect login
+[ ] 11. Login lagi → state BARU → sukses
+[ ] 12. (Freebuff) Preview 127.0.0.1:5180 → login → tab Chrome eksternal → akun Google
+         → callback → dashboard
+```
+
+Hasil tiap langkah: catat URL, HTTP status, console/network, metadata cookie
+(tanpa nilai), halaman akhir. Setelah semua PASS → ubah status di
+`docs/repository/QUALITY_REVIEW.md` dari NOT VERIFIED → VERIFIED (dengan tanggal).
+Jangan pernah menyatakan VERIFIED hanya berdasarkan automated test.
 
 ---
 
