@@ -26,6 +26,97 @@ import {
   whenPresent,
 } from '../../server/routes/professionalSuiteRoutes.js';
 import { validateRequiredString } from '../../server/lib/validation.js';
+import { PROVIDER_CATALOG, publicProviderList, isProviderEnabled, isValidProviderCode } from '../../server/lib/providerCatalog.js';
+
+// P0.12 — katalog provider: kelima provider hadir, enabled, integration manual
+// (bukan fake "integrated"/"connected"), dan tidak ada secret di respons publik.
+describe('PROVIDER_CATALOG — onboarding provider (P0.12)', () => {
+  const EXPECTED_CODES = ['line_bank', 'blu', 'bank_jago', 'shopeepay', 'dana'];
+
+  it('memuat kelima provider yang diharapkan', () => {
+    const codes = PROVIDER_CATALOG.map((p) => p.code);
+    for (const code of EXPECTED_CODES) expect(codes).toContain(code);
+  });
+
+  it('semua provider enabled & integration = manual (label LUAR integrated/connected/verified)', () => {
+    for (const p of PROVIDER_CATALOG) {
+      expect(p.enabled, p.code).toBe(true);
+      expect(p.integration, p.code).toBe('manual');
+    }
+    // Tidak boleh ada klaim integrasi otomatis palsu di katalog sumber.
+    for (const p of PROVIDER_CATALOG) {
+      expect(p.integration).not.toMatch(/auto|integrated|connected|verified|oauth/i);
+    }
+  });
+
+  it('isProviderEnabled / isValidProviderCode: kode katalog → true, arbitrary → false', () => {
+    for (const code of EXPECTED_CODES) {
+      expect(isProviderEnabled(code), code).toBe(true);
+      expect(isValidProviderCode(code), code).toBe(true);
+    }
+    expect(isProviderEnabled('bank_bca_arbitrary')).toBe(false);
+    expect(isValidProviderCode('open_banking_fake')).toBe(false);
+  });
+
+  it('publicProviderList hanya field capability metadata — TIDAK ada secret/credential', () => {
+    const list = publicProviderList();
+    expect(list.length).toBe(EXPECTED_CODES.length);
+    for (const item of list) {
+      const keys = Object.keys(item);
+      expect(keys).toEqual(expect.arrayContaining(['code', 'name', 'type', 'icon', 'enabled', 'integration']));
+      // Tidak ada field sensitif apa pun.
+      expect(keys).not.toEqual(expect.arrayContaining([
+        'apiKey', 'secret', 'clientSecret', 'token', 'password', 'credential',
+      ]));
+    }
+  });
+});
+
+// P0.12 — semantic invariants skema: user_id/status verified tdk berasal client.
+describe('WALLET_CREATE_SCHEMA — mass assignment & semantic fields (P0.12)', () => {
+  const validWallet = { name: 'DANA utama', type: 'e-wallet', providerCode: 'dana', balance: 250000 };
+
+  it('providerCode dari katalog diterima (create → nilai dipertahankan)', () => {
+    const res = validateBody(validWallet, WALLET_CREATE_SCHEMA);
+    expect(res.ok).toBe(true);
+    expect(res.value.providerCode).toBe('dana');
+  });
+
+  it('field server-derived yang dikirim client DIBUANG diam-diam (mass assignment tertutup)', () => {
+    const res = validateBody({
+      ...validWallet,
+      user_id: 'user-attacker',
+      userId: 'user-attacker',
+      verified: true,
+      verification_status: 'verified',
+      balance_anchor_status: 'verified',
+      owner_id: 'user-attacker',
+      provider_integrated: true,
+      ownership_verified: true,
+    }, WALLET_CREATE_SCHEMA);
+    expect(res.ok).toBe(true);
+    expect(res.value).not.toHaveProperty('user_id');
+    expect(res.value).not.toHaveProperty('userId');
+    expect(res.value).not.toHaveProperty('verified');
+    expect(res.value).not.toHaveProperty('verification_status');
+    expect(res.value).not.toHaveProperty('balance_anchor_status');
+    expect(res.value).not.toHaveProperty('owner_id');
+    expect(res.value).not.toHaveProperty('provider_integrated');
+    expect(res.value).not.toHaveProperty('ownership_verified');
+  });
+
+  it('providerCode arbitrari bisa lolos skema (hitam-putih di route: fail-closed isProviderEnabled)', () => {
+    // Skema hanya tipis (string); penolakan provider tak dikenal dilakukan di
+    // route POST/PUT via isProviderEnabled (diuji di professionalSuiteRoutes).
+    const res = validateBody({ ...validWallet, providerCode: 'bank_bca_arbitrary' }, WALLET_CREATE_SCHEMA);
+    expect(res.ok).toBe(true);
+  });
+
+  it('providerCode null/undefined → sopan (provider opsional)', () => {
+    expect(validateBody({ name: 'Kas', type: 'cash' }, WALLET_CREATE_SCHEMA).ok).toBe(true);
+    expect(validateBody({ ...validWallet, providerCode: null }, WALLET_CREATE_SCHEMA).ok).toBe(true);
+  });
+});
 
 describe('WALLET_CREATE_SCHEMA (POST /api/wallets)', () => {
   const validWallet = { name: 'BCA Utama', type: 'bank', institution: 'BCA', balance: 150000, color: '#8b5cf6' };

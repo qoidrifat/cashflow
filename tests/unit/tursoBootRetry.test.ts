@@ -30,7 +30,7 @@ vi.mock('../../server/lib/logger.js', () => ({
 
 import { createClient } from '../../server/node_modules/@libsql/client';
 import { logger } from '../../server/lib/logger.js';
-import { getTurso, closeTurso } from '../../server/lib/turso.js';
+import { describeTursoUrl, getTurso, closeTurso } from '../../server/lib/turso.js';
 
 // Hitung statement dengan cara yang SAMA dengan implementasi (read-only).
 const schemaStatements = (() => {
@@ -85,6 +85,17 @@ describe('getTurso boot — initTursoSchema retry aktif (produksi)', () => {
     expect(client.execute).toHaveBeenCalledTimes(schemaStatements.length + 1);
     // Self-heal sukses → TIDAK ada false alarm di log error.
     expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      {
+        database: {
+          protocol: 'libsql:',
+          hostname: 'test.example.com',
+          port: undefined,
+          path: '/',
+        },
+      },
+      'Database client Turso siap',
+    );
   });
 
   it('transient persisten di boot → fail-fast (loop berhenti) + error TERLIHAT di log, tanpa unhandled rejection', async () => {
@@ -109,6 +120,17 @@ describe('getTurso boot — initTursoSchema retry aktif (produksi)', () => {
     );
     // Test selesai tanpa unhandled rejection = .catch di getTurso menangani.
   }, 15000);
+});
+
+describe('describeTursoUrl', () => {
+  it('hanya mengembalikan metadata koneksi aman tanpa credential/query', () => {
+    expect(describeTursoUrl('libsql://cashflow.example.turso.io/db?unused=redacted')).toEqual({
+      protocol: 'libsql:',
+      hostname: 'cashflow.example.turso.io',
+      port: undefined,
+      path: '/db',
+    });
+  });
 });
 
 function executeCalls(client) {

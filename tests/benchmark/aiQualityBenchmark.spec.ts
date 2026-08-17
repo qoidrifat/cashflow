@@ -43,6 +43,7 @@ import { evaluateLocalGmailParser } from '../../src/lib/gmailLocalParser';
 import { normalizeReceiptResult } from '../../server/lib/vertexContext.js';
 import { estimateTokensFromText } from '../../src/utils/aiTokenEstimator';
 import { AI_PRICING } from '../../server/config/metricsConfig.js';
+import { buildFeedbackPriorityReport } from '../../server/lib/feedbackMetrics.js';
 import type { AdvisorInput, Transaction } from '../../src/types';
 
 const FLASH = (AI_PRICING as Record<string, { input: number; output: number }>).gemini_flash;
@@ -514,6 +515,48 @@ function runBenchmark() {
     }
   }
 
+  // 7) FEEDBACK (ai_feedback) → PRIORITAS PERBAIKAN PROMPT
+  // Dataset sintetis ber-label (deterministik): verifikasi agregasi per
+  // feature/rating, ranking prioritas, dan action plan — sama persis dengan
+  // fungsi produksi yang dipakai script feedbackPromptPriorities.mjs.
+  {
+    const rows = [
+      // advisor: 20 total, 14 negatif (10 not_helpful + 4 mismatched) → 70
+      ...Array.from({ length: 10 }, () => ({ feature: 'advisor', rating: 'not_helpful' })),
+      ...Array.from({ length: 6 }, () => ({ feature: 'advisor', rating: 'helpful' })),
+      ...Array.from({ length: 4 }, () => ({ feature: 'advisor', rating: 'mismatched' })),
+      // search: 6 total, 3 negatif → 50
+      ...Array.from({ length: 3 }, () => ({ feature: 'search', rating: 'not_helpful' })),
+      ...Array.from({ length: 3 }, () => ({ feature: 'search', rating: 'helpful' })),
+      // conversation: 4 total, 2 negatif → 50
+      ...Array.from({ length: 2 }, () => ({ feature: 'conversation', rating: 'irrelevant' })),
+      ...Array.from({ length: 2 }, () => ({ feature: 'conversation', rating: 'helpful' })),
+      // insight: 10 total, 2 negatif → 20
+      ...Array.from({ length: 2 }, () => ({ feature: 'insight', rating: 'mismatched' })),
+      ...Array.from({ length: 5 }, () => ({ feature: 'insight', rating: 'helpful' })),
+      ...Array.from({ length: 3 }, () => ({ feature: 'insight', rating: 'skip' })),
+      // fraud: 5 total, 0 negatif → 0
+      ...Array.from({ length: 5 }, () => ({ feature: 'fraud', rating: 'helpful' })),
+      // ocr: 3 total, 0 negatif → 0
+      ...Array.from({ length: 3 }, () => ({ feature: 'ocr', rating: 'helpful' })),
+    ];
+    const report = buildFeedbackPriorityReport(rows);
+    const byScore = (name) => report.features.find((f) => f.feature === name)?.priorityScore;
+    reports.push({
+      category: 'feedback_prioritization',
+      cases: report.totalFeedback,
+      rankingOrder: report.features.map((f) => f.feature).join(','),
+      topFeature: report.topPriority?.feature,
+      advisorScore: byScore('advisor'),
+      searchScore: byScore('search'),
+      conversationScore: byScore('conversation'),
+      insightScore: byScore('insight'),
+      fraudScore: byScore('fraud'),
+      actionPlanSize: report.actionPlan.length,
+      actionPlanDirection: report.actionPlan[0]?.direction ?? '',
+    });
+  }
+
   return reports;
 }
 
@@ -557,6 +600,19 @@ describe('AI Quality Benchmark (Sprint 1 · Phase 1.6)', () => {
     const hcInsight = reports.find((r: any) => r.category === 'hand_crafted_insight');
     const hcAdvisor = reports.find((r: any) => r.category === 'hand_crafted_advisor');
     const hcSearch = reports.find((r: any) => r.category === 'hand_crafted_search');
+    const feedback = reports.find((r: any) => r.category === 'feedback_prioritization');
+
+    // Floor kategori feedback_prioritization — agregasi & ranking prioritas
+    // perbaikan prompt wajib deterministik (regression guard agregasi).
+    expect(feedback.topFeature).toBe('advisor');
+    expect(feedback.rankingOrder).toBe('advisor,search,conversation,insight,fraud,ocr');
+    expect(feedback.advisorScore).toBe(70);
+    expect(feedback.searchScore).toBe(50);
+    expect(feedback.conversationScore).toBe(50);
+    expect(feedback.insightScore).toBe(20);
+    expect(feedback.fraudScore).toBe(0);
+    expect(feedback.actionPlanSize).toBe(6);
+    expect(feedback.actionPlanDirection).toContain('generik');
 
     expect(fraud.precision).toBeGreaterThanOrEqual(0.95);
     expect(fraud.recall).toBeGreaterThanOrEqual(0.95);

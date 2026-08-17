@@ -48,9 +48,25 @@ import {
   LIVE_ADVISOR,
   LIVE_RECEIPT,
 } from './fixtures';
+import {
+  loadFeedbackPriorities,
+  selectLiveCategory,
+  type LiveCategorySelection,
+} from './liveFeedbackSelection';
 
 const LIVE = process.env.BENCH_LIVE === '1' || process.argv.includes('--live');
 const RESULTS_FILE = path.resolve(process.cwd(), 'docs', 'ai', 'benchmark-live-results.json');
+
+/**
+ * Seleksi kategori live berbasis feedback NYATA (docs/ai/feedback-prompt-priorities.json,
+ * ditulis oleh scripts/feedbackPromptPriorities.mjs). Bila snapshot ada & topPriority
+ * punya live category → HANYA kategori itu yang dijalankan (fokus biaya AI ke fitur
+ * yang paling dikeluhkan user). Set BENCH_LIVE_ALL=1 untuk memaksa full run.
+ */
+const FEEDBACK_PRIORITIES_FILE = path.resolve(process.cwd(), 'docs', 'ai', 'feedback-prompt-priorities.json');
+const FORCE_ALL = process.env.BENCH_LIVE_ALL === '1';
+const loadedPriorities = FORCE_ALL ? null : loadFeedbackPriorities(FEEDBACK_PRIORITIES_FILE);
+const liveSelection: LiveCategorySelection | null = FORCE_ALL ? null : selectLiveCategory(loadedPriorities);
 
 const FRAUD_DECISIONS = ['allow', 'review', 'block'];
 const HEALTH_VALUES = ['sehat', 'stabil', 'waspada', 'kritis'];
@@ -77,6 +93,27 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
   let initError: string | null = null;
 
   beforeAll(() => {
+    if (liveSelection) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `\n🎯 FEEDBACK-DRIVEN: hanya menjalankan kategori "${liveSelection.category}" ` +
+          `(feature=${liveSelection.feature}, skor=${liveSelection.priorityScore}, ` +
+          `${liveSelection.total} feedback, alasan=${liveSelection.reason}). ` +
+          'Set BENCH_LIVE_ALL=1 untuk semua kategori.',
+      );
+    } else if (FORCE_ALL) {
+      // eslint-disable-next-line no-console
+      console.log('\n🎯 BENCH_LIVE_ALL=1 — full run (feedback selection dilewati).');
+    } else if (loadedPriorities) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '\n🎯 Snapshot feedback ada tapi tidak ada fitur dengan skor > 0 yang bisa ' +
+          'dipetakan (semua feedback non-negatif / tanpa live category) — full run semua kategori.',
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('\n🎯 Tidak ada snapshot feedback (kosong/hilang) — full run semua kategori.');
+    }
     // Hasil live = snapshot sekali jalan: truncate file lama agar tidak menumpuk
     // antar run (append antar test di dalam run ini tetap berlaku).
     if (fs.existsSync(RESULTS_FILE)) {
@@ -170,7 +207,7 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     }
   }
 
-  it('fraud L2 — AI risk scoring setuju dengan rule engine L1', async () => {
+  it.skipIf(!!liveSelection && liveSelection.category !== 'fraud_l2_live')('fraud L2 — AI risk scoring setuju dengan rule engine L1', async () => {
     if (initError) throw new Error(initError);
     const rows: unknown[] = [];
     let agree = 0; let parsed = 0; let totalTokens = 0;
@@ -224,7 +261,7 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     expect(agree).toBeGreaterThanOrEqual(1);
   }, 180_000);
 
-  it('gmail extraction — decision & amount cocok dengan ground truth', async () => {
+  it.skipIf(!!liveSelection && liveSelection.category !== 'gmail_extraction_live')('gmail extraction — decision & amount cocok dengan ground truth', async () => {
     if (initError) throw new Error(initError);
     const rows: unknown[] = [];
     let passed = 0; let totalTokens = 0;
@@ -270,7 +307,7 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     expect(passed).toBeGreaterThanOrEqual(1);
   }, 180_000);
 
-  it('insight — health & score valid dan konsisten', async () => {
+  it.skipIf(!!liveSelection && liveSelection.category !== 'insight_live')('insight — health & score valid dan konsisten', async () => {
     if (initError) throw new Error(initError);
     const rows: unknown[] = [];
     let passed = 0; let totalTokens = 0;
@@ -315,7 +352,7 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     expect(passed).toBeGreaterThanOrEqual(1);
   }, 180_000);
 
-  it('ocr receipt vision — ekstrak struk dari gambar nyata (generateGeminiVision)', async () => {
+  it.skipIf(!!liveSelection && liveSelection.category !== 'ocr_receipt_vision_live')('ocr receipt vision — ekstrak struk dari gambar nyata (generateGeminiVision)', async () => {
     if (initError) throw new Error(initError);
     const rows: unknown[] = [];
     let passed = 0; let totalTokens = 0;
@@ -378,7 +415,7 @@ describe.skipIf(!LIVE)('AI Quality Benchmark — LIVE Gemini integration (--live
     expect(passed).toBeGreaterThanOrEqual(1);
   }, 240_000);
 
-  it('advisor — output JSON lengkap sesuai schema prompt', async () => {
+  it.skipIf(!!liveSelection && liveSelection.category !== 'advisor_live')('advisor — output JSON lengkap sesuai schema prompt', async () => {
     if (initError) throw new Error(initError);
     const rows: unknown[] = [];
     let passed = 0; let totalTokens = 0;
@@ -439,6 +476,9 @@ function appendLiveResult(report: unknown) {
   if (!Array.isArray(existing.categories)) existing.categories = [];
   existing.categories.push(report);
   existing.runner = 'tests/benchmark/aiLiveBenchmark.spec.ts (npm run benchmark:ai:live)';
+  if (liveSelection && !existing.feedbackSelection) {
+    existing.feedbackSelection = liveSelection;
+  }
   existing.generatedAt = new Date().toISOString();
   fs.writeFileSync(RESULTS_FILE, JSON.stringify(existing, null, 2));
 }

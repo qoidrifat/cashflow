@@ -102,3 +102,51 @@ describe('simulationEngine — batas & skor', () => {
     expect(r.months[0].netCashflow).toBe(4_000_000);
   });
 });
+
+describe('simulationEngine — keputusan defisit (audit 2026-08-09)', () => {
+  it('proyeksi TIDAK di-clamp ke 0: saldo negatif dijaga jujur (one_time besar)', () => {
+    const r = runSimulation(
+      { monthlyIncome: 10_000_000, monthlyExpense: 6_000_000, balance: 5_000_000 },
+      [{ type: 'one_time_expense', label: 'Laptop 20jt', amount: 20_000_000, month: 1 }],
+      { months: 3 },
+    );
+    // bln1: 5jt + 4jt - 20jt = -11jt → bln2: -7jt → bln3: -3jt
+    expect(r.months[0].balance).toBe(-11_000_000);
+    expect(r.months[2].balance).toBe(-3_000_000);
+    expect(r.finalBalance).toBe(-3_000_000);
+    expect(r.deficitMonths).toBe(3);
+    expect(r.firstDeficitMonth).toBe(1);
+  });
+
+  it('baseline negatif (utang) dihormati — tidak diam-diam di-clamp ke 0', () => {
+    const r = runSimulation({ monthlyIncome: 10_000_000, monthlyExpense: 6_000_000, balance: -5_000_000 }, [], { months: 2 });
+    // bln1: -5jt + 4jt = -1jt → bln2: 3jt
+    expect(r.months[0].balance).toBe(-1_000_000);
+    expect(r.months[1].balance).toBe(3_000_000);
+    expect(r.balanceDelta).toBe(8_000_000); // 3jt - (-5jt) — delta dari awal SESUNGGUHNYA
+    expect(r.deficitMonths).toBe(1);
+    expect(r.firstDeficitMonth).toBe(1);
+  });
+
+  it('skenario sehat: deficitMonths 0, firstDeficitMonth null', () => {
+    const r = runSimulation(BASE, [], { months: 3 });
+    expect(r.deficitMonths).toBe(0);
+    expect(r.firstDeficitMonth).toBeNull();
+  });
+
+  it('pulih di tengah proyeksi: deficitMonths < months & firstDeficitMonth = bulan pertama minus', () => {
+    const r = runSimulation(
+      { monthlyIncome: 10_000_000, monthlyExpense: 6_000_000, balance: 2_000_000 },
+      [{ type: 'one_time_expense', label: 'Motor 12jt', amount: 12_000_000, month: 1 }],
+      { months: 4 },
+    );
+    // bln1: 2jt + 4jt - 12jt = -6jt → bln2: -2jt → bln3: 2jt → bln4: 6jt
+    expect(r.months[0].balance).toBe(-6_000_000);
+    expect(r.months[2].balance).toBe(2_000_000);
+    expect(r.deficitMonths).toBe(2);
+    expect(r.firstDeficitMonth).toBe(1);
+    // finalBalance positif — indikator defisit TETAP muncul (UI banner memakai
+    // deficitMonths, bukan finalBalance).
+    expect(r.finalBalance).toBe(6_000_000);
+  });
+});
