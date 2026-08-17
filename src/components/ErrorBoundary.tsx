@@ -76,7 +76,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
 
             {import.meta.env.DEV && this.state.error && (
               <div className="mt-4 mb-4 p-3 rounded-xl bg-app-hover/80 text-left">
-                <p className="text-[10px] font-mono text-red-500 mb-1 break-all">
+                <p className="text-[10px] font-mono text-red-700 dark:text-red-300 mb-1 break-all">
                   {this.state.error.name}: {this.state.error.message}
                 </p>
                 {this.state.errorInfo && (
