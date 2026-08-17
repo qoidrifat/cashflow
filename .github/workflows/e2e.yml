@@ -71,6 +71,13 @@ jobs:
         working-directory: server
         run: npm ci
 
+      # P2.4 — tiered dependency audit: CRITICAL / HIGH-production = blocking,
+      # HIGH-dev / MODERATE / LOW = warning. Exception terdokumentasi di
+      # scripts/dependency-audit.exceptions.json (review date). Jangan pernah
+      # `npm audit fix --force` otomatis di CI.
+      - name: Dependency audit (tiered gate)
+        run: npm run audit:deps
+
       - name: Lint (tsc src)
         run: npm run lint
 
@@ -84,6 +91,13 @@ jobs:
       # kini memblokir merge sebelum e2e (needs: quality).
       - name: Unit tests (vitest)
         run: npm run test:unit
+
+      # P0.4 Schema Drift Guard — tanpa kredensial Turso: mode LOCAL membuat
+      # temp DB, apply SEMUA migration, verifikasi kontrak (tabel/kolom/index
+      # kritis + baseline sync turso-schema.sql ↔ 0001_baseline.sql).
+      # Missing table/column/index, checksum drift, duplicate version → exit 1.
+      - name: Schema drift guard (db:migrate:check)
+        run: npm run db:migrate:check
 
       - name: Build
         run: npm run build
@@ -132,7 +146,8 @@ jobs:
     # (terbukti di run push f3d593c yang di-cancel oleh PR dependabot).
     # Pipeline penuh tetap jalan saat dependabot merge (push ke gh-pages).
     if: github.actor != 'dependabot[bot]'
-    # Budget 3× suite: setup + seed + hingga 3 run suite (~3 menit/run) + contract.
+    # Budget 3× suite: setup + seed + hingga 3 run suite (~3 menit/run)
+    # + panel rekomendasi (P10.2j, ~1 menit) + contract.
     timeout-minutes: 45
     env:
       # Server API (server/index.js) membaca env ini; webServer auto-start
@@ -204,13 +219,27 @@ jobs:
       - name: Apply Turso schema (CI DB, idempoten)
         run: node scripts/applyTursoSchema.mjs
 
+      # P0.1: migrasi DB CI ke state versioned terbaru (baseline + 0002+).
+      # Additive-only (CREATE IF NOT EXISTS + ALTER ADD COLUMN baru) — aman
+      # dijalankan ulang; mendeteksi checksum drift lebih awal.
+      - name: Run DB migrations (CI DB, versioned)
+        run: npm run db:migrate
+
       - name: Seed E2E dataset (CI-isolated DB)
         run: node scripts/seedE2eDataset.mjs
         env:
           SEED_E2E: '1'
 
       # Stability gate 3× (roadmap CI_PIPELINE.md #1 — diterapkan saat suite > 20
-      # test; kini 50 test — dihitung 2026-08-06). scripts/e2e-stability-gate.sh menjalankan suite hingga
+      # test; kini 71 test — dihitung via `playwright test --list` 2026-08-08,
+      # incl. admin-monitoring-recommendation.spec.ts). Seluruh spec di e2e/ ikut
+      # suite ini via auto-discovery (testDir: './e2e' + --grep-invert @visual|@perf)
+      # — primary gate: setiap regresi spec (incl. panel Rekomendasi AI) terblokir
+      # di sini. Step per-spec lain TIDAK ada (npm scripts test:e2e:* umumnya untuk
+      # debugging lokal; mis. test:e2e:monitoring-chart) KECUALI satu: step
+      # `test:e2e:recommendation-panel` ditambahkan P10.2j sebagai sinyal kegagalan
+      # eksplisit — redundan dengan full suite, disengaja (lihat step di bawah).
+      # scripts/e2e-stability-gate.sh menjalankan suite hingga
       # 3 attempt dan GAGAL HANYA bila 3× gagal berturut (regresi riil). Flake
       # sesekali (1-2 attempt gagal lalu lulus) = job HIJAU + ::warning:: + arsip
       # per-attempt untuk forensik. Playwright retries:1 menangani flake per-test.
@@ -223,8 +252,27 @@ jobs:
           SEED_E2E: '1'
           MAX_ATTEMPTS: '3'
 
+      # P10.2j: sinyal kegagalan EKSPLISIT panel Rekomendasi AI. Spec
+      # admin-monitoring-recommendation.spec.ts dijalankan LAGI sebagai step
+      # terpisah SETELAH stability gate — REDUNDAN dengan full suite di atas
+      # (auto-discovery), disengaja atas permintaan produk: bila panel ini
+      # regresi, kegagalannya terlihat langsung sebagai step bernama di run,
+      # bukan terkubur di suite 71 test. Spec men-seed data sintetisnya sendiri
+      # (prefiks e2e-reco-*, dibersihkan di afterAll) → tidak mengubah state
+      # deterministik step lain. Playwright retries:1 menangani flake per-test.
+      - name: E2E — panel Rekomendasi AI (explicit signal, P10.2j)
+        run: npm run test:e2e:recommendation-panel
+
       - name: Run API contract tests (schema drift detection)
         run: npm run test:e2e:contract
+
+      # Drift guard namespace /api/ai-product/* (track/feedback/memory/timeline/
+      # conversation) — spec terpisah (e2e/contract/ai-product.spec.ts) agar
+      # kegagalan kontrak AI product terlihat sebagai step bernama (pola
+      # P10.2j explicit signal). Self-cleaning: seluruh side-effect ditandai
+      # marker 'e2e-ai-contract-' dan dibersihkan di afterAll.
+      - name: Run AI-product API contract tests (drift guard)
+        run: npm run test:e2e:contract:ai-product
 
       - name: Upload Playwright report (always)
         if: always()
@@ -253,6 +301,215 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: test-results
+          path: test-results/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E TERISOLASI — DB libSQL LOKAL per run (P1.7), TANPA secrets Turso
+  # ─────────────────────────────────────────────────────────────
+  # Config playwright.e2e-local.config.mjs: webServer chain menyiapkan DB lokal
+  # fresh per run (.test-data/e2e-local.db — delete-first, schema+migrasi+seed
+  # deterministik CI 284tx/519logs) lalu boot API (port 5191) + Vite (5190).
+  # GEMINI_MOCK=1 → spec AI deterministik offline (boundary mock P1.8).
+  #
+  # KEUNGGULAN: job ini TIDAK menyentuh Turso (file: URL) → bisa jalan untuk
+  # PR dependabot (tanpa secrets) dan paralel dengan e2e (port & DB berbeda;
+  # concurrency group tetap serialisasi workflow-level, bukan resource-level).
+  # Spec yang butuh server khusus (rate-limit 5182, webhook 5183/5184) dan
+  # @visual/@perf di-ignore di config — mereka tetap punya guard di job lain.
+  e2e-isolated:
+    name: E2E Isolated DB (local SQLite)
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      # webServer menjalankan node server/index.js — dep server wajib (pola job e2e).
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Suite fungsional penuh terhadap DB lokal fresh — tanpa step seed terpisah
+      # (config menyiapkan DB sebelum API boot). Guard produksi: script menolak
+      # URL non-file: (E2E tidak pernah menulis ke DB remote dari sini).
+      - name: Run E2E suite (isolated local DB)
+        run: npm run test:e2e:isolated
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-isolated
+          path: playwright-report-local/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-isolated
+          path: test-results/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E PARALLEL — per-worker DB isolation (P2.2), runs parallel with e2e
+  # ─────────────────────────────────────────────────────────────
+  # npm run test:e2e:parallel = scripts/run-e2e-shards.mjs: N process shard
+  # berjalan KONKUREN, masing-masing worker memakai DB file sendiri
+  # (.test-data/e2e-shard-<i>.db) + port sendiri (5190+2i/5191+2i) + slice test
+  # sendiri (--shard=i/N). TANPA secret Turso — DB lokal file: (guard menolak
+  # URL non-file). E2E_SHARDS=4 di CI (runner lebih besar dari dev laptop;
+  # di dev default 2 — lihat benchmark di docs/ci/TESTING_STRATEGY.md P2).
+  e2e-parallel:
+    name: E2E Parallel (per-worker DB)
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E suite (parallel shards, per-worker isolated DBs)
+        run: E2E_SHARDS=4 npm run test:e2e:parallel
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-parallel
+          path: playwright-report-local/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-parallel
+          path: test-results/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────
+  # ACCESSIBILITY — Axe core pages (P2.1), serial setelah e2e (shared DB)
+  # ─────────────────────────────────────────────────────────────
+  # e2e/accessibility.spec.ts: scan axe core pages (/dashboard, /transactions,
+  # /ai, /ai/timeline, /admin/monitoring) LIGHT + DARK dengan auth sesi nyata
+  # (mintSession / admin = ADMIN_EMAILS[0]). Gate (P2.1): 0 violation SERIOUS
+  # ke atas (color-contrast = 0 di kedua tema — design-token pass + opacity
+  # scale fix). needs: [quality, e2e] — SERIAL (DB Turso bersama + port
+  # 5180/5181; jangan paralelkan dengan job yang menulis DB).
+  a11y:
+    name: Accessibility (axe)
+    runs-on: ubuntu-latest
+    needs: [quality, e2e]
+    if: github.actor != 'dependabot[bot]'
+    timeout-minutes: 20
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || 'e2e-seed-admin@cashflow.test' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (server)
+        working-directory: server
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify Turso secrets
+        if: env.TURSO_DATABASE_URL == '' || env.TURSO_AUTH_TOKEN == ''
+        run: echo '::error::TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN wajib diset (a11y spec minting sesi e2e)' && exit 1
+
+      - name: Apply Turso schema (CI DB, idempoten)
+        run: node scripts/applyTursoSchema.mjs
+
+      - name: Run DB migrations (CI DB, versioned)
+        run: npm run db:migrate
+
+      - name: Seed E2E dataset (CI-isolated DB, idempoten)
+        run: node scripts/seedE2eDataset.mjs
+        env:
+          SEED_E2E: '1'
+
+      # Gate: 0 violation CRITICAL di 5 halaman inti (admin memakai sesi admin).
+      - name: Run accessibility scan (axe, critical gate)
+        run: npm run test:a11y
+
+      - name: Upload Playwright report (always)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-a11y
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-a11y
           path: test-results/
           retention-days: 14
 
@@ -314,6 +571,9 @@ jobs:
 
       - name: Apply Turso schema (CI DB, idempoten)
         run: node scripts/applyTursoSchema.mjs
+
+      - name: Run DB migrations (CI DB, versioned)
+        run: npm run db:migrate
 
       - name: Seed E2E dataset (CI-isolated DB, idempoten)
         run: node scripts/seedE2eDataset.mjs
@@ -422,6 +682,9 @@ jobs:
 
       - name: Apply Turso schema (CI DB, idempoten)
         run: node scripts/applyTursoSchema.mjs
+
+      - name: Run DB migrations (CI DB, versioned)
+        run: npm run db:migrate
 
       - name: Seed E2E dataset (CI-isolated DB, idempoten)
         run: node scripts/seedE2eDataset.mjs
