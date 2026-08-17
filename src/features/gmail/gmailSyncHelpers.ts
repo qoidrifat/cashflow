@@ -18,20 +18,24 @@ import type {
 
 /** Konfigurasi badge status email — dipakai halaman & EmailCard. */
 export const STATUS_CONFIG: Record<SyncEmailStatus, { label: string; color: string; bg: string }> = {
-  auto_accepted: { label: 'Diterima Otomatis', color: 'text-mint-500', bg: 'bg-mint-50 dark:bg-mint-500/12' },
+  // Kontras light-mode: badge 10px normal-wt butuh 4.5:1 → teks -700 pada bg
+  // -50 (pola app: GmailSyncPage run-status pakai text-amber-700 bg-amber-50).
+  // -500 (2.x:1) & -600 (3.x:1) GAGAL untuk teks kecil (P2.1 blocking, ter-expose
+  // P3.0 saat determinisme scan memuat kartu email sebelum axe).
+  auto_accepted: { label: 'Diterima Otomatis', color: 'text-mint-700 dark:text-mint-300', bg: 'bg-mint-50 dark:bg-mint-500/12' },
   auto_skipped: { label: 'Dilewati Otomatis', color: 'text-app-subtle', bg: 'bg-app-hover/60' },
-  auto_rejected: { label: 'Ditolak Otomatis', color: 'text-soft-amber', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  needs_review: { label: 'Perlu Review', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  pending_review: { label: 'Pending Review', color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-500/12' },
-  approved: { label: 'Disetujui', color: 'text-mint-500', bg: 'bg-mint-50 dark:bg-mint-500/12' },
-  rejected: { label: 'Ditolak', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-500/12' },
+  auto_rejected: { label: 'Ditolak Otomatis', color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-50 dark:bg-amber-500/12' },
+  needs_review: { label: 'Perlu Review', color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-50 dark:bg-amber-500/12' },
+  pending_review: { label: 'Pending Review', color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-50 dark:bg-amber-500/12' },
+  approved: { label: 'Disetujui', color: 'text-mint-700 dark:text-mint-300', bg: 'bg-mint-50 dark:bg-mint-500/12' },
+  rejected: { label: 'Ditolak', color: 'text-red-700 dark:text-red-300', bg: 'bg-red-50 dark:bg-red-500/12' },
   skipped: { label: 'Dilewati', color: 'text-app-subtle', bg: 'bg-app-hover/80' },
-  duplicate: { label: 'Duplikat', color: 'text-soft-purple', bg: 'bg-purple-50 dark:bg-purple-500/12' },
-  failed: { label: 'Gagal Teknis', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-500/12' },
-  retry_later: { label: 'Coba Lagi Nanti', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/12' },
-  config_error: { label: 'Config Error', color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-500/12' },
-  gmail_permission_required: { label: 'Butuh Izin Gmail', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-500/12' },
-  paused_config_error: { label: 'Config Error', color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-500/12' },
+  duplicate: { label: 'Duplikat', color: 'text-purple-700 dark:text-purple-300', bg: 'bg-purple-50 dark:bg-purple-500/12' },
+  failed: { label: 'Gagal Teknis', color: 'text-red-700 dark:text-red-300', bg: 'bg-red-50 dark:bg-red-500/12' },
+  retry_later: { label: 'Coba Lagi Nanti', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-50 dark:bg-blue-500/12' },
+  config_error: { label: 'Config Error', color: 'text-rose-700 dark:text-rose-300', bg: 'bg-rose-50 dark:bg-rose-500/12' },
+  gmail_permission_required: { label: 'Butuh Izin Gmail', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-50 dark:bg-blue-500/12' },
+  paused_config_error: { label: 'Config Error', color: 'text-rose-700 dark:text-rose-300', bg: 'bg-rose-50 dark:bg-rose-500/12' },
 };
 
 export interface ProcessingStats {

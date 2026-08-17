@@ -69,13 +69,13 @@ export function EmailCard({
                 {config.label}
               </span>
               {email.confidence && email.confidence >= 0.8 && (
-                <span className="text-[10px] font-medium text-mint-500 dark:text-mint-200 bg-mint-50 dark:bg-mint-500/12 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-medium text-mint-700 dark:text-mint-300 bg-mint-50 dark:bg-mint-500/12 px-1.5 py-0.5 rounded-full">
                   {Math.round(email.confidence * 100)}%
                 </span>
               )}
               {/* Fallback badge */}
               {email.debug?.fallbackUsed && (
-                <span className="text-[10px] font-medium text-soft-purple bg-purple-50 dark:bg-purple-500/12 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/12 px-1.5 py-0.5 rounded-full">
                   Parsed by Fallback
                 </span>
               )}

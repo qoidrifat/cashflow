@@ -42,14 +42,18 @@ export default function GmailSyncEtaCard({
         ? formatCountdown(progress.remainingMs)
         : formatDuration(progress.remainingMs);
 
+  // Kontras light-mode (audit P3.x): nilai `text-sm font-semibold` (14px,
+  // bukan large-text 18.66px bold) butuh 4.5:1 → -500 GAGAL di light
+  // (mint 2.37 / amber 2.00 / red 3.51 / blue 3.43 / violet 3.95 vs bg
+  // app-hover/60 #f7f7f7); -700 LULUS (4.69–6.52:1) + dark:-300 untuk dark.
   const breakdown = [
-    { label: 'Diterima', value: progress.autoAcceptedCount, tone: 'text-mint-500' },
-    { label: 'Review', value: progress.needsReviewCount, tone: 'text-amber-500' },
+    { label: 'Diterima', value: progress.autoAcceptedCount, tone: 'text-mint-700 dark:text-mint-300' },
+    { label: 'Review', value: progress.needsReviewCount, tone: 'text-amber-700 dark:text-amber-300' },
     { label: 'Skip', value: progress.autoSkippedCount, tone: 'text-app-subtle' },
-    { label: 'Ditolak', value: progress.autoRejectedCount, tone: 'text-red-500' },
-    { label: 'Duplikat', value: progress.duplicateCount, tone: 'text-soft-purple' },
-    { label: 'Retry', value: progress.retryLaterCount, tone: 'text-blue-500' },
-    { label: 'Gagal', value: progress.failedCount, tone: 'text-red-500' },
+    { label: 'Ditolak', value: progress.autoRejectedCount, tone: 'text-red-700 dark:text-red-300' },
+    { label: 'Duplikat', value: progress.duplicateCount, tone: 'text-purple-700 dark:text-purple-300' },
+    { label: 'Retry', value: progress.retryLaterCount, tone: 'text-blue-700 dark:text-blue-300' },
+    { label: 'Gagal', value: progress.failedCount, tone: 'text-red-700 dark:text-red-300' },
   ];
 
   return (
