@@ -263,7 +263,7 @@ Query (+ optional semantic filters: date range / type / category)
 │   ├── visual/             # Visual regression snapshots
 │   ├── performance/        # Performance budget tests
 │   └── contract/           # API contract tests
-├── tests/unit/             # Vitest unit specs (11 files)
+├── tests/unit/             # Vitest unit specs (62 files)
 ├── scripts/                # Schema, seed, backup/restore utilities
 ├── docs/                   # Enterprise documentation system
 │   ├── adr/                # Architecture Decision Records
@@ -374,7 +374,7 @@ npm run dev:server       # serve API; host dist/ with any static server
 | `npm run dev:all` | Both concurrently |
 | `npm run build` | `tsc --noEmit` + production Vite build |
 | `npm run lint` / `typecheck` | Both run `tsc --noEmit` (no ESLint) |
-| `npm run test:unit` | Vitest unit suite (11 specs) |
+| `npm run test:unit` | Vitest unit suite (62 specs) |
 | `npm run test:e2e` | Playwright E2E (`workers=1`, 3 webServers incl. rate-limit server on `:5182`) |
 | `npm run test:e2e:stability` | 3× stability gate (fail only on 3× flaky) |
 | `npm run test:e2e:contract` | API contract checks |
@@ -476,7 +476,7 @@ Consumed by the dashboard, notification bell, and Gmail review flows — UI stat
 
 | Layer | Tool | Scope |
 |---|---|---|
-| Unit | Vitest | 11 specs — parsers, validators, mappers, cache, single-flight, pagination |
+| Unit | Vitest | 62 specs — parsers, validators, mappers, cache, single-flight, pagination |
 | API contract | Playwright | Schema-drift detection against live routes |
 | E2E | Playwright | `workers=1`, 3 webServers (Vite `:5180`, API `:5181`, rate-limit test server `:5182`) — auth gates, Gmail review flows, realtime notifications, rate limit, admin |
 | Visual regression | Playwright | Snapshot baselines × light/dark/desktop/mobile |

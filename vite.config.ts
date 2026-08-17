@@ -36,10 +36,14 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5180,
     strictPort: true,
-    // Proxy /api/* ke Express server (port 5181)
+    // Proxy /api/* ke Express server (port 5181 — default stack dev).
+    // Env VITE_API_PROXY_TARGET: override untuk stack E2E terisolasi
+    // (playwright.e2e-local.config.mjs memakai API port 5191) — spec memakai
+    // page.request relatif (via proxy) sedangkan app memakai VITE_API_BASE_URL
+    // langsung; keduanya harus menunjuk server API yang sama.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5181',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5181',
         changeOrigin: true,
       },
     },

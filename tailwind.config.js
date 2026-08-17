@@ -65,9 +65,36 @@ export default {
           blue: '#3b82f6',
         },
       },
+      // P2.1 (contrast pass): nilai opacity di luar skala default Tailwind
+      // (0,5,10,20,25,…) TIDAK pernah di-generate JIT → class seperti
+      // `dark:bg-primary-500/12` senyap hilang → di dark mode pill/badge
+      // memakai bg LIGHT (mis. primary-50 #eef2ff) → kontras 1.78:1 (gagal)
+      // + visual salah (pill terang di kartu gelap). /12 (94×), /15 (15×),
+      // /8 (10×), /24, /28 dipakai di src — daftarkan ke skala (design-system
+      // fix, satu tempat untuk ~120 pemakaian).
+      opacity: {
+        8: '0.08',
+        12: '0.12',
+        15: '0.15',
+        24: '0.24',
+        28: '0.28',
+      },
       fontFamily: {
         sans: ['Manrope', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
         display: ['Outfit', 'Manrope', 'system-ui', 'sans-serif'],
+      },
+      // P2.3 — token typography SEMANTIC (docs/ui/DESIGN_TOKENS_AND_CONTRAST.md §6.3):
+      // - text-meta  = meta non-esensial 10px (kategori C) — HANYA non-interaktif
+      //   (guard: scripts/typography-lint.mjs menolak text-meta pada elemen interaktif,
+      //   analog text-[10px]).
+      // - text-label = section label / interaktif-min 11px (kategori B).
+      // Pemetaan lain: caption → text-xs (12px), body → text-sm (14px) — default
+      // Tailwind; tidak dibuat duplikat. Kode baru diharapkan memakai token ini,
+      // bukan arbitrary text-[10px]/text-[11px] (pemakaian existing dibiarkan —
+      // sudah ter-guard floor, migrasi massal = risiko visual tanpa nilai fungsional).
+      fontSize: {
+        meta: '10px',
+        label: '11px',
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',

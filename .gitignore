@@ -30,6 +30,8 @@ supabase/.temp/
 .dev-server*.log
 public/logout-success-recording*
 public/recordings/
+# Freebuff preview runtime state (artefak preview lokal — log backend bisa berisi PII)
+.freebuff/
 
 # Database lokal berisi data user nyata (transaksi, gmail logs, sesi auth)
 *.db
@@ -56,3 +58,15 @@ tmp-verify/
 # (biaya AI + fluktuasi model), jangan di-commit sebagai artifact
 # (docs/ai/benchmark-results.json = deterministik, tetap di-commit).
 docs/ai/benchmark-live-results.json
+.gstack/
+
+# DB E2E lokal terisolasi (P1.7) — dibuat ulang tiap run oleh
+# scripts/prepare-e2e-local-db.mjs; jangan pernah di-commit
+.test-data/
+
+# Artefak run Playwright (report HTML lokal) & cache tool AI — bukan source
+playwright-report-*/
+.claude/
+
+# Screenshot verifikasi ad-hoc di root (pola tmp-verify-*.png)
+tmp-verify-*.png

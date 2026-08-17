@@ -63,11 +63,17 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 60_000,
     },
-    // Server uji KHUSUS untuk rate-limit spec (e2e/rate-limit.spec.ts).
-    // RATE_LIMIT_AUTH_MAX=25 → test cepat (≤26 request, bukan 121) & deterministik.
-    // Terpisah dari 5181 karena authLimiter di-key per-IP: tanpa isolasi, spec ini
-    // menguras budget IP bersama yang dipakai seluruh suite (dan sebaliknya).
+    // Server uji KHUSUS untuk keluarga rate-limit spec (e2e/rate-limit.spec.ts
+    // + e2e/rate-limit-ai-general.spec.ts).
+    // RATE_LIMIT_AUTH_MAX=25 → test auth cepat (≤26 request, bukan 121) & deterministik.
+    // Terpisah dari 5181 karena limiter di-key per-IP (auth) / per-user (AI+general):
+    // tanpa isolasi, spec ini menguras budget IP bersama yang dipakai seluruh suite
+    // (dan sebaliknya).
     // RATE_LIMIT_ENABLED=true dipaksa eksplisit (anti inherited 'false' dari CI).
+    // AI_LIMIT=8 < GENERAL_MAX=20 (KONTRAS ini WAJIB dijaga, lihat
+    // e2e/rate-limit-ai-general.spec.ts): request /api/gemini melewati
+    // generalLimiter DULU (index.js:310) baru aiLimiter (311) — asersi message
+    // 'panggilan AI' hanya benar bila aiLimiter kena duluan (general budget utuh).
     {
       command: 'node server/index.js',
       url: 'http://localhost:5182/api/health',
@@ -78,7 +84,9 @@ export default defineConfig({
         PORT: '5182',
         RATE_LIMIT_ENABLED: 'true',
         RATE_LIMIT_AUTH_MAX: '25',
-        RATE_LIMIT_GENERAL_MAX: '1000',
+        RATE_LIMIT_GENERAL_MAX: '20',
+        RATE_LIMIT_AI_MAX: '8',
+        RATE_LIMIT_RECEIPT_MAX: '8',
       },
     },
     // Webhook sink (P1-4 notification-metadata-guard.spec.ts): penerima webhook
