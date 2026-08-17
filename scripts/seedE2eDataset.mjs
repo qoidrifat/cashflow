@@ -151,6 +151,17 @@ async function main() {
     process.exit(1);
   }
 
+  // P1.7 — E2E DB SAFETY GUARD (fail-fast): seed TIDAK PERNAH boleh berjalan
+  // terhadap DB yang ber-marker production (E2E_DB_DENY_URLS, comma-separated
+  // substring). Seed menghapus data milik user seed — memblokir jalur ke
+  // production adalah prioritas tertinggi.
+  const deny = (process.env.E2E_DB_DENY_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const denyHit = deny.find((marker) => url.includes(marker));
+  if (denyHit) {
+    console.error(`[seedE2e] ⛔ E2E DB SAFETY: URL mengandung marker production '${denyHit}' — seed dibatalkan (jangan pernah menulis ke DB production). Gunakan DB E2E terisolasi.`);
+    process.exit(1);
+  }
+
   const turso = createClient({
     url,
     authToken: token,

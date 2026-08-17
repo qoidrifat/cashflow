@@ -1,0 +1,18 @@
+[
+  {
+    "package": "vite",
+    "severity": "high",
+    "reason": "Dev-only build/dev-server tooling (TIDAK masuk bundle runtime). Advisory (path traversal pada optimized deps .map + launch-editor NTLM hash disclosure) hanya relevan saat menjalankan dev server Vite terhadap repo lokal operator — bukan permintaan dari pengguna aplikasi. Versi 5.4.21 adalah patch tertinggi lini 5.x; perbaikan hanya di 6.4.3+/7.x (major upgrade) — ditunda dengan review terjadwal.",
+    "owner": "cashflow-eng",
+    "reviewDate": "2026-09-09",
+    "mitigation": "Upgrade vite ke 6.x/7.x sebagai task terpisah dengan evidence visual/CI green; jangan jalankan `npm audit fix --force` otomatis."
+  },
+  {
+    "package": "protobufjs",
+    "severity": "moderate",
+    "reason": "Transitive @google/genai (Vertex AI SDK, server). Advisory DoS hanya pada parsing file .proto attacker-controlled; SDK mem-parse proto bundled milik Google, bukan input user. MODERATE tidak pernah blocking di tier policy — entri ini dokumentasi saja.",
+    "owner": "cashflow-eng",
+    "reviewDate": "2026-09-09",
+    "mitigation": "Pantau rilis @google/genai yang menaikkan protobufjs >= 7.6.5; upgrade patch saat tersedia."
+  }
+]
