@@ -1,11 +1,30 @@
 -- =============================================
--- CashFlow Turso Schema (SQLite / libSQL)
--- Converted from Supabase PostgreSQL schema
+-- CashFlow Database Migration — 0001_baseline
+-- =============================================
+-- BASELINE schema (dibuat 2026-08-09, regenerable via
+-- scripts/regenerateBaseline.mjs dari turso-schema.sql).
+--
+-- Strategi baseline (bukan drop/recreate):
+--   * FRESH DB  → file ini dieksekusi penuh (CREATE ... IF NOT EXISTS).
+--   * DB EXISTING → statement adalah no-op idempoten; runner mencatat versi
+--     sebagai applied (baseline existing schema).
+--
+-- TIDAK berisi ALTER TABLE ADD COLUMN one-off legacy (efeknya sudah ada di
+-- statement CREATE TABLE; kolom yang hanya ada via ALTER — mis.
+-- transactions.idempotency_key — di-inject ke definisi CREATE TABLE). DB lama
+-- yang masih butuh ALTER mendapatkannya via initTursoSchema boot path. Semua
+-- perubahan schema BARU = migration 0002+, bukan edit file ini.
 -- =============================================
 
 -- =============================================
--- Better Auth Tables (Required by Better Auth)
+-- Migration bookkeeping (dibuat runner bila belum ada)
 -- =============================================
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS user (
   id TEXT PRIMARY KEY,
@@ -57,7 +76,6 @@ CREATE TABLE IF NOT EXISTS verification (
   updatedAt INTEGER DEFAULT (unixepoch())
 );
 
--- Users & Sessions (Legacy Compatibility)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
@@ -76,7 +94,6 @@ CREATE TABLE IF NOT EXISTS user_sessions (
   expires_at INTEGER NOT NULL
 );
 
--- Profiles
 CREATE TABLE IF NOT EXISTS profiles (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL DEFAULT 'User',
@@ -88,7 +105,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Categories
 CREATE TABLE IF NOT EXISTS categories (
   id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -101,7 +117,6 @@ CREATE TABLE IF NOT EXISTS categories (
   PRIMARY KEY (user_id, id)
 );
 
--- Transactions
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -122,9 +137,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   fraud_score REAL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+,
+  idempotency_key TEXT);
 
--- Fraud Detection Flags (Sprint 1 — Core Product; ADR-011)
 CREATE TABLE IF NOT EXISTS fraud_flags (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -139,7 +154,6 @@ CREATE TABLE IF NOT EXISTS fraud_flags (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Budgets
 CREATE TABLE IF NOT EXISTS budgets (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -155,7 +169,6 @@ CREATE TABLE IF NOT EXISTS budgets (
   UNIQUE (user_id, category_id, month, year)
 );
 
--- Recurring Transactions
 CREATE TABLE IF NOT EXISTS recurring_transactions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -177,7 +190,6 @@ CREATE TABLE IF NOT EXISTS recurring_transactions (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Gmail Sync Logs
 CREATE TABLE IF NOT EXISTS gmail_sync_logs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -207,7 +219,6 @@ CREATE TABLE IF NOT EXISTS gmail_sync_logs (
   UNIQUE (user_id, message_id)
 );
 
--- Gmail Sync Settings
 CREATE TABLE IF NOT EXISTS gmail_sync_settings (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
@@ -219,7 +230,6 @@ CREATE TABLE IF NOT EXISTS gmail_sync_settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Gmail Sync Runs
 CREATE TABLE IF NOT EXISTS gmail_sync_runs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -236,7 +246,6 @@ CREATE TABLE IF NOT EXISTS gmail_sync_runs (
   metadata TEXT DEFAULT '{}'
 );
 
--- Wallet Accounts
 CREATE TABLE IF NOT EXISTS wallet_accounts (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -250,7 +259,6 @@ CREATE TABLE IF NOT EXISTS wallet_accounts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Saving Goals
 CREATE TABLE IF NOT EXISTS saving_goals (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -264,7 +272,6 @@ CREATE TABLE IF NOT EXISTS saving_goals (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Subscriptions
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -279,7 +286,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Notifications
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -296,7 +302,6 @@ CREATE TABLE IF NOT EXISTS notifications (
   UNIQUE (user_id, dedupe_key)
 );
 
--- Admin Metrics
 CREATE TABLE IF NOT EXISTS admin_metrics (
   id TEXT PRIMARY KEY,
   metric_key TEXT NOT NULL,
@@ -305,12 +310,6 @@ CREATE TABLE IF NOT EXISTS admin_metrics (
   recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- =============================================
--- Monitoring & Observability (CF-053)
--- Migrasi dari Supabase migration 20260622000000_create_monitoring_tables.sql
--- =============================================
-
--- AI Usage Metrics (per AI call: token, cost estimasi, status)
 CREATE TABLE IF NOT EXISTS ai_usage_metrics (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES user(id) ON DELETE SET NULL,
@@ -330,10 +329,11 @@ CREATE TABLE IF NOT EXISTS ai_usage_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_usage_feature_created ON ai_usage_metrics(feature, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage_metrics(user_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_metrics(created_at DESC);
 
--- System Metrics (event counters: gmail_sync_failed, agent_search_count, dst)
 CREATE TABLE IF NOT EXISTS system_metrics (
   id TEXT PRIMARY KEY,
   metric_name TEXT NOT NULL,
@@ -345,9 +345,9 @@ CREATE TABLE IF NOT EXISTS system_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_system_metrics_name_created ON system_metrics(metric_name, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_system_metrics_feature_created ON system_metrics(feature, created_at DESC);
 
--- Alert Rules (threshold monitoring, seed default di bawah)
 CREATE TABLE IF NOT EXISTS alert_rules (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
@@ -361,57 +361,31 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Migrasi idempotent untuk DB yang sudah ada (CREATE IF NOT EXISTS tidak
--- menambah kolom). initTursoSchema mengeksekusi tiap statement & meng-ignore
--- error — ALTER ini error hanya bila kolom sudah ada (fresh DB), sukses di
--- DB lama. (MONITORING_AUDIT gap #1: channel notifikasi + cooldown.)
-ALTER TABLE alert_rules ADD COLUMN last_notified_at TEXT;
-
--- Fraud Detection (Sprint 1): kolom flag pada transaksi lama + indeks fraud_flags.
-ALTER TABLE transactions ADD COLUMN fraud_flag TEXT;
-ALTER TABLE transactions ADD COLUMN fraud_score REAL;
-
--- Idempotensi create (2026-08-09): kolom + unique PARTIAL index untuk
--- POST /api/transactions dengan header Idempotency-Key (atau body
--- idempotencyKey). NULL = tanpa jaminan (perilaku lama); hanya key non-NULL
--- yang di-dedup (user-scoped). Menutup gap TURSO_RUNTIME_RETRY_AUDIT: INSERT
--- tanpa ON CONFLICT → retry serentak bisa double-commit. Partial index =
--- row lama NULL tidak ikut unik (idempoten, backward-compatible).
-ALTER TABLE transactions ADD COLUMN idempotency_key TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_user_idempotency
   ON transactions(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_alert_rules_active ON alert_rules(is_active) WHERE is_active = 1;
 
--- Seed default alert rules (idempotent via UNIQUE name). PK id di-set eksplisit
--- (SQLite TEXT PRIMARY KEY memperbolehkan NULL — baris seed tanpa id tak ter-address).
 INSERT OR IGNORE INTO alert_rules (id, name, metric_name, condition, threshold, window_minutes)
 VALUES
   ('alert_ai_cost_daily', 'ai_cost_daily', 'estimated_cost_idr', 'gt', 50000, 1440),
   ('alert_gmail_sync_failures', 'gmail_sync_failures', 'gmail_sync_failed', 'gt', 10, 10),
   ('alert_agent_search_error_rate', 'agent_search_error_rate', 'agent_search_error_rate', 'gt', 0.10, 60),
   ('alert_ocr_failure_rate', 'ocr_failure_rate', 'ocr_failure_rate', 'gt', 0.20, 60),
-  -- Deteksi degradasi cache: alert bila hit rate LRU < 50% dalam 60 menit
-  -- (tanpa aktivitas cache di window = sehat, tidak trigger — lihat computeCacheHitRate).
-  -- Catatan semantik: hit rate = SUM(ai_cache_hit)/(SUM(ai_cache_hit)+SUM(ai_cache_miss)).
-  -- JOIN single-flight ikut mencatat miss, dan window dengan mayoritas email BARU
-  -- (first-scan pasca restart) wajar rendah — alert paling bermakna saat steady-state
-  -- pemrosesan berulang (gmail sync / OCR berulang), bukan saat cold-cache.
+  
+  
+  
+  
+  
+  
   ('alert_cache_hit_rate', 'cache_hit_rate', 'cache_hit_rate', 'lt', 0.5, 60),
-  -- Fraud Detection (Sprint 1): lonjakan flag mencurigakan > 10 dalam 60 menit.
+  
   ('alert_fraud_flags', 'fraud_flags', 'fraud_flag_count', 'gt', 10, 60),
-  -- Biaya AI bulanan (Sprint 2): estimasi biaya 30 hari > Rp 100k (window 43200 menit).
-  -- Dihitung sebagai SUM(estimated_cost_idr) dalam window rule (branch computeAlerts
-  -- ai_cost_monthly — identik dengan estimated_cost_idr, hanya metric_name berbeda).
+  
+  
+  
   ('alert_ai_cost_monthly', 'ai_cost_monthly', 'ai_cost_monthly', 'gt', 100000, 43200);
 
--- =============================================
--- ADMIN SECURITY (2026-08-09): audit trail aksi admin
--- =============================================
--- Log aksi admin yang menulis data (bukan observability metrics — log
--- keamanan ber-PII: actor & target email disimpan eksplisit agar audit bisa
--- dibaca tanpa join). Dipakai POST /api/admin/users/:id/suspend (revoke
--- semua sesi user) dan siap dipakai aksi admin masa depan.
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id TEXT PRIMARY KEY,
   action TEXT NOT NULL,
@@ -424,16 +398,11 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_admin_audit_action_created ON admin_audit_log(action, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_audit_log(target_user_id);
 
--- =============================================
--- AI PRODUCT EXPERIENCE (Sprint 1.5)
--- =============================================
-
--- Feedback pengguna atas hasil AI (👍/👎 + alasan) — dataset evaluasi, bukan
--- langsung mengubah AI. rating: helpful | not_helpful | mismatched | irrelevant
--- | already_done | skip.
 CREATE TABLE IF NOT EXISTS ai_feedback (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -444,7 +413,6 @@ CREATE TABLE IF NOT EXISTS ai_feedback (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Preferensi AI user (AI Memory) — editable, deletable, transparan, user-scoped.
 CREATE TABLE IF NOT EXISTS ai_memory (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -457,10 +425,6 @@ CREATE TABLE IF NOT EXISTS ai_memory (
   UNIQUE (user_id, category, key)
 );
 
--- Timeline rekomendasi AI — riwayat yang menjelaskan apa yang berubah & mengapa.
--- P9 (AI Timeline): kolom event_type (insight|recommendation|conversation|feedback|
--- memory_update|risk|other) & status (new|viewed|completed|dismissed) menambah
--- kemampuan filter + state machine tanpa tabel baru (reuse tabel existing).
 CREATE TABLE IF NOT EXISTS ai_timeline (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -474,45 +438,48 @@ CREATE TABLE IF NOT EXISTS ai_timeline (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Migrasi idempotent DB lama (P9): CREATE TABLE IF NOT EXISTS tidak menambah
--- kolom — ALTER ini error HANYA bila kolom sudah ada (fresh DB / DB baru),
--- sukses di DB lama. initTursoSchema meng-ignore error constraint (idempoten).
-ALTER TABLE ai_timeline ADD COLUMN event_type TEXT NOT NULL DEFAULT 'other';
-ALTER TABLE ai_timeline ADD COLUMN status TEXT NOT NULL DEFAULT 'new';
-
--- =============================================
--- INDEXES
--- =============================================
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, transaction_date DESC, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_amount ON transactions(user_id, date, amount);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category ON transactions(user_id, category_id, date DESC);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_user_source ON transactions(user_id, source);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_gmail_msg ON transactions(user_id, gmail_message_id);
--- Unique partial index (user_id, gmail_message_id) — hardening TOCTOU final
--- (2026-08-11, menutup dependency §10.8): mencegah double-insert pesan gmail
--- identik bahkan saat DUA request TANPA Idempotency-Key berlomba (direct API /
--- importer batch masa depan). Partial: baris tanpa gmail_message_id (NULL/'')
--- tidak ikut unik (backward-compatible). PRASYARAT: data duplikat sudah
--- dibersihkan via scripts/gmailDuplicateCleanup.mjs (§10.7) — CREATE UNIQUE
--- INDEX akan GAGAL bila masih ada >1 baris per (user_id, gmail_message_id).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_gmail_msg_unique
-  ON transactions(user_id, gmail_message_id)
-  WHERE gmail_message_id IS NOT NULL AND gmail_message_id != '';
+
 CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_created ON fraud_flags(user_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_status ON fraud_flags(user_id, status);
+
 CREATE INDEX IF NOT EXISTS idx_fraud_flags_user_tx ON fraud_flags(user_id, transaction_id);
+
 CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON budgets(user_id, year DESC, month DESC);
+
 CREATE INDEX IF NOT EXISTS idx_categories_user_name ON categories(user_id, name);
+
 CREATE INDEX IF NOT EXISTS idx_recurring_user_active ON recurring_transactions(user_id, active, next_due_date);
+
 CREATE INDEX IF NOT EXISTS idx_gmail_logs_user_status ON gmail_sync_logs(user_id, status, scanned_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_gmail_logs_user_sync_run ON gmail_sync_logs(user_id, sync_run_id);
+
 CREATE INDEX IF NOT EXISTS idx_wallets_user ON wallet_accounts(user_id, archived, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_goals_user ON saving_goals(user_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id, next_billing_date ASC);
+
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_sync_runs_user ON gmail_sync_runs(user_id, started_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_ai_feedback_user_created ON ai_feedback(user_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_ai_feedback_feature ON ai_feedback(feature, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_ai_memory_user ON ai_memory(user_id, category);
+
 CREATE INDEX IF NOT EXISTS idx_ai_timeline_user_created ON ai_timeline(user_id, created_at DESC);

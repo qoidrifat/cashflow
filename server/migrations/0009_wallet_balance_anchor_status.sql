@@ -1,0 +1,26 @@
+-- =============================================
+-- CashFlow Database Migration — 0009
+-- P2.7: balance anchor verification status (persisted)
+-- =============================================
+-- Latar belakang: docs/financial/FINANCIAL_CALCULATION_INTEGRITY.md (P2.7 §13).
+-- P2.6 menyediakan real_balance/real_balance_date/real_balance_verified_at
+-- (migration 0008) yang dipakai ULANG sebagai VERIFIED BALANCE ANCHOR —
+-- snapshot saldo aktual user pada END-OF-DAY tanggal tertentu.
+--
+-- Yang masih kurang: OUTCOME verifikasi (apakah saldo aktual user cocok dengan
+-- perhitungan sistem PADA SAAT verifikasi). Outcome TIDAK bisa diturunkan ulang
+-- dari (real_balance vs closing) karena setelah anchor, pergerakan post-anchor
+-- membuat selisih itu wajar (bukan mismatch). Maka disimpan eksplisit:
+--
+--   balance_anchor_status:
+--     'verified' — saldo aktual cocok dengan sistem saat verifikasi (atau
+--                  tidak ada baseline untuk dibandingkan → anchor = kebenaran
+--                  user, diterima).
+--     'mismatch' — saldo aktual user berbeda dari perhitungan sistem saat
+--                  verifikasi. Anchor TETAP disimpan (REAL MONEY > derived),
+--                  selisih ditampilkan + penyebab, TIDAK ada auto-fix.
+--
+-- Additive; NULL = belum pernah verifikasi (belum ada anchor). Tidak ada
+-- DROP/DELETE/UPDATE data existing.
+ALTER TABLE wallet_accounts
+  ADD COLUMN balance_anchor_status TEXT;

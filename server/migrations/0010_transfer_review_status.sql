@@ -1,0 +1,21 @@
+-- =============================================
+-- CashFlow Database Migration — 0010
+-- P2.8: transfer candidate review status
+-- =============================================
+-- Latar belakang: docs/financial/FINANCIAL_CALCULATION_INTEGRITY.md (P2.8).
+-- P2.6 menyediakan pasangan transfer via user confirm (transfer_paired), tetapi
+-- tidak ada cara "Abaikan" per kandidat: kandidat yang ditolak user akan terus
+-- muncul ulang di setiap load state karena suggestion bersifat deterministik
+-- (tanggal + nominal). P2.8 §17 mensyaratkan [Pair] DAN [Reject] per kandidat.
+--
+--   transactions.transfer_review_status:
+--     'pending'  — belum ditinjau (default; kandidat boleh disarankan)
+--     'rejected' — user menolak pasangan ini; engine TIDAK menyaran-ulang
+--                  (transfer tetap ungrouped/unresolved — jujur, bukan
+--                  auto-pair; hanya sugesti yang berhenti).
+--
+-- Additive; NULL default 'pending' untuk semua baris existing. Tidak ada
+-- DROP/DELETE/UPDATE data existing. Transfer yang ditolak TETAP dihitung
+-- sebagai unresolved di status machine (kejujuran §19-20 P2.8).
+ALTER TABLE transactions
+  ADD COLUMN transfer_review_status TEXT NOT NULL DEFAULT 'pending';
