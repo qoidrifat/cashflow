@@ -82,7 +82,10 @@ function NotificationBell() {
               data-testid="notification-badge"
               className={cn(
                 'absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full',
-                'bg-red-500 px-1 text-[9px] font-bold leading-none text-white shadow-sm shadow-red-500/30',
+                // P2.1 contrast: putih di atas red-500 (#ef4444) = 3.76:1 (gagal
+                // AA 4.5:1) → red-600 (#dc2626) = 4.83:1. Badge 9px bold = text
+                // kecil, threshold 4.5:1.
+                'bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow-sm shadow-red-600/30',
               )}
             >
               {displayCount}

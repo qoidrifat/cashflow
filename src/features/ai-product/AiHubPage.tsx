@@ -11,7 +11,8 @@
  *
  * Semua engine (simulation/health) DETERMINISTIK MURNI — tidak memakai AI.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   BrainCircuit,
   HeartPulse,
@@ -27,9 +28,12 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  MessageCircleQuestion,
+  ArrowRight,
+  TriangleAlert,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
-import { listenToTransactions } from '../../services/transactionService';
+import { getAllTransactions } from '../../services/transactionService';
 import { listenToBudgets } from '../../services/budgetService';
 import { getWalletAccounts, getSavingGoals, getSubscriptions } from '../../services/professionalSuiteService';
 import { computeAdvisorMetrics, type AdvisorInput } from '../../services/advisorService';
@@ -41,8 +45,8 @@ import {
   type SimulationAdjustment,
   type SimulationBaseline,
 } from '../../lib/simulationEngine';
-import { cn, formatCurrency, getCurrentMonth, getCurrentYear } from '../../lib/utils';
-import type { Budget, Transaction } from '../../types';
+import { cn, formatCurrency, formatSigned, getCurrentMonth, getCurrentYear } from '../../lib/utils';
+import type { Budget } from '../../types';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import EmptyState from '../../components/ui/EmptyState';
@@ -57,6 +61,7 @@ import {
   deleteMemory,
   listTimeline,
   addTimelineEntry,
+  trackAiProductEvent,
   type MemoryRecord,
   type TimelineRecord,
 } from '../../services/aiProductService';
@@ -92,12 +97,25 @@ export default function AiHubPage() {
   const authUser = useAuthStore((s) => s.authUser);
   const [input, setInput] = useState<AdvisorInput | null>(null);
   const [loading, setLoading] = useState(true);
+  // P10.2 telemetry guard: fire exposure SEKALI per MOUNT. StrictMode dev
+  // double-mount memanggil effect & loadData dua kali (keduanya async lanjut)
+  // — tanpa guard, ai_hub_view dan ai_result_shown feature-level ter-inflasi
+  // 2× di dev (denominator Feedback Rate tidak konsisten dev vs prod).
+  const hubViewFiredRef = useRef(false);
+  const featureShownFiredRef = useRef(false);
 
   const loadData = useCallback(async () => {
     if (!authUser) return;
     setLoading(true);
     const [transactions, budgets, wallets, goals, subscriptions] = await Promise.all([
-      fetchOnce<Transaction[]>((cb, errCb) => listenToTransactions(authUser.uid, cb, errCb)),
+      // Migrasi 2026-08-09 (audit windowed): dataset LENGKAP (windowless-complete,
+      // paginated) — sebelumnya listenToTransactions = 50 baris terbaru → metrics
+      // kartu AI (bulan ini, avg 3 bulan, top kategori/merchant, budget usage) dan
+      // insight bulanan salah untuk user >50 transaksi (kelas insiden 2026-08-08).
+      // Evaluasi summary-vs-list: endpoint /summary TIDAK cukup — computeAdvisorMetrics
+      // butuh avg 3 bulan & topMerchant.count (repeat detection) yang hanya tersedia
+      // dari list lengkap; pola sama dengan AdvisorPage.
+      getAllTransactions(authUser.uid).catch((e) => { console.error('AI Hub: gagal memuat data awal, degrade ke kosong', e); return []; }),
       fetchOnce<Budget[]>((cb, errCb) => listenToBudgets(authUser.uid, cb, errCb)),
       getWalletAccounts(authUser.uid).catch(() => []),
       getSavingGoals(authUser.uid).catch(() => []),
@@ -113,10 +131,26 @@ export default function AiHubPage() {
       year: getCurrentYear(),
     });
     setLoading(false);
+    // P10.2i telemetry: denominator Feedback Rate — kartu feedback-capable di
+    // hub (insight hero, health score, simulasi) ditampilkan. Guard ref:
+    // StrictMode dev double-mount memanggil loadData() dua kali — fire SEKALI
+    // per mount (bukan per panggilan) agar denominator tidak inflasi.
+    if (!featureShownFiredRef.current) {
+      featureShownFiredRef.current = true;
+      trackAiProductEvent('ai_result_shown', { feature: 'insight' }).catch(() => {});
+      trackAiProductEvent('ai_result_shown', { feature: 'health' }).catch(() => {});
+      trackAiProductEvent('ai_result_shown', { feature: 'simulation' }).catch(() => {});
+    }
   }, [authUser]);
 
   useEffect(() => {
     loadData();
+    // P10.2 telemetry: exposure AI Hub (non-PII, fire-and-forget). Guard ref:
+    // StrictMode dev double-mount → fire SEKALI per mount.
+    if (!hubViewFiredRef.current) {
+      hubViewFiredRef.current = true;
+      trackAiProductEvent('ai_hub_view').catch(() => {});
+    }
   }, [loadData]);
 
   const metrics = useMemo(() => (input ? computeAdvisorMetrics(input) : null), [input]);
@@ -205,11 +239,21 @@ export default function AiHubPage() {
             </div>
           </div>
           <p className="mt-3 text-sm leading-relaxed text-app-text">{insight.summary}</p>
-          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <AiTrustMeta
               model={{ source: 'rule-based', feature: 'insight', timestamp: insight.generatedAt }}
             />
-            <AiFeedbackButtons feature="insight" />
+            <div className="flex flex-wrap items-center gap-2">
+              <AiFeedbackButtons feature="insight" />
+              <Link
+                to="/ai/chat"
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+              >
+                <MessageCircleQuestion className="h-3.5 w-3.5" />
+                Tanya AI
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </div>
           </div>
         </Card>
 
@@ -329,7 +373,12 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
+      {/* min-w-0: grid item WAJIB bisa menyusut di bawah min-content tabel
+          (default min-width:auto) agar overflow-x-auto di dalam card aktif —
+          tanpa ini tabel simulasi (min-content ~470px) memaksa card keluar
+          viewport mobile → horizontal scroll (bug ditemukan saat capture
+          screenshot mobile AI Hub, 2026-08-09). */}
+      <Card className="min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-500/12 flex items-center justify-center text-blue-600 dark:text-blue-300">
@@ -385,7 +434,7 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
 
         <div className="overflow-x-auto rounded-xl border border-app-border">
           <table className="w-full text-xs">
-            <thead className="bg-app-bg/60 text-left text-[10px] uppercase tracking-wide text-app-subtle">
+            <thead className="bg-app-bg/60 text-left text-[11px] uppercase tracking-wide text-app-subtle">
               <tr>
                 <th className="px-2.5 py-2">Bulan</th>
                 <th className="px-2.5 py-2 text-right">Masuk</th>
@@ -401,9 +450,11 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
                   <td className="px-2.5 py-1.5 text-right tabular-nums text-app-text">{formatCurrency(m.income)}</td>
                   <td className="px-2.5 py-1.5 text-right tabular-nums text-app-text">{formatCurrency(m.expense)}</td>
                   <td className={cn('px-2.5 py-1.5 text-right tabular-nums', m.netCashflow >= 0 ? 'text-mint-600 dark:text-mint-300' : 'text-red-500')}>
-                    {formatCurrency(m.netCashflow)}
+                    {formatSigned(m.netCashflow)}
                   </td>
-                  <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-app-text">{formatCurrency(m.balance)}</td>
+                  <td className={cn('px-2.5 py-1.5 text-right tabular-nums font-semibold', m.balance < 0 ? 'text-red-500' : 'text-app-text')}>
+                    {formatSigned(m.balance)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -411,23 +462,41 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <Stat label="Saldo Akhir" value={formatCurrency(result.finalBalance)} />
+          {/* finalBalance bisa negatif (one-time expense besar > saldo) — formatCurrency
+              memakai Math.abs, jadi tanda minus + tone merah eksplisit (pola StatCard). */}
+          <Stat label="Saldo Akhir" value={formatSigned(result.finalBalance)} tone={result.finalBalance < 0 ? 'text-red-500' : undefined} />
           <Stat label="Total Tabungan" value={formatCurrency(result.totalSaved)} />
-          <Stat label="Δ Saldo" value={`${result.balanceDelta >= 0 ? '+' : ''}${formatCurrency(result.balanceDelta)}`} tone={result.balanceDelta >= 0 ? 'text-mint-600 dark:text-mint-300' : 'text-red-500'} />
+          {/* formatSigned menangani Math.abs + tanda +/- (pola StatCard negative). */}
+          <Stat label="Δ Saldo" value={formatSigned(result.balanceDelta, { showPlus: true })} tone={result.balanceDelta < 0 ? 'text-red-500' : 'text-mint-600 dark:text-mint-300'} />
         </div>
+
+        {/* Indikator defisit (audit 2026-08-09): angka proyeksi TETAP negatif
+            (jujur) — indikator TERPISAH supaya defisit tidak terlewat walau
+            saldo akhir kebetulan pulih positif. */}
+        {result.deficitMonths > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />              <p>
+                <span className="font-semibold">Defisit proyeksi</span>
+                {/* deficitMonths > 0 menjamin firstDeficitMonth non-null (find yang
+                    sama menghasilkan count) — tidak perlu fallback. */}
+                {` — saldo diperkirakan minus mulai bulan ke-${result.firstDeficitMonth}`}{' '}
+                ({result.deficitMonths} bulan negatif).
+              </p>
+          </div>
+        )}
 
         <button
           type="button"
           disabled={adjustments.length === 0}
           onClick={saveScenario}
-          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600 disabled:opacity-40"
+          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-40"
         >
           <Plus className="h-3.5 w-3.5" /> Simpan sebagai Skenario
         </button>
         <AiFeedbackButtons className="mt-2" feature="simulation" />
       </Card>
 
-      <Card>
+      <Card className="min-w-0">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/12 flex items-center justify-center text-amber-600 dark:text-amber-300">
             <GitCompareArrows className="w-4 h-4" />
@@ -447,7 +516,7 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="bg-app-bg/60 text-left text-[10px] uppercase tracking-wide text-app-subtle">
+              <thead className="bg-app-bg/60 text-left text-[11px] uppercase tracking-wide text-app-subtle">
                 <tr>
                   <th className="px-2.5 py-2">Metrik</th>
                   {scenarios.map((s) => (
@@ -468,10 +537,37 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border/60">
-                <Row label="Saldo Akhir" values={scenarios.map((s) => formatCurrency(s.result.finalBalance))} />
+                {/* formatSigned menangani tanda minus — tone merah per-cell tetap
+                    eksplisit (konsisten dengan Stat Saldo Akhir di kartu simulasi). */}
+                <Row
+                  label="Saldo Akhir"
+                  values={scenarios.map((s) => formatSigned(s.result.finalBalance))}
+                  tones={scenarios.map((s) => (s.result.finalBalance < 0 ? 'text-red-500' : undefined))}
+                />
                 <Row label="Total Tabungan" values={scenarios.map((s) => formatCurrency(s.result.totalSaved))} />
-                <Row label="Rata-rata Cashflow" values={scenarios.map((s) => formatCurrency(s.result.avgNetCashflow))} />
-                <Row label="Δ Saldo" values={scenarios.map((s) => `${s.result.balanceDelta >= 0 ? '+' : ''}${formatCurrency(s.result.balanceDelta)}`)} />
+                <Row
+                  label="Rata-rata Cashflow"
+                  values={scenarios.map((s) => formatSigned(s.result.avgNetCashflow))}
+                  tones={scenarios.map((s) => (s.result.avgNetCashflow < 0 ? 'text-red-500' : undefined))}
+                />
+                {/* Konsisten dengan Stat Δ Saldo: merah negatif, mint positif. */}
+                <Row
+                  label="Δ Saldo"
+                  values={scenarios.map((s) => formatSigned(s.result.balanceDelta, { showPlus: true }))}
+                  tones={scenarios.map((s) => (s.result.balanceDelta < 0 ? 'text-red-500' : 'text-mint-600 dark:text-mint-300'))}
+                />
+                {/* Defisit per skenario — indikator terpisah (angka tetap jujur,
+                    lihat audit simulationEngine). Baris ikon: ⚠ bila pernah minus. */}
+                <Row
+                  label="Defisit"
+                  values={scenarios.map((s) =>
+                    // deficitMonths > 0 menjamin firstDeficitMonth non-null.
+                    s.result.deficitMonths > 0
+                      ? `Bln ${s.result.firstDeficitMonth} · ${s.result.deficitMonths} bln`
+                      : '—',
+                  )}
+                  tones={scenarios.map((s) => (s.result.deficitMonths > 0 ? 'font-semibold text-red-500' : undefined))}
+                />
                 <tr>
                   <td className="px-2.5 py-2 font-medium text-app-text">Dampak</td>
                   {scenarios.map((s) => {
@@ -499,12 +595,12 @@ function SimulationSection({ baseline }: { baseline: SimulationBaseline }) {
   );
 }
 
-function Row({ label, values }: { label: string; values: string[] }) {
+function Row({ label, values, tones }: { label: string; values: string[]; tones?: Array<string | undefined> }) {
   return (
     <tr>
       <td className="px-2.5 py-2 font-medium text-app-text">{label}</td>
       {values.map((v, i) => (
-        <td key={i} className="px-2.5 py-2 tabular-nums text-app-text">{v}</td>
+        <td key={i} className={cn('px-2.5 py-2 tabular-nums text-app-text', tones?.[i])}>{v}</td>
       ))}
     </tr>
   );
@@ -513,7 +609,7 @@ function Row({ label, values }: { label: string; values: string[] }) {
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="rounded-xl bg-app-bg/60 px-2 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-app-subtle">{label}</p>
+      <p className="text-[11px] uppercase tracking-wide text-app-subtle">{label}</p>
       <p className={cn('text-sm font-bold tabular-nums text-app-text', tone)}>{value}</p>
     </div>
   );
@@ -525,17 +621,39 @@ function TimelineSection({ insightTitle, feature }: { insightTitle: string; feat
   const [entries, setEntries] = useState<TimelineRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [logging, setLogging] = useState(false);
+  // P10.2e: item yang sudah pernah dirender di kartu ini — anti double-count
+  // recommendation_shown saat reload (+ Catat insight ini) / kembali ke hub.
+  const trackedIdsRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
-      const rows = await listTimeline(feature);
-      setEntries(rows);
+      // 5 entri terbaru lintas jenis AI (insight/recommendation/conversation/dst)
+      // — kartu ini adalah exposure surface; rekomendasi yang tampil wajib
+      // dihitung `shown` (P10.2e, tutup undercount denominator).
+      const page = await listTimeline({ limit: 5 });
+      setEntries(page.items);
+      // Telemetry: fire SEKALI per item di kartu ini (pola halaman /ai/timeline):
+      //   - ai_result_shown untuk SEMUA entri (P10.2i — denominator Feedback Rate)
+      //   - recommendation_shown hanya untuk recommendation (P10.2 — CTR)
+      // KEDUANYA di dalam guard trackedIdsRef — StrictMode dev double-mount
+      // memanggil load() dua kali; tanpa guard, shown ter-inflasi 2× padahal
+      // ai_result_shown sudah dedup → CTR denominator tidak konsisten.
+      const tracked = trackedIdsRef.current;
+      page.items.forEach((e) => {
+        if (!tracked.has(e.id)) {
+          tracked.add(e.id);
+          trackAiProductEvent('ai_result_shown', { feature: e.feature, itemId: e.id, eventType: e.event_type }).catch(() => {});
+          if (e.event_type === 'recommendation') {
+            trackAiProductEvent('recommendation_shown', { feature: e.feature, itemId: e.id, eventType: e.event_type }).catch(() => {});
+          }
+        }
+      });
     } catch {
       setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [feature]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -568,14 +686,22 @@ function TimelineSection({ insightTitle, feature }: { insightTitle: string; feat
             <p className="text-xs text-app-subtle">Apa yang AI sarankan & kapan berubah</p>
           </div>
         </div>
-        <button
-          type="button"
-          disabled={logging}
-          onClick={logCurrent}
-          className="rounded-full border border-app-border px-2.5 py-1 text-[11px] font-medium text-app-text hover:border-primary-500/40 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
-        >
-          {logging ? 'Menyimpan...' : '+ Catat insight ini'}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <Link
+            to="/ai/timeline"
+            className="rounded-full border border-app-border px-2.5 py-1 text-[11px] font-medium text-app-text hover:border-primary-500/40 hover:bg-primary-500/10 transition-colors"
+          >
+            Lihat semua
+          </Link>
+          <button
+            type="button"
+            disabled={logging}
+            onClick={logCurrent}
+            className="rounded-full border border-app-border px-2.5 py-1 text-[11px] font-medium text-app-text hover:border-primary-500/40 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
+          >
+            {logging ? 'Menyimpan...' : '+ Catat insight ini'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -602,7 +728,7 @@ function TimelineSection({ insightTitle, feature }: { insightTitle: string; feat
               {e.body && <p className="mt-0.5 text-[11px] leading-relaxed text-app-muted">{e.body}</p>}
               <div className="mt-1 flex items-center justify-between gap-2 flex-wrap">
                 {typeof e.confidence === 'number' && <AiConfidenceBadge score={e.confidence} hidePercent />}
-                <AiFeedbackButtons feature="insight" itemId={e.id} />
+                <AiFeedbackButtons feature={e.feature} itemId={e.id} />
               </div>
             </li>
           ))}
@@ -659,8 +785,8 @@ function MemorySection() {
   const remove = async (id: string) => {
     try {
       await deleteMemory(id);
-      await load();
-    } catch { /* ignore */ }
+    } catch { /* ignore — 404 (sudah terhapus) juga akhirnya reload */ }
+    await load();
   };
 
   return (
@@ -734,7 +860,7 @@ function MemorySection() {
           {items.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-app-bg/60 px-2.5 py-2">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-app-subtle">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-app-subtle">
                   {MEMORY_CATEGORY_LABELS[item.category as MemoryCategory] || item.category}
                 </p>
                 {editingId === item.id ? (
@@ -755,7 +881,7 @@ function MemorySection() {
                 ) : (
                   <p className="text-xs text-app-text">
                     <span className="font-semibold">{item.key}:</span> {item.value}
-                    {item.source === 'ai_inferred' && <span className="ml-1.5 text-[9px] text-app-subtle">(AI)</span>}
+                    {item.source === 'ai_inferred' && <span className="ml-1.5 text-[10px] text-app-subtle">(AI)</span>}
                   </p>
                 )}
               </div>

@@ -16,6 +16,12 @@ export const env = {
     enabled: import.meta.env.VITE_AGENT_SEARCH_ENABLED === 'true',
     routeEnabled: import.meta.env.VITE_AI_SEARCH_ROUTE_ENABLED !== 'false',
   },
+  aiKnowledge: {
+    // P0.14 — UI CashFlow AI Knowledge Assistant. Build-time gate untuk NAV
+    // (sumber kebenaran runtime tetap config server /api/ai/cashflow-knowledge/config
+    // → GOOGLE_AGENT_PLATFORM_ENABLED). Default false sampai billing proof selesai.
+    enabled: import.meta.env.VITE_GOOGLE_AGENT_PLATFORM_ENABLED === 'true',
+  },
 } as const;
 
 export function isApiConfigComplete(): boolean {

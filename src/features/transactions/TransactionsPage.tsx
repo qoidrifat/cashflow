@@ -66,6 +66,12 @@ export default function TransactionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Busy state untuk konfirmasi Hapus (2026-08-09): tombol disabled + spinner
+  // saat delete in-flight — 1 klik = 1 eksekusi (satu toast, satu request).
+  // Lapisan service (guardMutation) sudah dedupe request; ini menutup sisi UI
+  // (double-toast saat fast-click Hapus). Update/Edit sudah dilindungi UI oleh
+  // TransactionForm (loading={submitting}) + guard service.
+  const [deleting, setDeleting] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
   const [filterType, setFilterType] = useState<TransactionType | 'all'>('all');
   const [filterCategoryId, setFilterCategoryId] = useState('all');
@@ -222,7 +228,9 @@ export default function TransactionsPage() {
 
   const handleDelete = async () => {
     if (!authUser || !selectedTransaction) return;
+    if (deleting) return; // konfirmasi tunggal: klik kedua saat in-flight diabaikan
 
+    setDeleting(true);
     try {
       await deleteTransaction(authUser.uid, selectedTransaction.id);
       addToast({ type: 'success', title: 'Transaksi berhasil dihapus' });
@@ -231,6 +239,8 @@ export default function TransactionsPage() {
       void loadTransactions();
     } catch {
       addToast({ type: 'error', title: 'Gagal menghapus transaksi' });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -278,7 +288,7 @@ export default function TransactionsPage() {
 
       <div className="p-4 lg:p-6 space-y-4 max-w-4xl mx-auto">
         {/* Filter & Add */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {['all', 'income', 'expense'].map((type) => (
               <button
@@ -287,7 +297,7 @@ export default function TransactionsPage() {
                 className={cn(
                   'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                   filterType === type
-                    ? 'bg-primary-500 text-white'
+                    ? 'bg-primary-600 text-white'
                     : 'bg-app-hover/80 text-app-muted hover:bg-app-hover hover:text-app-text'
                 )}
               >
@@ -303,6 +313,8 @@ export default function TransactionsPage() {
                 'relative p-2 rounded-xl bg-app-hover/80 text-app-muted hover:bg-app-hover hover:text-app-text transition-colors',
                 hasAdvancedFilters && 'text-primary-600 dark:text-primary-300'
               )}
+              aria-label={showFilters ? 'Tutup filter transaksi' : 'Buka filter transaksi'}
+              aria-expanded={showFilters}
             >
               <FilterIcon className="w-4 h-4" />
               {hasAdvancedFilters && (
@@ -366,7 +378,7 @@ export default function TransactionsPage() {
                   key={option.value}
                   onClick={() => setSortBy(option.value as SortOption)}
                   className={cn(
-                    'px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all',
+                    'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all',
                     sortBy === option.value
                       ? 'bg-primary-50 dark:bg-primary-500/12 text-primary-600 dark:text-primary-200'
                       : 'text-app-subtle hover:text-app-text'
@@ -682,10 +694,10 @@ export default function TransactionsPage() {
             Apakah kamu yakin ingin menghapus transaksi ini? Tindakan ini tidak bisa dibatalkan.
           </p>
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" fullWidth onClick={() => setShowDeleteConfirm(false)}>
+            <Button variant="ghost" size="sm" fullWidth onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
               Batal
             </Button>
-            <Button variant="danger" size="sm" fullWidth onClick={handleDelete}>
+            <Button variant="danger" size="sm" fullWidth onClick={handleDelete} loading={deleting}>
               Hapus
             </Button>
           </div>
@@ -814,7 +826,7 @@ function TransactionPagination({
                   className={cn(
                     'h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition-colors',
                     page === pageNumber
-                      ? 'bg-primary-500 text-white'
+                      ? 'bg-primary-600 text-white'
                       : 'text-app-subtle hover:bg-app-hover hover:text-app-text',
                   )}
                 >

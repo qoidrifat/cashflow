@@ -36,6 +36,8 @@ export interface Transaction {
   gmailMessageId?: string;
   confidenceScore?: number;
   metadata?: Record<string, unknown>;
+  /** P2.6+: akun ledger yang menautkan transaksi (NULL = belum ditautkan). */
+  accountId?: string | null;
   /** Fraud flag hasil L1 rule engine: 'flagged' (advisory) | 'review' (high/critical) | null */
   fraudFlag?: 'flagged' | 'review' | 'blocked' | null;
   /** Skor risiko 0..1 (L1 deterministik, atau L2 AI bila aktif) */
@@ -318,6 +320,200 @@ export interface ExtractedTransaction {
   reason?: string;
 }
 
+// ===================== FINANCIAL SUMMARY (windowless, server-side) =====================
+export interface FinancialTotals {
+  totalIncome: number;
+  totalExpense: number;
+  balance: number;
+  count: number;
+}
+
+export interface MonthlyCategoryTotal {
+  categoryId: string;
+  categoryName: string;
+  total: number;
+}
+
+export interface TransactionSummary {
+  month: number;
+  year: number;
+  lifetime: FinancialTotals;
+  monthly: FinancialTotals;
+  monthlyByCategory: MonthlyCategoryTotal[];
+  /** P2.5 account-based ledger (append-only; null bila server lama/gagal). */
+  ledger?: LedgerSummary | null;
+  /** P2.6 reconciliation summary ringan (counts + status; null bila gagal). */
+  reconciliation?: ReconciliationSummary | null;
+}
+
+// ===================== RECONCILIATION (P2.6) =====================
+export type ReconciliationStatus = 'unknown' | 'partial' | 'reconciled' | 'verified';
+export type BalanceConfidence = 'unknown' | 'low' | 'medium' | 'high' | 'verified';
+export type SuggestionConfidence = 'high' | 'medium' | 'low';
+export type AccountVerificationStatus = 'not_verified' | 'verified' | 'mismatch';
+
+export interface ReconciliationSummary {
+  accounts: number;
+  openingBalancesConfigured: number;
+  /** P2.7: jumlah akun dengan balance anchor terverifikasi. */
+  anchoredAccounts: number;
+  transactions: {
+    total: number;
+    classified: number;
+    unclassified: number;
+    unclassifiedAmount: number;
+  };
+  transfers: {
+    total: number;
+    resolved: number;
+    unresolved: number;
+    /** P2.9: transfer yang user tolak (transfer_review_status='rejected'). */
+    rejected: number;
+  };
+  dateCoverage: { earliest: string | null; latest: string | null };
+  status: ReconciliationStatus;
+  balanceConfidence: BalanceConfidence;
+}
+
+export interface ReconciliationAccount {
+  id: string;
+  name: string;
+  type: string;
+  currency: string;
+  openingBalance: number | null;
+  openingBalanceDate: string | null;
+  realBalance: number | null;
+  realBalanceDate: string | null;
+  realBalanceVerifiedAt: string | null;
+  balanceAnchorStatus: string | null;
+  systemBalance: number | null;
+  verificationStatus: AccountVerificationStatus;
+}
+
+export interface AccountSuggestionGroup {
+  accountName: string | null;
+  accountId: string | null;
+  confidence: SuggestionConfidence;
+  count: number;
+  totalAmount: number;
+}
+
+export interface TransferPairCandidate {
+  transferId: string;
+  incomeId: string;
+  transferDate: string;
+  incomeDate: string;
+  amount: number;
+  merchant: string | null;
+  confidence: SuggestionConfidence;
+  reason: string;
+}
+
+export interface ReconciliationState {
+  status: ReconciliationStatus;
+  accounts: ReconciliationAccount[];
+  /** P2.8: kandidat aktivasi akun (own_accounts yang belum dibuat sebagai
+   *  rekening) — UI merender CTA "Tambahkan Rekening" per kandidat. */
+  accountCandidates: string[];
+  openingBalancesConfigured: number;
+  /** P2.7: jumlah akun dengan balance anchor. */
+  anchoredAccounts: number;
+  transactions: {
+    total: number;
+    linked: number;
+    unlinked: number;
+    unlinkedAmount: number;
+    pending: number;
+    confirmed: number;
+    rejected: number;
+  };
+  transfers: {
+    total: number;
+    grouped: number;
+    ungrouped: number;
+    /** P2.9: transfer yang user tolak. */
+    rejected: number;
+  };
+  transferPairSuggestions: TransferPairCandidate[];
+  suggestions: AccountSuggestionGroup[];
+  /** P2.9 §12: transaksi LOW (tanpa sinyal akun) untuk bulk-assign manual. */
+  /** P3.0 §12: `type` dipakai filter UI All/Income/Expense/Refund pada checklist LOW. */
+  unassignedTransactions: Array<{ id: string; merchant: string; amount: number; date: string; type: string }>;
+  /** P3.1 §20/§21: daftar transaksi tertaut (confirmed) untuk section "Perbaiki penautan" (reassign eksplisit). */
+  linkedTransactions: Array<{ id: string; merchant: string; amount: number; date: string; type: string; accountId: string; accountName: string }>;
+  /** P2.9 §28: completion score deterministik + rincian. */
+  completionScore: {
+    score: number;
+    accounts: { activated: number; detected: number };
+    anchors: { anchored: number; total: number };
+    transactions: { linked: number; total: number };
+    transfers: { resolved: number; total: number };
+  };
+  dateCoverage: { earliest: string | null; latest: string | null };
+  currentBalance: CurrentBalance;
+  balanceConfidence: BalanceConfidence;
+  onboardingProgress: {
+    accountsConfigured: boolean;
+    openingBalancesConfigured: boolean;
+    transactionsReconciled: boolean;
+    transfersReconciled: boolean;
+    realBalanceVerified: boolean;
+    completedSteps: number;
+    totalSteps: number;
+  };
+}
+
+// ===================== LEDGER (P2.5 account-based balance) =====================
+/**
+ * Status saldo saat ini — jujur terhadap kelengkapan data.
+ * P2.5: known | partial | unknown (opening-based).
+ * P2.7: + verified (semua akun ber-anchor) | stale (aktivitas post-anchor
+ * belum terselesaikan) | mismatch (anchor tidak cocok sistem saat verifikasi).
+ */
+export type CurrentBalanceStatus = 'known' | 'partial' | 'unknown' | 'verified' | 'stale' | 'mismatch';
+
+export interface AccountLedgerMovement {
+  inflow: number;
+  expense: number;
+  incomingTransfer: number;
+  outgoingTransfer: number;
+  internalTransferPair: number;
+  unresolvedTransfer: number;
+  count: number;
+}
+
+export interface AccountLedger {
+  id: string;
+  name: string;
+  type: string;
+  currency: string;
+  openingBalance: number | null;
+  openingBalanceDate: string | null;
+  /** P2.7: verified balance anchor (snapshot saldo aktual user). */
+  anchor: { amount: number; date: string; verifiedAt: string | null } | null;
+  verificationStatus: 'verified' | 'mismatch' | 'not_verified';
+  movements: AccountLedgerMovement;
+  closingBalance: number | null;
+  status: CurrentBalanceStatus;
+}
+
+export interface CurrentBalance {
+  status: CurrentBalanceStatus;
+  amount: number | null;
+  reason: string | null;
+  message: string;
+  /** P2.7: tanggal anchor terbaru (saldo aktual terverifikasi). */
+  anchorDate?: string | null;
+}
+
+export interface LedgerSummary {
+  currentBalance: CurrentBalance;
+  accounts: AccountLedger[];
+  unclassified: { count: number; amount: number };
+  netCashFlow: { amount: number; totalIncome: number; totalExpense: number };
+  reconciliationStatus: 'balanced' | 'warning' | 'unknown';
+}
+
 // ===================== DASHBOARD =====================
 export interface DashboardSummary {
   totalBalance: number;
@@ -430,6 +626,20 @@ export interface WalletAccount {
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+  /** P2.5 account-based ledger: saldo awal per akun (nullable = belum diisi). */
+  openingBalance: number | null;
+  /** Tanggal saldo awal (semantik: balance pada START-of-day tanggal tsb). */
+  openingBalanceDate: string | null;
+  currency: string;
+  /** P2.7 verified balance anchor (saldo aktual terverifikasi; opsional —
+   *  diisi server lewat /api/reconciliation/verify-balance). */
+  realBalance?: number | null;
+  realBalanceDate?: string | null;
+  realBalanceVerifiedAt?: string | null;
+  /** P2.7: outcome verifikasi yang disimpan ('verified' | 'mismatch' | null). */
+  balanceAnchorStatus?: string | null;
+  /** P0.11/P0.12: kode provider dari katalog (server-derived; match institution/name bila belum terpasang). */
+  providerCode?: string | null;
 }
 
 export interface WalletAccountFormData {
@@ -438,6 +648,13 @@ export interface WalletAccountFormData {
   institution: string;
   balance: number;
   color: string;
+  openingBalance?: number | null;
+  openingBalanceDate?: string | null;
+  currency?: string;
+  /** P2.9 §41: tandai sebagai aktivasi kandidat — POST idempoten (nama sama → id existing). */
+  activation?: boolean;
+  /** P0.11 — kode provider dari katalog (mis. 'line_bank'); dipakai onboarding. */
+  providerCode?: string | null;
 }
 
 export type SavingGoalStatus = 'on-track' | 'behind' | 'completed';

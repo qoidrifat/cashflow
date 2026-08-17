@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Plus, PiggyBank, AlertTriangle, Sparkles, Wand2 } from 'lucide-react';
+import { Plus, PiggyBank, Sparkles, Wand2 } from 'lucide-react';
 import CategoryIcon from '../../components/ui/CategoryIcon';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useAppStore } from '../../store/useAppStore';
@@ -14,16 +13,16 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
 import { StatCardSkeleton } from '../../components/ui/Skeleton';
+import BudgetCard from './BudgetCard';
 import type { Budget, BudgetFormData, Transaction } from '../../types';
 import { EXPENSE_CATEGORIES } from '../../config/constants';
 import {
   formatCurrency,
+  formatSigned,
   getCurrentMonth,
   getCurrentYear,
   getMonthName,
   getBudgetStatus,
-  getBudgetStatusColor,
-  getBudgetStatusBgColor,
   cn,
 } from '../../lib/utils';
 
@@ -213,7 +212,9 @@ export default function BudgetsPage() {
               'text-base sm:text-lg font-bold tabular-nums',
               remaining >= 0 ? 'text-mint-500 dark:text-mint-300' : 'text-red-500 dark:text-red-300'
             )}>
-              {formatCurrency(remaining)}
+              {/* formatSigned menangani minus eksplisit saat overbudget
+                  (pola StatCard negative, bukan hanya warna merah). */}
+              {formatSigned(remaining)}
             </p>
           </Card>
         </div>
@@ -331,71 +332,14 @@ export default function BudgetsPage() {
               }
             />
           ) : (
-            budgetsWithUsage.map((budget, i) => {
-              const percentage = budget.amount > 0
-                ? Math.min((budget.usedAmount / budget.amount) * 100, 100)
-                : 0;
-              const statusColor = getBudgetStatusColor(budget.status);
-              const statusBg = getBudgetStatusBgColor(budget.status);
-
-              return (
-                <motion.div
-                  key={budget.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <Card className="relative overflow-hidden">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <CategoryIcon
-                          name={budget.categoryName}
-                          type="expense"
-                          size="sm"
-                          animated
-                          animationVariant={budget.status !== 'safe' ? 'warning' : 'soft'}
-                        />
-                        <div>
-                          <h3 className="text-sm font-semibold text-app-text">
-                            {budget.categoryName}
-                          </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-app-subtle">
-                            {formatCurrency(budget.usedAmount)} / {formatCurrency(budget.amount)}
-                          </span>
-                          {budget.status === 'overbudget' && (
-                            <AlertTriangle className="w-3 h-3 text-red-500" />
-                          )}
-                        </div>
-                      </div>
-                      <span className={cn('text-xs font-medium', statusColor)}>
-                        {budget.status === 'safe' ? 'Aman' : budget.status === 'warning' ? 'Waspada' : 'Overbudget'}
-                      </span>
-                      </div>
-                    </div>
-
-                    {/* Progress bar */}
-                    <div className="h-2 bg-app-hover/80 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${percentage}%` }}
-                        transition={{ duration: 0.5, delay: i * 0.1 }}
-                        className={cn('h-full rounded-full transition-all', statusBg)}
-                      />
-                    </div>
-
-                    <button
-                      onClick={() => setShowDeleteConfirm(budget.id)}
-                      className="absolute top-3 right-3 p-1 app-icon-button hover:text-red-500 dark:hover:text-red-300 opacity-0 group-hover:opacity-100"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </Card>
-                </motion.div>
-              );
-            })
+            budgetsWithUsage.map((budget, i) => (
+              <BudgetCard
+                key={budget.id}
+                budget={budget}
+                index={i}
+                onDelete={(id) => setShowDeleteConfirm(id)}
+              />
+            ))
           )}
         </div>
       </div>

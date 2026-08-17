@@ -156,8 +156,8 @@ export default function FraudPage() {
               className={cn(
                 'px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors',
                 filter === tab
-                  ? 'bg-primary-500 text-white shadow-sm shadow-primary-500/25'
-                  : 'bg-app-hover text-app-subtle hover:text-app-text',
+                  ? 'bg-primary-600 text-white shadow-sm shadow-primary-600/25'
+                  : 'bg-app-hover text-app-muted hover:text-app-text',
               )}
             >
               {tab === 'open' ? `Perlu dicek (${openFlags.length})` : 'Semua'}

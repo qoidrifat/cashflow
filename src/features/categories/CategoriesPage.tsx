@@ -187,12 +187,14 @@ export default function CategoriesPage() {
                       <button
                         onClick={() => openForm(category)}
                         className="p-2 app-icon-button hover:text-primary-600 dark:hover:text-primary-300"
+                        aria-label={`Edit kategori ${category.name}`}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(category)}
                         className="p-2 app-icon-button hover:text-red-500 dark:hover:text-red-300"
+                        aria-label={`Hapus kategori ${category.name}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

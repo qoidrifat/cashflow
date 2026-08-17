@@ -35,7 +35,11 @@
     --color-border: 226 232 240;
     --color-text: 10 26 46;
     --color-muted: 71 85 105;
-    --color-subtle: 148 163 184;
+    /* P2.1 contrast: subtle #94a3b8 (slate-400) = 2.9:1 di atas surface putih
+       → #64748b (slate-500) = 4.76:1 (WCAG AA normal text). Tetap lebih terang
+       dari muted (#475569) agar hierarki visual terjaga. Dark mode tidak
+       berubah (#94a3b8 di atas bg gelap ~7.3:1 — lolos). */
+    --color-subtle: 100 116 139;
     --color-hover: 241 245 249;
     --color-chart-grid: rgba(148, 163, 184, 0.24);
     --color-chart-muted: #64748b;
@@ -78,6 +82,10 @@
     font-family: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* No page-level horizontal scroll: one over-wide child must not create
+       sideways page motion. Inner scrolling (tables overflow-x-auto) is
+       unaffected — only page width is clamped to viewport. */
+    overflow-x: hidden;
   }
 
   .dark body {
@@ -140,6 +148,11 @@
 @layer components {
   /* Safe area for mobile */
   .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Alias — dipakai BottomNav "Lainnya" sheet (padding-bottom safe-area) */
+  .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
@@ -385,6 +398,18 @@
 @media (prefers-reduced-motion: reduce) {
   .motion-safe\:transition-all {
     transition: none !important;
+  }
+
+  /* P2.3.5 — Tailwind animate-* (27× animate-spin, 17× animate-pulse:
+     spinner tombol "Muat lebih", ikon refresh, skeleton) tetap berputar/
+     berkedip di bawah prefers-reduced-motion tanpa gate ini. Matikan —
+     spinner jadi statis (indikator ikon tetap terlihat), skeleton jadi
+     blok solid. Loading state TETAP terlihat (elemen tetap render), hanya
+     gerakannya yang dihapus. */
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce {
+    animation: none !important;
   }
 
   .cashflow-loader-icon,

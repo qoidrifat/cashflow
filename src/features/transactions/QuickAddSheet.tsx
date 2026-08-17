@@ -289,7 +289,7 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
                       key={cat.id}
                       onClick={() => { setCategoryId(cat.id); setCategoryName(cat.name); }}
                       className={cn(
-                        'flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-[10px] font-medium transition-all',
+                        'flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-[11px] font-medium transition-all',
                         categoryId === cat.id
                           ? 'bg-primary-50 dark:bg-primary-500/12 text-primary-700 dark:text-primary-200 border border-primary-200 dark:border-primary-400/30'
                           : 'bg-app-surface/50 text-app-muted border border-app-border hover:border-app-subtle hover:text-app-text'

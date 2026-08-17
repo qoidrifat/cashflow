@@ -59,9 +59,11 @@ export default function Button({
           'focus:ring-app-subtle',
         ],
         variant === 'danger' && [
-          'bg-red-500 text-white',
-          'hover:bg-red-600 shadow-sm dark:shadow-red-950/30 disabled:hover:bg-red-500',
-          'focus:ring-red-500',
+          // P2.3.2 — white on red-500 = 3.92:1 (gagal AA utk teks normal) →
+          // red-600 (#dc2626) = 4.83:1 (lolos). Perubahan design-token shared.
+          'bg-red-600 text-white',
+          'hover:bg-red-700 shadow-sm dark:shadow-red-950/30 disabled:hover:bg-red-600',
+          'focus:ring-red-600',
         ],
 
         // Sizes

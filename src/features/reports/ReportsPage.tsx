@@ -23,6 +23,7 @@ import {
 } from 'recharts';
 import { useAuthStore } from '../../store/useAuthStore';
 import { getAllTransactions, calculateBalance } from '../../services/transactionService';
+import { getFinancialSettings } from '../../services/financialSettingsService';
 import { buildSpendingForecast, generateMonthlyFinancialReport } from '../../services/aiInsightService';
 import { exportMonthlyReportPdf } from '../../services/pdfExportService';
 import Header from '../../components/layout/Header';
@@ -33,6 +34,7 @@ import type { Transaction } from '../../types';
 import type { MonthlyFinancialReport } from '../../types';
 import {
   formatCurrency,
+  formatSigned,
   getCurrentMonth,
   getCurrentYear,
   getMonthName,
@@ -50,6 +52,9 @@ export default function ReportsPage() {
   const [aiReport, setAiReport] = useState<MonthlyFinancialReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [period, setPeriod] = useState<Period>('monthly');
+  // Akun milik sendiri (transfer internal netral, §10.13) — paritas
+  // calculateBalance dengan computeFinancialSummary server.
+  const [ownAccounts, setOwnAccounts] = useState<string[]>([]);
 
 
 
@@ -67,6 +72,15 @@ export default function ReportsPage() {
       })
       .catch(() => {
         if (!cancelled) setLoading(false);
+      });
+
+    // Paritas semantik transfer internal (best-effort: gagal → [] = legacy).
+    getFinancialSettings()
+      .then((settings) => {
+        if (!cancelled) setOwnAccounts(settings.ownAccounts);
+      })
+      .catch(() => {
+        if (!cancelled) setOwnAccounts([]);
       });
 
     return () => {
@@ -135,7 +149,7 @@ export default function ReportsPage() {
     });
   }, [transactions, period]);
 
-  const balance = calculateBalance(filteredTransactions);
+  const balance = calculateBalance(filteredTransactions, ownAccounts);
 
   // Category breakdown for pie chart
   const categoryBreakdown = useMemo(() => {
@@ -198,8 +212,9 @@ export default function ReportsPage() {
       <Header title={`Laporan ${periodLabels[period]}`} />
 
       <div className="p-4 lg:p-6 space-y-5 max-w-4xl mx-auto">
-        {/* Period selector */}
-        <div className="flex items-center gap-2">
+        {/* Period selector — flex-wrap: di viewport sempit (≤430px) tombol PDF
+            pindah ke baris baru, tidak overflow horizontal (P2.2 responsive). */}
+        <div className="flex flex-wrap items-center gap-2">
           {(['daily', 'weekly', 'monthly', 'yearly'] as Period[]).map((p) => (
             <button
               key={p}
@@ -207,7 +222,7 @@ export default function ReportsPage() {
               className={cn(
                 'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                 period === p
-                  ? 'bg-primary-500 text-white'
+                  ? 'bg-primary-600 text-white'
                   : 'bg-app-hover/80 text-app-muted hover:bg-app-hover hover:text-app-text'
               )}
             >
@@ -240,13 +255,17 @@ export default function ReportsPage() {
               <Card>
                 <p className="text-xs text-app-subtle mb-1">Pemasukan</p>
                 <p className="text-base sm:text-lg font-bold text-mint-500 dark:text-mint-300 tabular-nums">
-                  {formatCurrency(balance.totalIncome)}
+                  {/* formatSigned showPlus: '+' eksplisit (bahasa tanda income → '+');
+                      0 → tanpa tanda (hindari "+Rp0"). Pola sign="plus" StatCard. */}
+                  {formatSigned(balance.totalIncome, { showPlus: true })}
                 </p>
               </Card>
               <Card>
                 <p className="text-xs text-app-subtle mb-1">Pengeluaran</p>
                 <p className="text-base sm:text-lg font-bold text-red-500 dark:text-red-300 tabular-nums">
-                  {formatCurrency(balance.totalExpense)}
+                  {/* formatSigned(-x): tanda '-' EKSPLISIT di depan magnitude positif
+                      (bahasa tanda expense → '-'); 0 → tanpa tanda. Pola sign="minus". */}
+                  {formatSigned(-balance.totalExpense)}
                 </p>
               </Card>
               <Card>
@@ -255,7 +274,9 @@ export default function ReportsPage() {
                   'text-base sm:text-lg font-bold tabular-nums',
                   balance.balance >= 0 ? 'text-mint-500 dark:text-mint-300' : 'text-red-500 dark:text-red-300'
                 )}>
-                  {formatCurrency(balance.balance)}
+                  {/* formatSigned menangani minus eksplisit untuk nilai negatif
+                      (pola StatCard negative, jangan hanya warna merah tanpa tanda). */}
+                  {formatSigned(balance.balance)}
                 </p>
               </Card>
             </div>
@@ -266,16 +287,16 @@ export default function ReportsPage() {
                 <div className="flex flex-col gap-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-primary-500 text-white flex items-center justify-center shadow-lg shadow-primary-500/20">
+                      <div className="w-10 h-10 rounded-2xl bg-primary-600 text-white flex items-center justify-center shadow-lg shadow-primary-600/20">
                         <Sparkles className="w-5 h-5" />
                       </div>
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">
                           AI Monthly Report
                         </p>
-                        <h3 className="text-base font-bold text-app-text">
+                        <h2 className="text-base font-bold text-app-text">
                           Insight {getMonthName(getCurrentMonth())} {getCurrentYear()}
-                        </h3>
+                        </h2>
                       </div>
                     </div>
                     <button
@@ -397,9 +418,9 @@ export default function ReportsPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="text-xs text-app-subtle">Forecast sampai akhir bulan</p>
-                    <h3 className="text-base font-bold text-app-text">
+                    <h2 className="text-base font-bold text-app-text">
                       {formatCurrency(forecast.projectedExpense)}
-                    </h3>
+                    </h2>
                   </div>
                   <div className={cn(
                     'px-2.5 py-1 rounded-full text-[11px] font-semibold',
@@ -434,10 +455,10 @@ export default function ReportsPage() {
 
             {/* Bar chart */}
             <Card>
-              <h3 className="text-sm font-semibold text-app-text mb-4">
+              <h2 className="text-sm font-semibold text-app-text mb-4">
                 Cashflow {periodLabels[period]}
-              </h3>
-              <div className="h-[250px]">
+              </h2>
+              <div className="h-[250px]" role="img" aria-label="Grafik batang Pemasukan dan Pengeluaran harian">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dailyCashflow}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-chart-grid)" />
@@ -473,10 +494,10 @@ export default function ReportsPage() {
             {/* Pie chart */}
             {categoryBreakdown.length > 0 && (
               <Card>
-                <h3 className="text-sm font-semibold text-app-text mb-4">
+                <h2 className="text-sm font-semibold text-app-text mb-4">
                   Pengeluaran per Kategori
-                </h3>
-                <div className="h-[200px] sm:h-[250px]">
+                </h2>
+                <div className="h-[200px] sm:h-[250px]" role="img" aria-label="Diagram lingkaran distribusi pengeluaran per kategori">
                   <ResponsiveContainer width="100%" height="100%">
                     <RePieChart>
                       <Pie

@@ -23,7 +23,7 @@ export default function AiSearchBox({
   return (
     <form onSubmit={handleSubmit} className="rounded-[1.25rem] border border-app-border bg-app-elevated/90 p-2 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <label className="relative min-w-0 flex-1">
+        <label className="relative min-w-0 flex-1 rounded-2xl focus-within:ring-2 focus-within:ring-primary-500/40">
           <span className="sr-only">AI Search query</span>
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-app-subtle" />
           <input

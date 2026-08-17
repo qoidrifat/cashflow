@@ -66,6 +66,7 @@ export default function Modal({
                 <button
                   onClick={onClose}
                   className="p-1.5 app-icon-button"
+                  aria-label="Tutup"
                 >
                   <X className="w-4 h-4" />
                 </button>

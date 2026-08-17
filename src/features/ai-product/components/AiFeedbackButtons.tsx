@@ -95,7 +95,7 @@ export default function AiFeedbackButtons({
           value={reasonInput}
           onChange={(e) => setReasonInput(e.target.value)}
           placeholder="Tulis alasan..."
-          className="w-36 rounded-md border border-app-border bg-app-card px-2 py-1 text-[11px] text-app-text placeholder:text-app-subtle focus:outline-none focus:border-primary-500/50"
+          className="w-36 rounded-md border border-app-border bg-app-card px-2 py-1 text-[11px] text-app-text placeholder:text-app-subtle focus:outline-none focus:border-primary-500/50 focus:ring-2 focus:ring-primary-500/30"
           aria-label="Alasan feedback"
         />
         <button
@@ -103,7 +103,7 @@ export default function AiFeedbackButtons({
           aria-label="Kirim feedback"
           disabled={saving}
           onClick={() => send(pendingRating, reasonInput)}
-          className="inline-flex h-6 items-center gap-1 rounded-md bg-primary-500 px-2 text-[11px] font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary-500 px-2.5 text-[11px] font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
         </button>
@@ -111,7 +111,7 @@ export default function AiFeedbackButtons({
           type="button"
           aria-label="Batal"
           onClick={cancelPending}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-app-subtle hover:text-app-text"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-app-subtle hover:text-app-text"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -120,25 +120,25 @@ export default function AiFeedbackButtons({
   }
 
   return (
-    <div className={cn('inline-flex items-center gap-1', className)} role="group" aria-label={ariaLabel || 'Beri feedback pada hasil AI'}>
-      <span className="text-[10px] font-medium uppercase tracking-wide text-app-subtle">Feedback:</span>
+    <div className={cn('inline-flex items-center gap-1.5', className)} role="group" aria-label={ariaLabel || 'Beri feedback pada hasil AI'}>
+      <span className="text-[11px] font-medium uppercase tracking-wide text-app-subtle">Feedback:</span>
       <button
         type="button"
         aria-label="Membantu"
         disabled={saving}
         onClick={() => send('helpful')}
-        className="app-icon-button h-6 w-6 rounded-md text-app-muted hover:text-mint-600 dark:hover:text-mint-300 disabled:opacity-50"
+        className="app-icon-button h-8 w-8 rounded-md text-app-muted hover:text-mint-600 dark:hover:text-mint-300 disabled:opacity-50"
       >
-        <ThumbsUp className="h-3.5 w-3.5" />
+        <ThumbsUp className="h-4 w-4" />
       </button>
       <button
         type="button"
         aria-label="Tidak membantu"
         disabled={saving}
         onClick={() => setMenuOpen((v) => !v)}
-        className="app-icon-button h-6 w-6 rounded-md text-app-muted hover:text-red-500 dark:hover:text-red-300 disabled:opacity-50"
+        className="app-icon-button h-8 w-8 rounded-md text-app-muted hover:text-red-500 dark:hover:text-red-300 disabled:opacity-50"
       >
-        <ThumbsDown className="h-3.5 w-3.5" />
+        <ThumbsDown className="h-4 w-4" />
       </button>
 
       {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-app-subtle" />}
@@ -146,7 +146,7 @@ export default function AiFeedbackButtons({
       {menuOpen && (
         <div className="relative">
           <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-app-border bg-app-card p-1.5 shadow-xl">
-            <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-app-subtle">
+            <p className="px-2 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-app-subtle">
               Apa yang kurang?
             </p>
             {ADVANCED_RATINGS.map((r) => (

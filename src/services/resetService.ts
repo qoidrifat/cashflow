@@ -1,4 +1,5 @@
 import { clearGmailAccessToken } from './authService';
+import { invalidateAllTransactionsCache } from './transactionService';
 
 const LOCAL_DATA_PREFIXES = [
   'cashflow-local-transactions-',
@@ -13,6 +14,9 @@ const LOCAL_DATA_PREFIXES = [
 export async function resetUserData(userId: string): Promise<void> {
   clearLocalUserData(userId);
   clearGmailAccessToken();
+  // Cache in-memory getAllTransactions ikut dihapus — data user sudah direset,
+  // tanpa ini halaman berikutnya menyajikan dataset basi dari cache.
+  invalidateAllTransactionsCache(userId);
 }
 
 function clearLocalUserData(userId: string): void {

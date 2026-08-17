@@ -72,12 +72,18 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+/**
+ * POST helper. `headers` opsional (backward-compatible) — dipakai untuk
+ * mengirim `Idempotency-Key` (create-once transaksi) tanpa mengubah
+ * pemanggil existing yang hanya kirim (path, body).
+ */
+export async function apiPost<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      ...headers,
     },
     credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -112,13 +118,16 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
-export async function apiDelete<T = { success: boolean }>(path: string): Promise<T> {
+export async function apiDelete<T = { success: boolean }>(path: string, options?: { body?: unknown }): Promise<T> {
+  const hasBody = options?.body !== undefined;
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
     headers: {
       'Accept': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
     },
     credentials: 'include',
+    body: hasBody ? JSON.stringify(options.body) : undefined,
   });
 
   if (!res.ok) {

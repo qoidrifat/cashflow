@@ -4,7 +4,7 @@
  */
 import { motion } from 'framer-motion';
 import {
-  CheckCircle, ChevronDown, ChevronUp, CopyPlus, RotateCcw, XCircle,
+  CheckCircle, ChevronDown, ChevronUp, CopyPlus, Loader2, RotateCcw, XCircle,
 } from 'lucide-react';
 import Card from '../../../components/ui/Card';
 import CategoryIcon from '../../../components/ui/CategoryIcon';
@@ -27,6 +27,8 @@ export interface EmailCardProps {
   /** State + setter untuk editable note pada needs_review/pending_review */
   noteEditState: Record<string, string>;
   onNoteChange: (emailId: string, value: string) => void;
+  /** Approve in-flight: tombol Setujui disabled + spinner (konfirmasi tunggal). */
+  approvePending?: boolean;
 }
 
 export function EmailCard({
@@ -43,6 +45,7 @@ export function EmailCard({
   onSkip,
   noteEditState,
   onNoteChange,
+  approvePending = false,
 }: EmailCardProps) {
   const config = STATUS_CONFIG[email.status] || STATUS_CONFIG.failed;
 
@@ -231,10 +234,12 @@ export function EmailCard({
               <div className="flex gap-1">
                 <button
                   onClick={onApprove}
-                  className="p-2 rounded-xl bg-mint-50 dark:bg-mint-900/20 text-mint-500 hover:bg-mint-100 dark:hover:bg-mint-900/40 transition-colors"
-                  title="Setujui"
+                  disabled={approvePending}
+                  className="p-2 rounded-xl bg-mint-50 dark:bg-mint-900/20 text-mint-500 hover:bg-mint-100 dark:hover:bg-mint-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-mint-50 dark:disabled:hover:bg-mint-900/20"
+                  title={approvePending ? 'Menyetujui...' : 'Setujui'}
+                  aria-label={approvePending ? 'Menyetujui...' : 'Setujui'}
                 >
-                  <CheckCircle className="w-4 h-4" />
+                  {approvePending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={onReject}

@@ -4,6 +4,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { primaryMobileNav, moreMenuNav } from '../../config/navigation';
+import { env } from '../../config/env';
+
+// P0.14 — AI Knowledge hanya tampil di menu "Lainnya" bila build-time flag aktif
+// (runtime gate tetap config server GOOGLE_AGENT_PLATFORM_ENABLED).
+const visibleMoreNav = moreMenuNav.filter(
+  (item) => item.href !== '/suite/ai-knowledge' || env.aiKnowledge.enabled,
+);
 
 export default function BottomNav() {
   const navigate = useNavigate();
@@ -12,7 +19,7 @@ export default function BottomNav() {
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // Check if current path matches any "Lainnya" route
-  const isLainnyaActive = moreMenuNav.some((item) =>
+  const isLainnyaActive = visibleMoreNav.some((item) =>
     location.pathname.startsWith(item.href)
   );
 
@@ -80,7 +87,7 @@ export default function BottomNav() {
                   )}>
                     <item.icon className="w-[20px] h-[20px]" />
                   </div>
-                  <span className="text-[10px] font-medium leading-none">{item.label}</span>
+                  <span className="text-[11px] font-medium leading-none">{item.label}</span>
                   {isActive && (
                     <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-primary-500" />
                   )}
@@ -107,7 +114,7 @@ export default function BottomNav() {
             )}>
               <ChevronDown className="w-[20px] h-[20px]" />
             </div>
-            <span className="text-[10px] font-medium leading-none">Lainnya</span>
+            <span className="text-[11px] font-medium leading-none">Lainnya</span>
             {isLainnyaActive && (
               <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-primary-500" />
             )}
@@ -158,7 +165,7 @@ export default function BottomNav() {
 
               {/* Menu items */}
               <div className="py-2 px-2 space-y-0.5">
-                {moreMenuNav.map((item) => {
+                {visibleMoreNav.map((item) => {
                   const Icon = item.icon;
                   const isActive = window.location.pathname.startsWith(item.href);
 

@@ -18,8 +18,11 @@ import {
   UserCircle,
   Settings,
   MessagesSquare,
+  MessageCircle,
   ShieldAlert,
   BrainCircuit,
+  History,
+  BookOpenCheck,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -50,10 +53,15 @@ export const moreMenuNav: NavItem[] = [
   { label: 'Laporan', href: '/reports', icon: BarChart3 },
   { label: 'AI Advisor', href: '/advisor', icon: MessagesSquare },
   { label: 'AI Hub', href: '/ai', icon: BrainCircuit },
+  { label: 'AI Chat', href: '/ai/chat', icon: MessageCircle },
+  { label: 'AI Timeline', href: '/ai/timeline', icon: History },
   { label: 'Rutin', href: '/recurring', icon: RefreshCw },
   { label: 'Perlindungan Fraud', href: '/fraud', icon: ShieldAlert },
   { label: 'Suite', href: '/professional', icon: BriefcaseBusiness },
   { label: 'AI Search', href: '/suite/ai-search', icon: Sparkles },
+  // P0.14 — AI Knowledge: item ini di-filter di BottomNav berdasarkan
+  // env.aiKnowledge.enabled (build-time gate; runtime gate = config server).
+  { label: 'AI Knowledge', href: '/suite/ai-knowledge', icon: BookOpenCheck },
   { label: 'Kategori', href: '/categories', icon: Tags },
 ];
 

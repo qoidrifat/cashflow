@@ -265,6 +265,24 @@ export default function GmailSyncPage() {
   // State untuk editable note pada needs_review/pending_review email
   const [noteEditState, setNoteEditState] = useState<Record<string, string>>({});
 
+  // ===================== Approve In-flight Guard =====================
+  // Konfirmasi TUNGGAL per email di tab "Perlu Review" (2026-08-09): tombol
+  // Setujui di-disable + klik kedua di-ignore selama request approve berjalan.
+  // Data integrity sudah dijamin lapisan bawah (in-flight map addTransaction +
+  // Idempotency-Key server) — guard ini menutup sisi UX: 1 klik = 1 eksekusi
+  // (satu toast/persist/notifikasi), bukan double-fire saat fast-click.
+  const approvePendingIdsRef = useRef<Set<string>>(new Set());
+  const [approvePendingIds, setApprovePendingIds] = useState<ReadonlySet<string>>(new Set());
+
+  const markApprovePending = useCallback((emailId: string, pending: boolean) => {
+    setApprovePendingIds((prev) => {
+      const next = new Set(prev);
+      if (pending) next.add(emailId);
+      else next.delete(emailId);
+      return next;
+    });
+  }, []);
+
   // ===================== Auto Sync State =====================
   const [autoSyncSettings, setAutoSyncSettings] = useState<{
     lastSyncedAt: string | null;
@@ -1117,6 +1135,11 @@ export default function GmailSyncPage() {
     }
     const emailId = email.id;
 
+    // Konfirmasi tunggal: klik ganda saat request masih in-flight → diabaikan.
+    // (ref guard menutup window sebelum re-render disabled & panggilan
+    // programatik; disabled attribute menangani sisi DOM).
+    if (approvePendingIdsRef.current.has(emailId)) return;
+
     // Validasi data transaksi — jangan return diam-diam, beri feedback yang jelas
     if (!email.amount || email.amount <= 0) {
       addToast({
@@ -1132,6 +1155,11 @@ export default function GmailSyncPage() {
       });
       return;
     }
+
+    // Tandai in-flight (button → disabled + spinner) — dibersihkan di finally
+    // agar status pending TIDAK pernah bocor walau error path return di catch.
+    approvePendingIdsRef.current.add(emailId);
+    markApprovePending(emailId, true);
 
     try {
       const txId = await addTransaction(
@@ -1221,6 +1249,9 @@ export default function GmailSyncPage() {
         amount: email.amount,
         message: errorMessage,
       });
+    } finally {
+      approvePendingIdsRef.current.delete(emailId);
+      markApprovePending(emailId, false);
     }
   };
 
@@ -1950,10 +1981,10 @@ export default function GmailSyncPage() {
         {/* Summary cards — dihitung dari total semua email (bukan hanya halaman pertama) */}
         {(emails.length > 0 || (paginatedLogs && paginatedLogs.summary.total > 0)) && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <StatCard label="Diterima" value={summaryCounts.autoAccepted} color="text-mint-500" />
-            <StatCard label="Perlu Review" value={summaryCounts.needsReview} color="text-amber-500" />
+            <StatCard label="Diterima" value={summaryCounts.autoAccepted} color="text-mint-600 dark:text-mint-300" />
+            <StatCard label="Perlu Review" value={summaryCounts.needsReview} color="text-amber-600 dark:text-amber-300" />
             <StatCard label="Dilewati/Ditolak" value={summaryCounts.skippedRejected} color="text-app-subtle" />
-            <StatCard label="Error" value={summaryCounts.error} color="text-red-500" />
+            <StatCard label="Error" value={summaryCounts.error} color="text-red-600 dark:text-red-300" />
           </div>
         )}
 
@@ -1966,7 +1997,7 @@ export default function GmailSyncPage() {
                 key={status}
                 onClick={() => setFilterStatus(status)}
                 className={cn(
-                  'px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all',
+                  'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all',
                   filterStatus === status
                     ? 'bg-primary-50 dark:bg-primary-500/12 text-primary-600 dark:text-primary-200'
                     : 'text-app-subtle hover:text-app-text'
@@ -2037,6 +2068,7 @@ export default function GmailSyncPage() {
                   onNoteChange={(emailId, value) => setNoteEditState((prev) => ({ ...prev, [emailId]: value }))}
                   onToggleExpand={() => toggleExpandEmail(log.messageId)}
                   onApprove={() => handleApproveEmail(email)}
+                  approvePending={approvePendingIds.has(email.id)}
                   onReject={() => handleRejectEmail(email)}
                   onRetry={() => handleRetrySingle(log.messageId)}
                   onMarkAsTransaction={() => handleMarkAsTransaction(log.messageId)}
@@ -2106,7 +2138,7 @@ export default function GmailSyncPage() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => setShowDebug(!showDebug)}
-              className="flex items-center gap-1.5 text-[10px] text-app-subtle hover:text-app-text transition-colors"
+              className="flex items-center gap-1.5 text-[11px] text-app-subtle hover:text-app-text transition-colors"
             >
               {showDebug ? (
                 <><EyeOff className="w-3 h-3" /> Sembunyikan Debug</>
@@ -2236,10 +2268,14 @@ export default function GmailSyncPage() {
                             {/* Status badge */}
                             <span className={cn(
                               'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
-                              run.status === 'completed' ? 'text-mint-500 bg-mint-50 dark:bg-mint-500/12' :
-                              run.status === 'running' || run.id === activeSyncRunId ? 'text-blue-500 bg-blue-50 dark:bg-blue-500/12' :
-                              run.status === 'partial_failed' ? 'text-amber-500 bg-amber-50 dark:bg-amber-500/12' :
-                              run.status === 'failed' ? 'text-red-500 bg-red-50 dark:bg-red-500/12' :
+                              // P2.3.2 — kontras pill status: *-500 di *-50 (≈4.4:1)
+                              // bahkan *-600 masih borderline (teks 10px kecil →
+                              // butuh ≥4.5:1) → *-700 + dark:text-*-300 (pola
+                              // mapan TransactionItem amber-700/amber-300).
+                              run.status === 'completed' ? 'text-mint-700 bg-mint-50 dark:bg-mint-500/15 dark:text-mint-300' :
+                              run.status === 'running' || run.id === activeSyncRunId ? 'text-blue-700 bg-blue-50 dark:bg-blue-500/15 dark:text-blue-300' :
+                              run.status === 'partial_failed' ? 'text-amber-700 bg-amber-50 dark:bg-amber-500/15 dark:text-amber-300' :
+                              run.status === 'failed' ? 'text-red-700 bg-red-50 dark:bg-red-500/15 dark:text-red-300' :
                               'text-app-subtle bg-app-hover/80'
                             )}>
                               {getSyncStatusLabel(run.status)}
@@ -2319,7 +2355,7 @@ export default function GmailSyncPage() {
                         {/* Expand button */}
                         <button
                           onClick={() => setExpandedRunId(isExpanded ? null : run.id)}
-                          className="flex items-center gap-1 text-[10px] text-app-subtle hover:text-app-text transition-colors"
+                          className="flex items-center gap-1 text-[11px] text-app-subtle hover:text-app-text transition-colors"
                         >
                           <ChevronDown className={cn('w-3 h-3 transition-transform', isExpanded && 'rotate-180')} />
                           {isExpanded ? 'Sembunyikan Detail' : 'Lihat Detail'}

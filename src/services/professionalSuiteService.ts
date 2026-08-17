@@ -15,6 +15,65 @@ import { mapSavingGoal, mapSubscription, mapWallet } from './mappers';
 
 type CollectionKey = 'wallets' | 'goals' | 'subscriptions';
 
+export type WalletProvider = { code: string; name: string; type: string; icon: string; enabled: boolean; integration: string };
+
+/**
+ * P0.13 — hasil pengambilan katalog provider (single source of truth = backend).
+ * `providers` berisi katalog backend ATAU [] (kosong) saat API gagal — TIDAK
+ * fallback diam-diam ke mirror production. `ok:false` → UI wajib menampilkan
+ * state error/retry, bukan katalog stale.
+ */
+export type WalletProvidersResult = { ok: boolean; providers: WalletProvider[]; error?: string };
+
+// P0.13 — katalog provider direname jelas: fallback INI hanya untuk test/offline
+// development, BUKAN production source of truth. Frontend produksi memakai
+// GET /api/wallet-providers (backend). Label eksplisit agar tidak dikira
+// catalog produksi kedua.
+export const TEST_ONLY_WALLET_PROVIDERS: WalletProvider[] = [
+  { code: 'line_bank',  name: 'LINE Bank', type: 'bank',    icon: 'line_bank',  enabled: true, integration: 'manual' },
+  { code: 'blu',        name: 'blu',        type: 'bank',    icon: 'blu',        enabled: true, integration: 'manual' },
+  { code: 'bank_jago',  name: 'Bank Jago',  type: 'bank',    icon: 'bank_jago',  enabled: true, integration: 'manual' },
+  { code: 'shopeepay',  name: 'ShopeePay',  type: 'e_wallet', icon: 'shopeepay', enabled: true, integration: 'manual' },
+  { code: 'dana',       name: 'DANA',       type: 'e_wallet', icon: 'dana',      enabled: true, integration: 'manual' },
+];
+
+// P0.13 — ambil katalog dari backend (source of truth). Gagal → return ok:false
+// + providers:[]. UI menyajikan error/retry. Fallback test TIDAK dipakai di
+// produksi (lihat ProfessionalSuitePage — gating DEV_ONLY).
+export async function getWalletProviders(): Promise<WalletProvidersResult> {
+  try {
+    const rows = await apiGet<WalletProvider[]>('/api/wallet-providers');
+    if (Array.isArray(rows) && rows.length > 0) return { ok: true, providers: rows };
+    return { ok: false, providers: [], error: 'Katalog provider kosong.' };
+  } catch (err) {
+    return { ok: false, providers: [], error: err instanceof Error ? err.message : 'Katalog provider tidak tersedia.' };
+  }
+}
+
+/**
+ * P0.13 — mapper SEMANTIK deterministic (pure, unit-testable). Memisahkan
+ * concern balance-anchor dari domain lain; tidak menyebar `if balance_anchor_status`
+ * ke banyak komponen. Kontrak status (jangan digabung):
+ *   - registration   : wallet existence (di-handle caller)
+ *   - balance        : unverified | verified | mismatch (anchor saja)
+ *   - integration    : manual (belum ada integrasi API)
+ *   - identity       : not_implemented (tidak dipalsukan)
+ *   - ownership      : not_implemented (tidak dipalsukan)
+ */
+export function walletVerificationState(wallet?: Pick<WalletAccount, 'balanceAnchorStatus'> | null) {
+  return {
+    balance: wallet?.balanceAnchorStatus === 'verified'
+      ? 'verified'
+      : wallet?.balanceAnchorStatus === 'mismatch'
+        ? 'mismatch'
+        : 'unverified',
+    integration: 'manual',
+    identity: 'not_implemented',
+    ownership: 'not_implemented',
+  } as const;
+}
+
+
 const keyFor = (userId: string, collection: CollectionKey) => `cashflow-professional-${collection}-${userId}`;
 
 function readCollection<T>(userId: string, collection: CollectionKey): T[] {
@@ -41,13 +100,29 @@ export async function getWalletAccounts(userId: string): Promise<WalletAccount[]
 }
 
 export async function saveWalletAccount(userId: string, data: WalletAccountFormData): Promise<WalletAccount> {
+  const toWallet = (id: string, now: string): WalletAccount => ({
+    id,
+    userId,
+    name: data.name,
+    type: data.type,
+    institution: data.institution,
+    balance: data.balance,
+    color: data.color,
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+    // P2.5: saldo awal nullable — tidak menebak 0.
+    openingBalance: data.openingBalance ?? null,
+    openingBalanceDate: data.openingBalanceDate ?? null,
+    currency: data.currency || 'IDR',
+  });
   try {
     const res = await apiPost<{ id: string }>('/api/wallets', data);
     const now = new Date().toISOString();
-    return { id: res.id, userId, ...data, archived: false, createdAt: now, updatedAt: now };
+    return toWallet(res.id, now);
   } catch {
     const now = new Date().toISOString();
-    const wallet: WalletAccount = { id: generateId(), userId, ...data, archived: false, createdAt: now, updatedAt: now };
+    const wallet: WalletAccount = toWallet(generateId(), now);
     writeCollection(userId, 'wallets', [wallet, ...readCollection<WalletAccount>(userId, 'wallets')]);
     return wallet;
   }

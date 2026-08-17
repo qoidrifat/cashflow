@@ -400,7 +400,7 @@ function SemanticFilters({
           <select
             value={filters.type || ''}
             onChange={(e) => onChange({ ...filters, type: (e.target.value || undefined) as AgentSearchFilters['type'] })}
-            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400"
+            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/30"
           >
             <option value="">Semua tipe</option>
             <option value="expense">Pengeluaran</option>
@@ -412,7 +412,7 @@ function SemanticFilters({
           <select
             value={datePreset}
             onChange={(e) => applyPreset(e.target.value as 'all' | 'this-month' | 'last-3-months')}
-            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400"
+            className="h-9 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-500/30"
           >
             <option value="all">Semua waktu</option>
             <option value="this-month">Bulan ini</option>
@@ -430,7 +430,7 @@ function SemanticFilters({
             maxLength={CATEGORY_FILTER_MAX_LENGTH}
             aria-label="Filter kategori"
             list="ai-search-categories"
-            className="h-9 w-48 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none placeholder:text-app-subtle focus:border-primary-400"
+            className="h-9 w-48 rounded-full border border-app-border bg-app-elevated px-3 text-xs font-semibold text-app-text outline-none placeholder:text-app-subtle focus:border-primary-400 focus:ring-2 focus:ring-primary-500/30"
           />
           <datalist id="ai-search-categories">
             {categories.map((name) => (

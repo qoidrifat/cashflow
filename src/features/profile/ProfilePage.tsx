@@ -14,8 +14,8 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import SuccessFeedbackOverlay from '../../components/ui/SuccessFeedbackOverlay';
 import ErrorState from '../../components/ui/ErrorState';
-import { getTransactionsPaginated } from '../../services/transactionService';
-import { cn, formatCurrency } from '../../lib/utils';
+import { getTransactionSummary } from '../../services/transactionService';
+import { cn, formatSigned } from '../../lib/utils';
 
 const LOGOUT_SUCCESS_FEEDBACK_DURATION_MS = 5000;
 
@@ -64,44 +64,30 @@ export default function ProfilePage() {
     setSummaryLoading(true);
     setSummaryError(null);
     try {
+      // Migrasi 2026-08-09: agregasi WINDOWLESS dari server
+      // (GET /api/transactions/summary — SQL atas SELURUH transaksi, tanpa
+      // window). Sebelumnya getTransactionsPaginated pageSize 100 → user
+      // dengan >100 transaksi/bulan mendapat angka salah (kelas insiden
+      // 2026-08-08). Konvensi tanda server = client (refund=income,
+      // transfer=expense) — cocok dengan agregasi lama.
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const result = await getTransactionsPaginated({
-        userId: authUser.uid,
-        page: 1,
-        pageSize: 100,
-        dateFrom: startOfMonth.toISOString().split('T')[0],
-        dateTo: now.toISOString().split('T')[0],
-        // Sprint 1.5: jangan fallback ke localStorage — error API harus tampil
-        // sebagai ErrorState, bukan menyesatkan jadi "Belum ada transaksi".
-        fallbackToLocal: false,
-      });
+      const res = await getTransactionSummary(authUser.uid, now.getMonth() + 1, now.getFullYear());
 
-      const transactions = result.data || [];
-      let totalIncome = 0;
-      let totalExpense = 0;
-      const categoryCount: Record<string, number> = {};
-
-      for (const tx of transactions) {
-        if (tx.type === 'income' || tx.type === 'refund') {
-          totalIncome += tx.amount || 0;
-        } else {
-          totalExpense += tx.amount || 0;
-        }
-        const cat = tx.categoryName || 'Lainnya';
-        categoryCount[cat] = (categoryCount[cat] || 0) + 1;
-      }
-
-      const topCategory = Object.entries(categoryCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+      // Top kategori = kategori PENGELUARAN terbesar bulan ini (dari
+      // monthlyByCategory server). Pergeseran semantik dari agregasi lama
+      // (kategori paling sering dicatat, semua tipe) → lebih bermakna untuk
+      // ringkasan keuangan dan konsisten dengan ReportsPage.
+      const top = [...(res.monthlyByCategory ?? [])].sort((a, b) => b.total - a.total)[0] ?? null;
 
       setSummary({
-        totalIncome,
-        totalExpense,
-        balance: totalIncome - totalExpense,
-        transactionCount: result.total || transactions.length,
-        topCategory,
+        totalIncome: res.monthly.totalIncome,
+        totalExpense: res.monthly.totalExpense,
+        balance: res.monthly.balance,
+        transactionCount: res.monthly.count,
+        topCategory: top?.categoryName ?? null,
       });
     } catch (err) {
+      // Error API tidak di-fallback ke localStorage — ErrorState yang jujur.
       setSummary(null);
       setSummaryError(err);
     } finally {
@@ -197,7 +183,8 @@ export default function ProfilePage() {
                 </div>
                 <p className="text-[10px] text-app-subtle font-medium">Pemasukan</p>
                 <p className="text-sm font-bold text-mint-600 dark:text-mint-400 mt-0.5">
-                  {formatCurrency(summary.totalIncome)}
+                  {/* formatSigned showPlus: '+' eksplisit (income → '+'), 0 tanpa tanda. */}
+                  {formatSigned(summary.totalIncome, { showPlus: true })}
                 </p>
               </Card>
               <Card className="text-center py-4">
@@ -206,7 +193,8 @@ export default function ProfilePage() {
                 </div>
                 <p className="text-[10px] text-app-subtle font-medium">Pengeluaran</p>
                 <p className="text-sm font-bold text-red-600 dark:text-red-400 mt-0.5">
-                  {formatCurrency(summary.totalExpense)}
+                  {/* formatSigned(-x): '-' eksplisit (expense → '-'), 0 tanpa tanda. */}
+                  {formatSigned(-summary.totalExpense)}
                 </p>
               </Card>
               <Card className="text-center py-4">
@@ -218,7 +206,10 @@ export default function ProfilePage() {
                   'text-sm font-bold mt-0.5',
                   summary.balance >= 0 ? 'text-mint-600 dark:text-mint-400' : 'text-red-600 dark:text-red-400'
                 )}>
-                  {formatCurrency(Math.abs(summary.balance))}
+                  {/* formatSigned: minus EKSPLISIT saat net negatif (sebelumnya
+                      Math.abs + warna merah SAJA tanpa tanda — kelas insiden
+                      2026-08-08; pola Net Cashflow ReportsPage). */}
+                  {formatSigned(summary.balance)}
                 </p>
               </Card>
             </div>

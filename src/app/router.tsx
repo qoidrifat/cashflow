@@ -16,6 +16,8 @@ const RecurringPage = lazy(() => import('../features/transactions/RecurringPage'
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage'));
 const AdvisorPage = lazy(() => import('../features/advisor/AdvisorPage'));
 const AiHubPage = lazy(() => import('../features/ai-product/AiHubPage'));
+const AiConversationPage = lazy(() => import('../features/ai-product/chat/AiConversationPage'));
+const AiTimelinePage = lazy(() => import('../features/ai-product/timeline/AiTimelinePage'));
 const ProfessionalSuitePage = lazy(() => import('../features/professional/ProfessionalSuitePage'));
 const GmailSyncPage = lazy(() => import('../features/gmail/GmailSyncPage'));
 const NotificationsPage = lazy(() => import('../features/notifications/NotificationsPage'));
@@ -23,7 +25,9 @@ const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
 const CategoriesPage = lazy(() => import('../features/categories/CategoriesPage'));
 const SettingsPage = lazy(() => import('../features/settings/SettingsPage'));
 const PrivacyPage = lazy(() => import('../features/privacy/PrivacyPage'));
+const ReconciliationPage = lazy(() => import('../features/reconciliation/ReconciliationPage'));
 const AiSearchPage = lazy(() => import('../pages/AiSearchPage'));
+const KnowledgeAssistantPage = lazy(() => import('../features/ai-knowledge/KnowledgeAssistantPage'));
 const MonitoringPage = lazy(() => import('../pages/admin/MonitoringPage'));
 const FeatureDetailPage = lazy(() => import('../pages/admin/FeatureDetailPage'));
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
@@ -118,12 +122,24 @@ export const router = createBrowserRouter([
         element: withSuspense(<AiHubPage />),
       },
       {
+        path: 'ai/chat',
+        element: withSuspense(<AiConversationPage />),
+      },
+      {
+        path: 'ai/timeline',
+        element: withSuspense(<AiTimelinePage />),
+      },
+      {
         path: 'professional',
         element: withSuspense(<ProfessionalSuitePage />),
       },
       {
         path: 'suite/ai-search',
         element: withSuspense(<AiSearchPage />),
+      },
+      {
+        path: 'suite/ai-knowledge',
+        element: withSuspense(<KnowledgeAssistantPage />),
       },
       {
         path: 'admin/monitoring',
@@ -156,6 +172,10 @@ export const router = createBrowserRouter([
       {
         path: 'privacy',
         element: withSuspense(<PrivacyPage />),
+      },
+      {
+        path: 'reconciliation',
+        element: withSuspense(<ReconciliationPage />),
       },
     ],
   },

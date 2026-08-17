@@ -151,6 +151,10 @@ export default function CategoryIcon({
         transition={transition}
         whileHover={interactive ? hoverScale : undefined}
         whileTap={interactive ? tapScale : undefined}
+        // P2.3.2 — saat `interactive`, framer membuat motion.div focusable
+        // (tabindex=0) → wajib punya accessible name agar tidak jadi focus
+        // stop kosong (nama dari prop name).
+        aria-label={name || 'Category'}
         className="inline-flex"
         style={{ willChange: shouldAnimate ? 'transform' : undefined }}
       >

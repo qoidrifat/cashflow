@@ -33,6 +33,8 @@ export function mapTransaction(row: any): Transaction {
     fraudFlag: row.fraud_flag || null,
     fraudScore: row.fraud_score === null || row.fraud_score === undefined ? null : Number(row.fraud_score),
     metadata: row.metadata || {},
+    // P2.6+: akun ledger (NULL = belum ditautkan) — untuk badge "Belum ditautkan".
+    accountId: row.account_id === null || row.account_id === undefined ? null : String(row.account_id),
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
   };
@@ -145,6 +147,17 @@ export function mapWallet(row: any): WalletAccount {
     archived: !!row.archived,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // P2.5: saldo awal (nullable — tidak menebak 0).
+    openingBalance: row.opening_balance === null || row.opening_balance === undefined ? null : Number(row.opening_balance),
+    openingBalanceDate: row.opening_balance_date || null,
+    currency: row.currency || 'IDR',
+    // P2.7: verified balance anchor (dari GET /api/wallets SELECT *).
+    realBalance: row.real_balance === null || row.real_balance === undefined ? null : Number(row.real_balance),
+    realBalanceDate: row.real_balance_date || null,
+    realBalanceVerifiedAt: row.real_balance_verified_at || null,
+    balanceAnchorStatus: row.balance_anchor_status || null,
+    // P0.11/P0.12 — kode provider (server-derived di GET /api/wallets; null bila belum ada).
+    providerCode: row.provider_code || null,
   };
 }
 

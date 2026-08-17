@@ -7,7 +7,7 @@ import {
 import {
   DollarSign, Cpu, Activity, Clock, AlertTriangle, CheckCircle2,
   RefreshCw, ShieldAlert, Database, Zap, XCircle, Trash2,
-  MousePointerClick, Sparkles, TrendingUp,
+  MousePointerClick, Sparkles, TrendingUp, ThumbsUp, ThumbsDown, Users, ListChecks,
 } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
@@ -15,11 +15,14 @@ import Button from '../../components/ui/Button';
 import { useAuthStore } from '../../store/useAuthStore';
 import {
   fetchMetricsSummary, fetchAiUsage, fetchFeatureHealth, fetchAlerts, fetchAICacheStats,
-  fetchAgentSearchEngagement,
+  fetchAgentSearchEngagement, fetchFeedbackSummary, fetchRetentionMetrics, fetchRecommendationEngagement,
+  fetchFeedbackRate, fetchTelemetryUsers,
 } from '../../services/adminMetrics';
 import type {
   MetricsSummary, AIUsageSummary, CostTrendPoint, CostTrendByFeaturePoint,
   FeatureHealth, AlertStatus, AICacheStats, AgentSearchEngagement, AgentSearchTabCount, CacheByFeature,
+  FeedbackSummaryResponse, RetentionMetrics, RecommendationEngagement, RecommendationDayStat,
+  FeedbackRateSummary, TelemetryUser,
 } from '../../types/metrics';
 import { activeTrendFeatures, pivotTrendByFeature, type TrendMetric } from '../../utils/costTrendPivot';
 import { topFeatureEntries, type FeatureRankRow } from '../../utils/featureRanking';
@@ -95,8 +98,8 @@ function renderMultiSeriesTrend(points: CostTrendByFeaturePoint[], metric: Trend
   const pivoted = pivotTrendByFeature(points, metric);
   const features = activeTrendFeatures(points);
   return (
-    <div className="h-56">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-56" role="img" aria-label="Grafik tren biaya AI per fitur">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 0, height: 224 }}>
         <LineChart data={pivoted} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
           <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
@@ -141,6 +144,19 @@ export default function MonitoringPage() {
   const [cacheStats, setCacheStats] = useState<AICacheStats | null>(null);
   const [cacheByFeature, setCacheByFeature] = useState<CacheByFeature[]>([]);
   const [engagement, setEngagement] = useState<AgentSearchEngagement | null>(null);
+  // Sprint 1.5 — prioritas perbaikan prompt dari dataset ai_feedback (admin).
+  const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummaryResponse | null>(null);
+  // P10.2 — retention D1/D7/D14/D28 (cohort user + user_active).
+  const [retention, setRetention] = useState<RetentionMetrics | null>(null);
+  // P10.2 — funnel rekomendasi AI (shown/opened/CTR per hari & per feature).
+  const [recommendation, setRecommendation] = useState<RecommendationEngagement | null>(null);
+  // P10.2i — Feedback Rate: ai_feedback ÷ ai_result_shown (tampilan kartu AI).
+  const [feedbackRate, setFeedbackRate] = useState<FeedbackRateSummary | null>(null);
+  // P10.2 view per-user — daftar user dengan aktivitas telemetry AI (dropdown)
+  // + user terpilih ('' = semua user). Scoping: Rekomendasi AI & Feedback Rate
+  // di-refetch dengan userId; panel lain tetap global.
+  const [telemetryUsers, setTelemetryUsers] = useState<TelemetryUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [periodDays, setPeriodDays] = useState<number>(7);
   // Lookup cache-hit per fitur (Sprint 2) untuk kolom "Cache Hit" di tabel cost.
   const cacheByFeatureMap = new Map(cacheByFeature.map((c) => [c.feature, c]));
@@ -159,13 +175,20 @@ export default function MonitoringPage() {
       const from = new Date(Date.now() - periodDays * 86_400_000).toISOString();
       // Panel cache & engagement bersifat observability bonus — kegagalan endpoint-nya
       // tidak boleh menjatuhkan seluruh dashboard (fetch lainnya tetap kritikal).
-      const [summaryRes, usageRes, healthRes, alertsRes, cacheRes, engagementRes] = await Promise.all([
+      // Rekomendasi AI & Feedback Rate memakai userId terpilih ('' = semua user).
+      const scopedUserId = selectedUserId || undefined;
+      const [summaryRes, usageRes, healthRes, alertsRes, cacheRes, engagementRes, feedbackRes, retentionRes, recommendationRes, feedbackRateRes, telemetryUsersRes] = await Promise.all([
         fetchMetricsSummary(),
         fetchAiUsage(from, to, trendFeature !== 'all' ? trendFeature : undefined),
         fetchFeatureHealth(from, to),
         fetchAlerts(),
         fetchAICacheStats().catch(() => null),
         fetchAgentSearchEngagement(from, to).catch(() => null),
+        fetchFeedbackSummary().catch(() => null),
+        fetchRetentionMetrics(from, to).catch(() => null),
+        fetchRecommendationEngagement(from, to, scopedUserId).catch(() => null),
+        fetchFeedbackRate(from, to, scopedUserId).catch(() => null),
+        fetchTelemetryUsers(from, to).catch(() => null),
       ]);
       setSummary(summaryRes);
       setUsageSummary(usageRes.summary || null);
@@ -176,13 +199,18 @@ export default function MonitoringPage() {
       setAlerts(alertsRes.alerts || []);
       setCacheStats(cacheRes);
       setEngagement(engagementRes);
+      setFeedbackSummary(feedbackRes);
+      setRetention(retentionRes);
+      setRecommendation(recommendationRes);
+      setFeedbackRate(feedbackRateRes);
+      setTelemetryUsers(telemetryUsersRes?.users || []);
     } catch (err) {
       const typed = err as Error & { code?: string };
       setError({ code: typed.code, message: typed.message || 'Gagal memuat data monitoring.' });
     } finally {
       setLoading(false);
     }
-  }, [periodDays, trendFeature]);
+  }, [periodDays, trendFeature, selectedUserId]);
 
   useEffect(() => {
     if (authUser?.uid) void loadAll();
@@ -199,16 +227,25 @@ export default function MonitoringPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usageSummary, trendFeature]);
 
+  // P10.2 view per-user: bila user terpilih hilang dari daftar periode baru
+  // (mis. tidak ada aktivitas 90 hari), reset ke '' (Semua User) agar select
+  // tidak menampilkan value yang tidak ada di opsi.
+  useEffect(() => {
+    if (selectedUserId && telemetryUsers.length > 0 && !telemetryUsers.some((u) => u.userId === selectedUserId)) {
+      setSelectedUserId('');
+    }
+  }, [telemetryUsers, selectedUserId]);
+
   return (
     <div>
       <Header title="Monitoring" />
       <div className="mx-auto max-w-6xl space-y-5 p-4 lg:p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-2xl font-black text-app-text">AI Cost & Health</h1>
             <p className="text-sm text-app-muted mt-1">Observability biaya AI dan kesehatan fitur CashFlow.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-xl bg-app-hover p-1">
               {PERIOD_OPTIONS.map((p) => (
                 <button
@@ -220,7 +257,7 @@ export default function MonitoringPage() {
                     'rounded-lg px-3 py-1.5 text-xs font-bold transition',
                     periodDays === p.days
                       ? 'bg-white text-app-text shadow-sm dark:bg-slate-800'
-                      : 'text-app-subtle hover:text-app-text',
+                      : 'text-app-muted hover:text-app-text',
                   )}
                 >
                   {p.label}
@@ -241,9 +278,9 @@ export default function MonitoringPage() {
                 {error.code === 'ADMIN_METRICS_403' ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-bold text-app-text">
+                <h2 className="text-sm font-bold text-app-text">
                   {error.code === 'ADMIN_METRICS_403' ? 'Akses ditolak' : 'Tidak dapat memuat data monitoring'}
-                </h3>
+                </h2>
                 <p className="mt-1 text-sm text-app-muted">
                   {error.code === 'ADMIN_METRICS_403'
                     ? 'Halaman ini khusus admin. Email kamu tidak terdaftar sebagai admin.'
@@ -278,7 +315,7 @@ export default function MonitoringPage() {
 
             {/* Per-feature summary tiles (Sprint 2): biaya & token teratas 7 hari */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-1">Ringkasan per Fitur (7 Hari)</h3>
+              <h2 className="text-sm font-bold text-app-text mb-1">Ringkasan per Fitur (7 Hari)</h2>
               <p className="text-[11px] text-app-subtle mb-3">Biaya & token teratas dari summary.features — mini bar relatif terhadap pemuncak.</p>
               {Object.keys(summary.features).length === 0 ? (
                 <EmptyMini message="Belum ada penggunaan AI pada 7 hari terakhir." />
@@ -306,13 +343,13 @@ export default function MonitoringPage() {
             {cacheStats && (
               <Card>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-app-text">AI Response Cache</h3>
+                  <h2 className="text-sm font-bold text-app-text">AI Response Cache</h2>
                   <span className="text-[11px] text-app-subtle font-medium">LRU in-process · max {cacheStats.maxEntries} entri</span>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex-1">
                     <div className="flex items-end justify-between mb-1">
-                      <p className="text-[10px] text-app-subtle font-medium">Hit Rate</p>
+                      <p className="text-[11px] text-app-subtle font-medium">Hit Rate</p>
                       <p className="text-sm font-black text-app-text">
                         {cacheStats.hits + cacheStats.misses === 0 ? '—' : `${Math.round(cacheStats.hitRate * 100)}%`}
                       </p>
@@ -340,8 +377,8 @@ export default function MonitoringPage() {
             {/* Cost trend chart — Sprint 2: filter fitur + multi-seri per fitur */}
             <Card>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <h3 className="text-sm font-bold text-app-text">Tren Biaya ({periodDays} Hari)</h3>
-                <div className="flex items-center gap-1">
+                <h2 className="text-sm font-bold text-app-text">Tren Biaya ({periodDays} Hari)</h2>
+                <div className="flex flex-wrap items-center gap-1">
                   {/* Toggle metrik chart: Biaya / Token / Calls */}
                   <div className="flex items-center gap-1 rounded-xl bg-app-hover p-1">
                     {TREND_METRICS.map((m) => (
@@ -355,7 +392,7 @@ export default function MonitoringPage() {
                           'rounded-lg px-3 py-1.5 text-xs font-bold transition',
                           trendMetric === m.key
                             ? 'bg-white text-app-text shadow-sm dark:bg-slate-800'
-                            : 'text-app-subtle hover:text-app-text',
+                            : 'text-app-muted hover:text-app-text',
                         )}
                       >
                         {m.label}
@@ -381,8 +418,8 @@ export default function MonitoringPage() {
                 : trend.length === 0
                   ? <EmptyMini message="Belum ada data pada rentang ini." />
                   : (
-                    <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-56" role="img" aria-label="Grafik tren biaya AI">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 0, height: 224 }}>
                         <LineChart data={trend} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
                           <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="currentColor" className="text-app-subtle" />
@@ -407,7 +444,7 @@ export default function MonitoringPage() {
 
             {/* Per-feature cost breakdown (Sprint 2: + latency & cache hit per fitur) */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-1">Cost per Fitur ({periodDays} Hari)</h3>
+              <h2 className="text-sm font-bold text-app-text mb-1">Cost per Fitur ({periodDays} Hari)</h2>
               <p className="text-[11px] text-app-subtle mb-3">Token · request · latency · cache hit · biaya per fitur (dari ai_usage_metrics + system_metrics).</p>
               {!usageSummary || Object.keys(usageSummary.features).length === 0 ? (
                 <EmptyMini message="Belum ada penggunaan AI pada rentang ini." />
@@ -427,19 +464,19 @@ export default function MonitoringPage() {
                         </div>
                         <div className="text-right sm:text-center">
                           <p className="text-sm font-bold text-app-text">{usage.avgTimeMs}ms</p>
-                          <p className="text-[10px] text-app-subtle font-medium">Latency</p>
+                          <p className="text-[11px] text-app-subtle font-medium">Latency</p>
                         </div>
                         <div className="text-right sm:text-center">
                           <p className="text-sm font-bold text-app-text">{hasCacheData ? `${Math.round(cache.hitRate * 100)}%` : '—'}</p>
-                          <p className="text-[10px] text-app-subtle font-medium">Cache Hit</p>
+                          <p className="text-[11px] text-app-subtle font-medium">Cache Hit</p>
                         </div>
                         <div className="text-right sm:text-center">
                           <p className="text-sm font-bold text-app-text">{formatIdr(usage.costIdr)}</p>
-                          <p className="text-[10px] text-app-subtle font-medium">Biaya</p>
+                          <p className="text-[11px] text-app-subtle font-medium">Biaya</p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-bold text-app-text">{Math.round(usage.successRate * 100)}%</p>
-                          <p className="text-[10px] text-app-subtle font-medium">Sukses</p>
+                          <p className="text-[11px] text-app-subtle font-medium">Sukses</p>
                         </div>
                       </div>
                     );
@@ -451,7 +488,7 @@ export default function MonitoringPage() {
             {/* AI Search Engagement (Sprint 1.9) — suggested queries + CTR */}
             <Card>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-app-text">AI Search Engagement</h3>
+                <h2 className="text-sm font-bold text-app-text">AI Search Engagement</h2>
                 <span className="text-[11px] text-app-subtle font-medium">{periodDays} hari · klik hasil & suggestion</span>
               </div>
               {!engagement || (engagement.searches === 0 && engagement.clicks === 0 && engagement.suggestionsUsed === 0) ? (
@@ -525,9 +562,37 @@ export default function MonitoringPage() {
               )}
             </Card>
 
+            {/* Feedback → Prioritas Perbaikan Prompt (Sprint 1.5) */}
+            {feedbackSummary && <FeedbackPriorityPanel summary={feedbackSummary} />}
+
+            {/* Retention D1/D7/D14/D28 (P10.2) */}
+            {retention && <RetentionPanel data={retention} />}
+
+            {/* Rekomendasi AI — funnel shown/opened/CTR (P10.2) */}
+            {recommendation && (
+              <RecommendationPanel
+                data={recommendation}
+                periodDays={periodDays}
+                users={telemetryUsers}
+                selectedUserId={selectedUserId}
+                onUserChange={setSelectedUserId}
+              />
+            )}
+
+            {/* Feedback Rate — ai_feedback ÷ ai_result_shown (P10.2i) */}
+            {feedbackRate && (
+              <FeedbackRatePanel
+                data={feedbackRate}
+                periodDays={periodDays}
+                users={telemetryUsers}
+                selectedUserId={selectedUserId}
+                onUserChange={setSelectedUserId}
+              />
+            )}
+
             {/* Feature health cards */}
             <div>
-              <h3 className="text-sm font-bold text-app-text mb-3 px-1">Kesehatan Fitur</h3>
+              <h2 className="text-sm font-bold text-app-text mb-3 px-1">Kesehatan Fitur</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {health.map((h) => {
                   const label = FEATURE_LABELS[h.feature] || h.feature;
@@ -551,17 +616,17 @@ export default function MonitoringPage() {
                       <p className="text-sm font-medium text-app-text">{label}</p>
                       <span className={cn(
                         'text-xs font-bold px-2 py-0.5 rounded-full',
-                        h.successRate >= 0.9 ? 'bg-mint-50 text-mint-600 dark:bg-mint-500/12 dark:text-mint-300'
+                        h.successRate >= 0.9 ? 'bg-mint-50 text-mint-700 dark:bg-mint-500/12 dark:text-mint-300'
                           : h.successRate >= 0.7 ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/12 dark:text-amber-300'
-                          : 'bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300'
+                          : 'bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300'
                       )}>
                         {Math.round(h.successRate * 100)}%
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                      <div><p className="text-sm font-bold text-app-text">{h.totalCalls}</p><p className="text-[10px] text-app-subtle">Calls</p></div>
-                      <div><p className="text-sm font-bold text-red-500">{h.failureCount}</p><p className="text-[10px] text-app-subtle">Gagal</p></div>
-                      <div><p className="text-sm font-bold text-app-text">{h.avgTimeMs}ms</p><p className="text-[10px] text-app-subtle">Avg</p></div>
+                      <div><p className="text-sm font-bold text-app-text">{h.totalCalls}</p><p className="text-[11px] text-app-subtle">Calls</p></div>
+                      <div><p className="text-sm font-bold text-red-500">{h.failureCount}</p><p className="text-[11px] text-app-subtle">Gagal</p></div>
+                      <div><p className="text-sm font-bold text-app-text">{h.avgTimeMs}ms</p><p className="text-[11px] text-app-subtle">Avg</p></div>
                     </div>
                     <p className="mt-2 text-[11px] font-medium text-primary-500">Lihat detail →</p>
                   </Card>
@@ -572,7 +637,7 @@ export default function MonitoringPage() {
 
             {/* Alerts panel */}
             <Card>
-              <h3 className="text-sm font-bold text-app-text mb-3">Alerts</h3>
+              <h2 className="text-sm font-bold text-app-text mb-3">Alerts</h2>
               {alerts.length === 0 ? (
                 <EmptyMini message="Belum ada alert rule aktif." />
               ) : (
@@ -593,8 +658,8 @@ export default function MonitoringPage() {
                       <span className={cn(
                         'text-xs font-bold px-2 py-0.5 rounded-full',
                         a.status === 'triggered'
-                          ? 'bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300'
-                          : 'bg-mint-50 text-mint-600 dark:bg-mint-500/12 dark:text-mint-300'
+                          ? 'bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300'
+                          : 'bg-mint-50 text-mint-700 dark:bg-mint-500/12 dark:text-mint-300'
                       )}>
                         {a.status === 'triggered' ? 'TRIGGERED' : 'OK'}
                       </span>
@@ -616,7 +681,7 @@ function MetricCard({ icon, label, value, accent }: { icon: React.ReactNode; lab
       <div className={cn('w-8 h-8 rounded-xl bg-app-hover/80 flex items-center justify-center mb-2', accent)}>
         {icon}
       </div>
-      <p className="text-[10px] text-app-subtle font-medium">{label}</p>
+      <p className="text-[11px] text-app-subtle font-medium">{label}</p>
       <p className="text-lg font-black text-app-text mt-0.5">{value}</p>
     </Card>
   );
@@ -668,7 +733,7 @@ function CacheStat({ icon, label, value }: { icon: React.ReactNode; label: strin
   return (
     <div>
       <div className="flex items-center justify-center gap-1">{icon}<p className="text-sm font-black text-app-text">{value}</p></div>
-      <p className="text-[10px] text-app-subtle font-medium mt-0.5">{label}</p>
+      <p className="text-[11px] text-app-subtle font-medium mt-0.5">{label}</p>
     </div>
   );
 }
@@ -678,6 +743,467 @@ function EmptyMini({ message }: { message: string }) {
     <div className="py-8 text-center">
       <p className="text-sm text-app-muted">{message}</p>
     </div>
+  );
+}
+
+/**
+ * Sprint 1.5 — panel prioritas perbaikan prompt dari dataset ai_feedback.
+ * Ranking dari actionPlan server (score desc); bar = negativeRate per feature;
+ * badge skor 0-100 (merah ≥60 · amber ≥30 · mint lainnya) + rating negatif dominan.
+ */
+function FeedbackPriorityPanel({ summary }: { summary: FeedbackSummaryResponse }) {
+  const negativePct = (feature: string) => {
+    const s = summary.features.find((f) => f.feature === feature);
+    return s ? Math.round(s.negativeRate * 100) : 0;
+  };
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-500/12 text-amber-600 dark:text-amber-300">
+            <ThumbsUp className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-app-text">Prioritas Perbaikan Prompt</h2>
+            <p className="text-[11px] text-app-subtle">Dataset ai_feedback (semua waktu) — fitur mana yang prompt-nya perlu dievaluasi/diperbaiki duluan.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] font-medium text-app-subtle">
+          <span>{summary.totalFeedback} feedback</span>
+          <span>{summary.featuresWithFeedback} feature</span>
+          {summary.totalFeedback > 0 && (
+            <span className={cn(
+              'rounded-full px-2 py-0.5 font-bold',
+              summary.overallNegativeRate >= 0.3
+                ? 'bg-red-500/10 text-red-500 dark:text-red-300'
+                : 'bg-mint-500/10 text-mint-600 dark:text-mint-300',
+            )}>
+              negatif {Math.round(summary.overallNegativeRate * 100)}%
+            </span>
+          )}
+        </div>
+      </div>
+
+      {summary.totalFeedback === 0 ? (
+        <EmptyMini message="Belum ada feedback dari user. Ajakan feedback muncul di kartu AI (AI Hub, Advisor, dst)." />
+      ) : (
+        <div className="space-y-2.5">
+          {summary.actionPlan.map((plan, i) => {
+            const pct = negativePct(plan.feature);
+            return (
+              <div key={plan.feature} className="rounded-xl border border-app-border bg-app-bg/50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="w-4 shrink-0 text-right text-[11px] font-bold text-app-subtle">{i + 1}</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-app-text">{plan.label || plan.feature}</p>
+                      <p className="truncate text-[10px] text-app-muted">{plan.prompt} · {plan.file}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {plan.dominantNegative && (
+                      <span className={cn(
+                        'rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                        plan.dominantNegative === 'not_helpful'
+                          ? 'border-red-500/30 bg-red-500/10 text-red-500 dark:text-red-300'
+                          : plan.dominantNegative === 'mismatched'
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                            : 'border-slate-500/30 bg-slate-500/10 text-app-muted',
+                      )}>
+                        {plan.dominantNegative}
+                      </span>
+                    )}
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] font-bold tabular-nums',
+                      plan.priorityScore >= 60
+                        ? 'border-red-500/30 bg-red-500/10 text-red-500 dark:text-red-300'
+                        : plan.priorityScore >= 30
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                          : 'border-mint-500/30 bg-mint-500/10 text-mint-600 dark:text-mint-300',
+                    )}>
+                      {plan.priorityScore}/100
+                    </span>
+                    <span className="text-[11px] font-bold text-app-subtle">{plan.total} fb</span>
+                  </div>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-app-hover">
+                  <div
+                    className={cn('h-full rounded-full transition-all', pct >= 60 ? 'bg-red-500' : pct >= 30 ? 'bg-amber-500' : 'bg-mint-500')}
+                    style={{ width: `${Math.min(100, pct)}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-app-muted">{plan.direction}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * P10.2 — panel retention D1/D7/D14/D28 dari cohort user + sinyal user_active.
+ * Guard: total cohort < minCohortUsers (10) → empty state "belum cukup data"
+ * (hindari angka kosong/menyesatkan — PRODUCT_METRICS aturan pelaporan).
+ */
+function RetentionPanel({ data }: { data: RetentionMetrics }) {
+  const fmt = (rate: number | null | undefined): string => {
+    if (rate === null || rate === undefined) return '—';
+    return `${Math.round(rate * 100)}%`;
+  };
+  const tone = (rate: number | null | undefined) => {
+    if (rate === null || rate === undefined) return 'text-app-subtle';
+    return rate >= 0.4 ? 'text-mint-600 dark:text-mint-300' : rate >= 0.2 ? 'text-amber-600 dark:text-amber-300' : 'text-red-500';
+  };
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-500/12 text-primary-600 dark:text-primary-300">
+            <Users className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-app-text">Retensi Pengguna</h2>
+            <p className="text-[11px] text-app-subtle">Cohort per hari registrasi (UTC) · sinyal user_active · D1/D7/D14/D28</p>
+          </div>
+        </div>
+        {data.totalCohorts > 0 && (
+          <span className="text-[11px] font-medium text-app-subtle">
+            {data.totalCohorts} cohort · {data.totalCohortUsers} user
+          </span>
+        )}
+      </div>
+
+      {data.cohortGuardActive || data.cohorts.length === 0 ? (
+        <EmptyMini
+          message={`Belum cukup data untuk retention (butuh cohort ≥ ${data.minCohortUsers} user per hari). Angka hanya dilaporkan setelah cohort beta nyata terkumpul — hindari data kosong/menyesatkan.`}
+        />
+      ) : (
+        <>
+          {/* Ringkasan mean per offset */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {data.days.map((d) => (
+              <div key={d.day} className="rounded-xl border border-app-border bg-app-bg/50 p-3 text-center">
+                <p className="text-lg font-black tabular-nums text-app-text">{fmt(d.rate)}</p>
+                <p className="text-[10px] font-medium text-app-subtle mt-0.5">D{d.day}</p>
+                <p className="text-[10px] text-app-muted">{d.users} cohort</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabel per cohort-day */}
+          <div className="overflow-x-auto rounded-xl border border-app-border">
+            <table className="w-full text-xs">
+              <thead className="bg-app-bg/60 text-left text-[11px] uppercase tracking-wide text-app-subtle">
+                <tr>
+                  <th className="px-2.5 py-2">Cohort (hari)</th>
+                  <th className="px-2.5 py-2 text-right">User</th>
+                  <th className="px-2.5 py-2 text-right">D1</th>
+                  <th className="px-2.5 py-2 text-right">D7</th>
+                  <th className="px-2.5 py-2 text-right">D14</th>
+                  <th className="px-2.5 py-2 text-right">D28</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border/60">
+                {data.cohorts.map((c) => (
+                  <tr key={c.day}>
+                    <td className="px-2.5 py-2 font-medium tabular-nums text-app-text">{c.day}</td>
+                    <td className="px-2.5 py-2 text-right tabular-nums text-app-text">{c.users}</td>
+                    <td className={cn('px-2.5 py-2 text-right tabular-nums font-semibold', tone(c.d1))}>{fmt(c.d1)}</td>
+                    <td className={cn('px-2.5 py-2 text-right tabular-nums font-semibold', tone(c.d7))}>{fmt(c.d7)}</td>
+                    <td className={cn('px-2.5 py-2 text-right tabular-nums font-semibold', tone(c.d14))}>{fmt(c.d14)}</td>
+                    <td className={cn('px-2.5 py-2 text-right tabular-nums font-semibold', tone(c.d28))}>{fmt(c.d28)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px] text-app-subtle">
+            D-N = % cohort yang aktif pada hari registrasi+N (UTC). Kolom "—" = jendela pengamatan belum tercapai. Sinyal aktivitas: request API terautentikasi (user_active, 1×/user/hari).
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * P10.2 — panel "Rekomendasi AI": funnel recommendation_shown/_opened dari
+ * system_metrics (via POST /api/ai-product/track). Tampilkan:
+ *   - ringkasan shown / opened / CTR
+ *   - seri per-hari CTR (line chart recharts, pola Tren Biaya)
+ *   - breakdown per feature (mini bar, pola FeedbackPriorityPanel)
+ */
+function RecommendationPanel({ data, periodDays, users, selectedUserId, onUserChange }: {
+  data: RecommendationEngagement;
+  periodDays: number;
+  users: TelemetryUser[];
+  selectedUserId: string;
+  onUserChange: (userId: string) => void;
+}) {
+  const hasData = data.shown > 0 || data.opened > 0 || data.byFeature.length > 0;
+  const ctrTone = data.ctr >= 0.05 ? 'text-mint-600 dark:text-mint-300' : 'text-amber-600 dark:text-amber-300';
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-500/12 text-blue-600 dark:text-blue-300">
+            <ListChecks className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-app-text">Rekomendasi AI</h2>
+            <p className="text-[11px] text-app-subtle">
+              {periodDays} hari · shown/opened/CTR rekomendasi{selectedUserId ? ' · scoped ke user terpilih' : ' (event track frontend)'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <UserScopeSelect users={users} value={selectedUserId} onChange={onUserChange} />
+          <span className="text-[11px] font-medium text-app-subtle">CTR = opened ÷ shown</span>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <EmptyMini message="Belum ada aktivitas rekomendasi pada rentang ini. Rekomendasi ter-tracking saat dirender/dibuka di halaman AI Timeline." />
+      ) : (
+        <>
+          {/* Ringkasan */}
+          <div className="grid grid-cols-3 gap-4 text-center mb-5">
+            <CacheStat icon={<Sparkles className="h-3.5 w-3.5 text-primary-500" />} label="Ditampilkan" value={String(data.shown)} />
+            <CacheStat icon={<MousePointerClick className="h-3.5 w-3.5 text-mint-500" />} label="Dibuka" value={String(data.opened)} />
+            <CacheStat icon={<TrendingUp className={cn('h-3.5 w-3.5', ctrTone)} />} label="CTR" value={`${Math.round(data.ctr * 100)}%`} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Tren CTR per hari */}
+            <div>
+              <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">CTR per Hari</p>
+              {data.byDay.length === 0 ? (
+                <p className="text-xs text-app-muted">Belum ada data harian.</p>
+              ) : (
+                <div className="h-48" role="img" aria-label="Grafik rasio klik (CTR) rekomendasi AI harian">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 0, height: 192 }}>
+                    <LineChart data={data.byDay} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-app-border" opacity={0.3} />
+                      <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke="currentColor" className="text-app-subtle" />
+                      <YAxis
+                        tick={{ fontSize: 9 }}
+                        stroke="currentColor"
+                        className="text-app-subtle"
+                        domain={[0, 1]}
+                        tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
+                      />
+                      <Tooltip
+                        formatter={(value, name, props) => {
+                          if (name === 'CTR') return [`${Math.round(Number(value) * 100)}%`, 'CTR'];
+                          const day = (props?.payload as RecommendationDayStat | undefined);
+                          return [
+                            day ? `${day.shown} shown · ${day.opened} opened` : String(value),
+                            String(name),
+                          ];
+                        }}
+                        contentStyle={{ borderRadius: 12, fontSize: 11 }}
+                      />
+                      <Line type="monotone" dataKey="ctr" name="CTR" stroke="#6366f1" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* Breakdown per feature */}
+            <div>
+              <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">Per Feature</p>
+              {data.byFeature.length === 0 ? (
+                <p className="text-xs text-app-muted">Belum ada data per feature.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {data.byFeature.map((f, i) => {
+                    const max = data.byFeature[0].count || 1;
+                    return (
+                      <div key={f.feature} className="flex items-center gap-2.5">
+                        <span className="w-4 shrink-0 text-right text-[11px] font-bold text-app-subtle">{i + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-xs font-medium capitalize text-app-text">{f.feature}</p>
+                            <span className="shrink-0 text-[11px] font-bold text-app-subtle">{f.count}×</span>
+                          </div>
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-app-hover">
+                            <div
+                              className="h-full rounded-full bg-blue-500 transition-all"
+                              style={{ width: `${Math.round((f.count / max) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CTR per event_type (P10.2d) — breakdown shown/opened/CTR per tipe */}
+          <div className="mt-5">
+            <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">Per Event Type</p>
+            {data.byEventType.length === 0 ? (
+              <p className="text-xs text-app-muted">Belum ada data per event type.</p>
+            ) : (
+              <div className="space-y-2">
+                {data.byEventType.map((et) => (
+                  <div key={et.eventType} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-app-border first:border-t-0 py-2">
+                    <p className="text-xs font-medium capitalize text-app-text">{et.eventType.replace(/_/g, ' ')}</p>
+                    <div className="flex items-center gap-3 text-[11px] text-app-subtle">
+                      <span><span className="font-bold text-app-text">{et.shown}</span> shown</span>
+                      <span><span className="font-bold text-app-text">{et.opened}</span> opened</span>
+                      <span className={cn('rounded-full border px-2 py-0.5 font-bold tabular-nums', et.ctr >= 0.05 ? 'border-mint-500/30 bg-mint-500/10 text-mint-600 dark:text-mint-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300')}>
+                        CTR {Math.round(et.ctr * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="mt-3 text-[11px] text-app-subtle">
+            Sumber: event <code className="rounded bg-app-hover px-1 text-app-muted">recommendation_shown</code> / <code className="rounded bg-app-hover px-1 text-app-muted">recommendation_opened</code> via{' '}
+            <code className="rounded bg-app-hover px-1 text-app-muted">POST /api/ai-product/track</code> — non-PII, user-scoped. Scoping: hanya event_type recommendation — halaman AI Timeline + kartu timeline AI Hub (P10.2e).
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * P10.2i — panel "Feedback Rate": ai_feedback (numerator) ÷ ai_result_shown
+ * (denominator = tampilan kartu AI feedback-capable, event track frontend).
+ * Tampilkan ringkasan feedback / views / rate + breakdown per feature.
+ */
+function FeedbackRatePanel({ data, periodDays, users, selectedUserId, onUserChange }: {
+  data: FeedbackRateSummary;
+  periodDays: number;
+  users: TelemetryUser[];
+  selectedUserId: string;
+  onUserChange: (userId: string) => void;
+}) {
+  const hasData = data.views > 0 || data.feedback > 0 || data.byFeature.length > 0;
+  const rateTone = data.rate >= 0.2 ? 'text-mint-600 dark:text-mint-300' : 'text-amber-600 dark:text-amber-300';
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 dark:bg-violet-500/12 text-violet-600 dark:text-violet-300">
+            <ThumbsDown className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-app-text">Feedback Rate</h2>
+            <p className="text-[11px] text-app-subtle">
+              {periodDays} hari · feedback ÷ tampilan kartu AI{selectedUserId ? ' · scoped ke user terpilih' : ' (event track frontend)'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <UserScopeSelect users={users} value={selectedUserId} onChange={onUserChange} />
+          <span className="text-[11px] font-medium text-app-subtle">Feedback Rate = feedback ÷ views</span>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <EmptyMini message="Belum ada data pada rentang ini. Tampilan kartu AI ter-tracking via event ai_result_shown (AI Hub, AI Timeline, Advisor, Chat)." />
+      ) : (
+        <>
+          {/* Ringkasan */}
+          <div className="grid grid-cols-3 gap-4 text-center mb-5">
+            <CacheStat icon={<ThumbsUp className="h-3.5 w-3.5 text-primary-500" />} label="Feedback" value={String(data.feedback)} />
+            <CacheStat icon={<Sparkles className="h-3.5 w-3.5 text-blue-500" />} label="Tampilan Kartu" value={String(data.views)} />
+            <CacheStat icon={<TrendingUp className={cn('h-3.5 w-3.5', rateTone)} />} label="Rate" value={`${Math.round(data.rate * 100)}%`} />
+          </div>
+
+          {/* Breakdown per feature */}
+          <p className="text-[11px] font-bold text-app-subtle mb-2 uppercase tracking-wide">Per Feature</p>
+          {data.byFeature.length === 0 ? (
+            <p className="text-xs text-app-muted">Belum ada data per feature.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {data.byFeature.map((f, i) => {
+                const max = data.byFeature[0].feedback || 1;
+                return (
+                  <div key={f.feature} className="flex flex-wrap items-center gap-2.5">
+                    <span className="w-4 shrink-0 text-right text-[11px] font-bold text-app-subtle">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-xs font-medium capitalize text-app-text">{f.feature}</p>
+                        <span className="shrink-0 text-[11px] font-bold text-app-subtle">
+                          {f.feedback} fb · {f.views} views
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-app-hover">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all"
+                          style={{ width: `${Math.round((f.feedback / max) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className={cn(
+                      'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold tabular-nums',
+                      f.rate >= 0.2
+                        ? 'border-mint-500/30 bg-mint-500/10 text-mint-600 dark:text-mint-300'
+                        : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300',
+                    )}>
+                      {Math.round(f.rate * 100)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="mt-3 text-[11px] text-app-subtle">
+            Sumber: <code className="rounded bg-app-hover px-1 text-app-muted">ai_feedback</code> ÷{' '}
+            <code className="rounded bg-app-hover px-1 text-app-muted">ai_result_shown</code> (POST /api/ai-product/track) — non-PII, user-scoped.
+            Numerator & denominator SAMA-SAMA dari kartu feedback-capable (timeline, hub insight/health/simulation, advisor, chat) → scoping konsisten.
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * P10.2 view per-user — dropdown user dengan aktivitas telemetry AI pada
+ * rentang (sumber GET /api/admin/metrics/telemetry-users). '' = Semua User;
+ * memilih user meng-scope panel Rekomendasi AI & Feedback Rate ke user itu
+ * (QA verifikasi telemetry satu user tanpa query Turso manual). Disabled
+ * dengan label "Belum ada user" bila tidak ada aktivitas telemetry pada rentang.
+ */
+function UserScopeSelect({ users, value, onChange }: {
+  users: TelemetryUser[];
+  value: string;
+  onChange: (userId: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="Filter per user"
+      title="Scoping telemetry ke satu user (Rekomendasi AI & Feedback Rate)"
+      disabled={users.length === 0}
+      className="max-w-56 rounded-xl bg-app-hover px-2.5 py-1.5 text-[11px] font-bold text-app-text transition hover:bg-app-border/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
+    >
+      <option value="">{users.length === 0 ? 'Belum ada user' : 'Semua User'}</option>
+      {users.map((u) => (
+        <option key={u.userId} value={u.userId}>
+          {u.label} · {u.activity} aktivitas
+        </option>
+      ))}
+    </select>
   );
 }
 

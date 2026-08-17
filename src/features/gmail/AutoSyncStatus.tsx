@@ -118,6 +118,10 @@ export default function AutoSyncStatus({
           <button
             onClick={handleToggle}
             disabled={loading}
+            type="button"
+            role="switch"
+            aria-checked={gmailSyncEnabled}
+            aria-label={gmailSyncEnabled ? 'Nonaktifkan sinkronisasi otomatis' : 'Aktifkan sinkronisasi otomatis'}
             className={cn(
               'relative w-11 h-6 rounded-full transition-colors duration-200',
               gmailSyncEnabled ? 'bg-primary-500' : 'bg-app-hover',
@@ -140,7 +144,8 @@ export default function AutoSyncStatus({
                 <select
                   value={settings?.syncIntervalMinutes || 60}
                   onChange={(e) => handleIntervalChange(parseInt(e.target.value, 10))}
-                  className="text-[10px] font-medium text-app-text bg-transparent border border-app-hover rounded px-1 py-0.5"
+                  aria-label="Interval sinkronisasi otomatis"
+                  className="text-[11px] font-medium text-app-text bg-transparent border border-app-hover rounded px-1 py-0.5"
                 >
                   <option value={15}>15 menit</option>
                   <option value={30}>30 menit</option>
@@ -200,7 +205,7 @@ export default function AutoSyncStatus({
           <p className="text-primary-600 dark:text-primary-300 font-medium">
             {gmailSyncEnabled ? 'Auto Sync Aktif (Aplikasi Aktif)' : 'Auto Sync'}
           </p>
-          <p className="text-primary-500 dark:text-primary-400 mt-0.5">
+          <p className="text-primary-600 dark:text-primary-400 mt-0.5">
             Auto Sync saat ini berjalan saat aplikasi aktif. Scan di latar belakang
             tanpa membuka aplikasi tidak lagi didukung (fitur Edge Function dihapus).{' '}
             <a
@@ -255,7 +260,7 @@ export default function AutoSyncStatus({
           <div>
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center gap-1.5 text-[10px] text-app-subtle hover:text-app-text transition-colors"
+              className="flex items-center gap-1.5 text-[11px] text-app-subtle hover:text-app-text transition-colors"
             >
               <History className="w-3 h-3" />
               {showHistory ? 'Sembunyikan Riwayat' : `Riwayat Sinkronisasi (${syncRuns.length})`}

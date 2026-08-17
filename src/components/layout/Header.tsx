@@ -65,7 +65,8 @@ export default function Header({ title, showSearch, onSearchChange }: HeaderProp
           <button
             onClick={toggleTheme}
             className="p-2 app-icon-button"
-            title={`Theme: ${theme}`}
+            aria-label={theme === 'dark' ? 'Ubah ke tema terang' : 'Ubah ke tema gelap'}
+            title={theme === 'dark' ? 'Ubah ke tema terang' : 'Ubah ke tema gelap'}
           >
             {theme === 'dark' ? (
               <Sun className="w-4 h-4" />

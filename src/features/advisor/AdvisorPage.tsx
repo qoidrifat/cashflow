@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
-import { listenToTransactions } from '../../services/transactionService';
+import { getAllTransactions } from '../../services/transactionService';
 import { listenToBudgets } from '../../services/budgetService';
 import { getWalletAccounts, getSavingGoals, getSubscriptions } from '../../services/professionalSuiteService';
 import {
@@ -20,8 +20,8 @@ import {
   generateAdvisorReport,
   type AdvisorInput,
 } from '../../services/advisorService';
-import { cn, formatCurrency, getCurrentMonth, getCurrentYear } from '../../lib/utils';
-import type { AdvisorReport, Budget, Transaction } from '../../types';
+import { cn, formatCurrency, formatSigned, getCurrentMonth, getCurrentYear } from '../../lib/utils';
+import type { AdvisorReport, Budget } from '../../types';
 import Header from '../../components/layout/Header';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -29,6 +29,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import { ChartSkeleton } from '../../components/ui/Skeleton';
 import AiFeedbackButtons from '../ai-product/components/AiFeedbackButtons';
 import AiTrustMeta from '../ai-product/components/AiTrustMeta';
+import { trackAiProductEvent } from '../../services/aiProductService';
 
 /** Bungkus listener berbasis-callback jadi Promise (pola dashboard). */
 function fetchOnce<T>(subscribe: (cb: (data: T) => void, errCb?: (e: Error) => void) => () => void): Promise<T> {
@@ -60,7 +61,11 @@ export default function AdvisorPage() {
     if (!authUser) return;
     setLoading(true);
     const [transactions, budgets, wallets, goals, subscriptions] = await Promise.all([
-      fetchOnce<Transaction[]>((cb, errCb) => listenToTransactions(authUser.uid, cb, errCb)),
+      // Migrasi 2026-08-09: dataset LENGKAP (windowless-complete, paginated)
+      // — sebelumnya listenToTransactions = 50 baris terbaru → metrics coach
+      // (pemasukan/pengeluaran bulan ini, avg 3 bulan, top kategori/merchant,
+      // budget usage) salah untuk user >50 transaksi (kelas insiden 2026-08-08).
+      getAllTransactions(authUser.uid).catch((e) => { console.error('Advisor: gagal memuat data awal, degrade ke kosong', e); return []; }),
       fetchOnce<Budget[]>((cb, errCb) => listenToBudgets(authUser.uid, cb, errCb)),
       getWalletAccounts(authUser.uid).catch(() => []),
       getSavingGoals(authUser.uid).catch(() => []),
@@ -91,6 +96,13 @@ export default function AdvisorPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // P10.2i telemetry: denominator Feedback Rate — kartu advisor feedback-capable
+  // ditampilkan. Fire sekali per report BARU (reload awal + refresh = tampilan
+  // baru); non-PII (hanya feature).
+  useEffect(() => {
+    if (report) trackAiProductEvent('ai_result_shown', { feature: 'advisor' }).catch(() => {});
+  }, [report]);
 
   const refresh = async () => {
     if (!data || data.transactions.length === 0) return;
@@ -138,8 +150,10 @@ export default function AdvisorPage() {
   }
 
   const snapshot = [
-    { label: 'Pemasukan', value: formatCurrency(metrics.currentMonthIncome), tone: 'text-mint-600 dark:text-mint-300' },
-    { label: 'Pengeluaran', value: formatCurrency(metrics.currentMonthExpense), tone: 'text-red-500 dark:text-red-300' },
+    // Bahasa tanda seragam (pola TransactionItem / StatCard sign): income → '+' eksplisit,
+    // expense → '-' di depan magnitude, 0 → tanpa tanda (formatSigned menangani).
+    { label: 'Pemasukan', value: formatSigned(metrics.currentMonthIncome, { showPlus: true }), tone: 'text-mint-600 dark:text-mint-300' },
+    { label: 'Pengeluaran', value: formatSigned(-metrics.currentMonthExpense), tone: 'text-red-500 dark:text-red-300' },
     { label: 'Rasio Pengeluaran', value: `${Math.round(metrics.expenseRatio * 100)}%`, tone: metrics.expenseRatio >= 0.85 ? 'text-red-500 dark:text-red-300' : 'text-app-text' },
     { label: 'Tingkat Tabungan', value: `${Math.round(metrics.savingsRate * 100)}%`, tone: 'text-app-text' },
   ];

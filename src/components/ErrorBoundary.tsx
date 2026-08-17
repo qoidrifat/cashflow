@@ -81,10 +81,10 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
                 </p>
                 {this.state.errorInfo && (
                   <details className="mt-2">
-                    <summary className="text-[10px] text-app-subtle cursor-pointer hover:text-app-text">
+                    <summary className="text-[11px] text-app-subtle cursor-pointer hover:text-app-text">
                       Component Stack
                     </summary>
-                    <pre className="mt-1 text-[9px] text-app-subtle overflow-auto max-h-32 font-mono">
+                    <pre className="mt-1 text-[10px] text-app-subtle overflow-auto max-h-32 font-mono">
                       {this.state.errorInfo.componentStack}
                     </pre>
                   </details>

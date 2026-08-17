@@ -31,11 +31,33 @@ export interface MemoryRecord {
 export interface TimelineRecord {
   id: string;
   feature: string;
+  /** P9: insight | recommendation | conversation | feedback | memory_update | risk | other. */
+  event_type: string;
+  /** P9: new | viewed | completed | dismissed. */
+  status: string;
   title: string;
   body?: string;
   confidence?: number | null;
   payload?: string;
   created_at?: string;
+}
+
+/** Feedback yang dikaitkan ke satu timeline event (via item_id — P9 §13). */
+export interface TimelineFeedbackRef {
+  rating: string;
+  reason?: string;
+  created_at?: string;
+}
+
+/** Detail satu timeline event + feedback terkait. */
+export interface TimelineDetail extends TimelineRecord {
+  feedback: TimelineFeedbackRef[];
+}
+
+/** Respons GET /timeline — pagination keyset (P9 §18). */
+export interface TimelinePage {
+  items: TimelineRecord[];
+  hasMore: boolean;
 }
 
 async function handle<T>(res: Response): Promise<T> {
@@ -113,12 +135,46 @@ export async function deleteMemory(id: string): Promise<{ success: boolean }> {
   return handle<{ success: boolean }>(res);
 }
 
-// ── Timeline ─────────────────────────────────────────────────────────────────
+// ── Timeline (P9) ────────────────────────────────────────────────────────────
 
-export async function listTimeline(feature?: string): Promise<TimelineRecord[]> {
-  const q = feature ? `?feature=${encodeURIComponent(feature)}` : '';
-  const res = await fetch(`/api/ai-product/timeline${q}`, { credentials: 'include' });
-  return handle<TimelineRecord[]>(res);
+/**
+ * Daftar timeline (DESC, pagination keyset). Respons { items, hasMore }:
+ * `before` = created_at event terakhir yang sudah dilihat (lihat item.terakhir).
+ */
+export async function listTimeline(opts?: {
+  feature?: string;
+  eventType?: string;
+  before?: string;
+  /** Tie-break keyset: id event terakhir (WAJIB bersama `before`). */
+  beforeId?: string;
+  limit?: number;
+}): Promise<TimelinePage> {
+  const params = new URLSearchParams();
+  if (opts?.feature) params.set('feature', opts.feature);
+  if (opts?.eventType) params.set('eventType', opts.eventType);
+  if (opts?.before) params.set('before', opts.before);
+  if (opts?.beforeId) params.set('beforeId', opts.beforeId);
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  const q = params.toString();
+  const res = await fetch(`/api/ai-product/timeline${q ? `?${q}` : ''}`, { credentials: 'include' });
+  return handle<TimelinePage>(res);
+}
+
+/** Detail satu event + feedback terkait. */
+export async function getTimelineEvent(id: string): Promise<TimelineDetail> {
+  const res = await fetch(`/api/ai-product/timeline/${encodeURIComponent(id)}`, { credentials: 'include' });
+  return handle<TimelineDetail>(res);
+}
+
+/** Transisi status (P9 §12: new→viewed|completed|dismissed · viewed→completed|dismissed). */
+export async function updateTimelineStatus(id: string, status: string): Promise<{ success: boolean; status: string }> {
+  const res = await fetch(`/api/ai-product/timeline/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ status }),
+  });
+  return handle<{ success: boolean; status: string }>(res);
 }
 
 export async function addTimelineEntry(input: {
@@ -135,4 +191,31 @@ export async function addTimelineEntry(input: {
     body: JSON.stringify(input),
   });
   return handle<{ id: string }>(res);
+}
+
+// ── Track (P10.2 — Closed Beta Instrumentation) ────────────────────────────────
+
+/**
+ * Event telemetry frontend (fire-and-forget, tidak pernah melempar).
+ * Whitelist server: ai_hub_view | recommendation_shown | recommendation_opened
+ * | ai_result_shown (P10.2i — denominator Feedback Rate: tampilan kartu AI
+ * feedback-capable, bukan page view).
+ * non-PII: hanya event + feature/itemId/eventType (tanpa query/isi konten).
+ * `eventType` = enum timeline kanonik (insight/recommendation/...) — dipakai
+ * panel admin untuk CTR per event type (P10.2d).
+ */
+export async function trackAiProductEvent(
+  event: 'ai_hub_view' | 'recommendation_shown' | 'recommendation_opened' | 'ai_result_shown',
+  meta?: { feature?: string; itemId?: string; eventType?: string },
+): Promise<void> {
+  try {
+    await fetch('/api/ai-product/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ event, ...(meta || {}) }),
+    });
+  } catch {
+    // analytics non-blocking — abaikan kegagalan
+  }
 }

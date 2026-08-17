@@ -295,8 +295,8 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cn(
       'inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full',
       failed
-        ? 'bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300'
-        : 'bg-mint-50 text-mint-600 dark:bg-mint-500/12 dark:text-mint-300',
+        ? 'bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300'
+        : 'bg-mint-50 text-mint-700 dark:bg-mint-500/12 dark:text-mint-300',
     )}>
       {failed ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
       {status}

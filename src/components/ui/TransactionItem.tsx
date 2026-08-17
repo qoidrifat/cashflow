@@ -62,7 +62,10 @@ function TransactionItemInner({ transaction, onClick, delay = 0 }: TransactionIt
             noBackground
             animated
             animationVariant="soft"
-            interactive
+            // P2.3.2 — TANPA `interactive`: ikon di list adalah dekoratif; tanpa
+            // whileHover/whileTap framer tidak menambah tabindex="0" → tidak
+            // ada focus stop tanpa nama di tab order (terbukti keyboard walk:
+            // tiap item transaksi menyumbang satu DIV fokus kosong).
           />
         )}
       </div>
@@ -74,8 +77,15 @@ function TransactionItemInner({ transaction, onClick, delay = 0 }: TransactionIt
             {transaction.merchant || transaction.categoryName}
           </p>
           {isAutomatedSource && (
-            <span className="text-[10px] font-medium text-primary-500 dark:text-primary-300 bg-primary-50 dark:bg-primary-500/12 px-1.5 py-0.5 rounded-full">
+            <span className="text-[10px] font-medium text-primary-600 dark:text-primary-300 bg-primary-50 dark:bg-primary-500/12 px-1.5 py-0.5 rounded-full">
               {label}
+            </span>
+          )}
+          {/* P2.9 §31 — indikator penautan akun: transaksi yang belum dikaitkan
+              ke rekening terlihat jelas (tidak disembunyikan). */}
+          {transaction.accountId == null && (
+            <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/12 px-1.5 py-0.5 rounded-full">
+              Belum ditautkan
             </span>
           )}
           {transaction.fraudFlag && (

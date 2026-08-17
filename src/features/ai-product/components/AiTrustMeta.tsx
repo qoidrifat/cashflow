@@ -30,7 +30,10 @@ export default function AiTrustMeta({ model, className }: AiTrustMetaProps) {
 
   const source = model.source || '';
   const sourceLabel = SOURCE_LABELS[source] || (source ? `Sumber: ${source}` : null);
-  const fallback = fallbackReason(source);
+  // Fix P1.3 (ditemukan component test): source kosong → fallbackReason('')
+  // mengembalikan "Sumber: " (truthy) → badge amber kosong dirender. Fallback
+  // hanya bermakna bila ada source — null bila kosong.
+  const fallback = source ? fallbackReason(source) : null;
   const processing = formatProcessingTime(model.processingTimeMs);
   const updated = formatTimestamp(model.lastUpdated || model.timestamp);
 
@@ -44,7 +47,7 @@ export default function AiTrustMeta({ model, className }: AiTrustMetaProps) {
   if (items.length === 0 && !fallback) return null;
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-app-subtle', className)}>
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-app-subtle', className)}>
       {items.map((item, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {item.icon}

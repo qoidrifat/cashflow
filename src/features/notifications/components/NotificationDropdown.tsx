@@ -80,7 +80,7 @@ export default function NotificationDropdown({
         {unreadCount > 0 && (
           <button
             onClick={onMarkAllRead}
-            className="flex min-h-[32px] items-center gap-1 rounded-lg px-1 text-[10px] font-medium text-primary-500 transition-colors hover:text-primary-600"
+            className="flex min-h-[32px] items-center gap-1 rounded-lg px-1 text-[11px] font-medium text-primary-500 transition-colors hover:text-primary-600"
           >
             <CheckCheck className="h-3 w-3" />
             Tandai dibaca

@@ -82,6 +82,19 @@ export interface SimulationResult {
   avgNetCashflow: number;
   /** Beda saldo akhir vs awal. */
   balanceDelta: number;
+  /**
+   * Jumlah bulan dengan saldo NEGATIF (defisit) selama proyeksi.
+   * Keputusan desain (audit 2026-08-09): proyeksi TIDAK di-clamp ke 0 —
+   * angka negatif dijaga JUJUR (pola StatCard/ProfilePage/formatCurrency
+   * Math.abs + prefix). Indikator ini dihitung derived dari angka jujur
+   * (balance per-bulan TIDAK dimodifikasi). 0 = tidak pernah minus.
+   */
+  deficitMonths: number;
+  /**
+   * Bulan ke-1..N (monthIndex) saat saldo PERTAMA KALI negatif; null bila
+   * tidak pernah minus. Dipakai UI untuk "Defisit mulai bulan ke-N".
+   */
+  firstDeficitMonth: number | null;
 }
 
 // ── Engine ───────────────────────────────────────────────────────────────────
@@ -126,7 +139,10 @@ export function runSimulation(
     .reduce((s, a) => s + a.amount, 0);
 
   const projected: SimulationMonth[] = [];
-  let balance = Math.max(0, baseline.balance);
+  // Saldo awal JUJUR — tidak di-clamp ke 0 (audit 2026-08-09): bila baseline
+  // negatif (mis. utang kartu kredit > saldo), proyeksi dimulai dari angka
+  // sesungguhnya; meng-clamp diam-diam ke 0 menyembunyikan defisit awal.
+  let balance = baseline.balance;
   let savingsAccumulated = 0;
 
   for (let i = 1; i <= months; i++) {
@@ -163,6 +179,11 @@ export function runSimulation(
   const finalBalance = projected.length > 0 ? projected[projected.length - 1].balance : balance;
   const avgNetCashflow = projected.reduce((s, m) => s + m.netCashflow, 0) / projected.length;
 
+  // Indikator defisit (angka proyeksi TETAP jujur/negatif — hanya dihitung
+  // derived, bukan di-clamp; lihat komentar interface).
+  const deficitMonths = projected.filter((m) => m.balance < 0).length;
+  const firstDeficitMonth = projected.find((m) => m.balance < 0)?.monthIndex ?? null;
+
   return {
     baseline,
     adjustments,
@@ -170,7 +191,9 @@ export function runSimulation(
     finalBalance: round(finalBalance),
     totalSaved: round(savingsAccumulated),
     avgNetCashflow: round(avgNetCashflow),
-    balanceDelta: round(finalBalance - Math.max(0, baseline.balance)),
+    balanceDelta: round(finalBalance - baseline.balance),
+    deficitMonths,
+    firstDeficitMonth,
   };
 }
 

@@ -13,12 +13,14 @@ import {
   RefreshCw,
   BriefcaseBusiness,
   Sparkles,
+  BookOpenCheck,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/useAppStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useShallow } from 'zustand/react/shallow';
 import { APP_NAME } from '../../config/constants';
+import { env } from '../../config/env';
 
 const navLinks = [
   { to: '/dashboard', label: 'Beranda', icon: LayoutDashboard },
@@ -28,6 +30,9 @@ const navLinks = [
   { to: '/reports', label: 'Laporan', icon: BarChart3 },
   { to: '/professional', label: 'Suite', icon: BriefcaseBusiness },
   { to: '/suite/ai-search', label: 'AI Search', icon: Sparkles },
+  // P0.14 — AI Knowledge: nav hanya tampil bila build-time flag aktif
+  // (runtime gate = config server GOOGLE_AGENT_PLATFORM_ENABLED).
+  ...(env.aiKnowledge.enabled ? [{ to: '/suite/ai-knowledge', label: 'AI Knowledge', icon: BookOpenCheck }] : []),
   { to: '/gmail-sync', label: 'Gmail Sync', icon: Mail },
   { to: '/categories', label: 'Kategori', icon: Tags },
   { to: '/settings', label: 'Pengaturan', icon: Settings },
@@ -74,6 +79,7 @@ export default function Sidebar() {
             <button
               onClick={() => setSidebarOpen(false)}
               className="p-1 app-icon-button"
+              aria-label="Tutup sidebar"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -116,6 +122,7 @@ export default function Sidebar() {
             <button
               onClick={() => setSidebarOpen(true)}
               className="w-full p-2 app-icon-button flex items-center justify-center"
+              aria-label="Buka sidebar"
             >
               <ChevronLeft className="w-4 h-4 rotate-180" />
             </button>

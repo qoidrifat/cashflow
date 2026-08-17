@@ -34,9 +34,13 @@ import {
   getSavingGoals,
   getSubscriptions,
   getWalletAccounts,
+  getWalletProviders,
   saveSavingGoal,
   saveSubscription,
   saveWalletAccount,
+  walletVerificationState,
+  TEST_ONLY_WALLET_PROVIDERS,
+  type WalletProvider,
 } from '../../services/professionalSuiteService';
 import { exportMonthlyReportPdf } from '../../services/pdfExportService';
 import { EXPENSE_CATEGORIES } from '../../config/constants';
@@ -60,7 +64,12 @@ const walletDefaults: WalletAccountFormData = {
   institution: '',
   balance: 0,
   color: '#8b5cf6',
+  providerCode: null,
 };
+
+// P0.12 — katalog provider di-fetch dari backend GET /api/wallet-providers
+// (authority), dengan fallback statis aman saat offline/error. Backend tetap
+// menolak kode di luar katalognya (fail-closed).
 
 const goalDefaults: SavingGoalFormData = {
   name: '',
@@ -86,6 +95,7 @@ const walletSchema = z.object({
   institution: z.string(),
   balance: z.number().min(0, 'Saldo tidak boleh negatif.'),
   color: z.string().min(1),
+  providerCode: z.string().nullable().optional(),
 });
 
 const goalSchema = z.object({
@@ -120,6 +130,9 @@ export default function ProfessionalSuitePage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [modal, setModal] = useState<ModalType>(null);
   const [walletForm, setWalletForm] = useState(walletDefaults);
+  const [walletProviders, setWalletProviders] = useState<WalletProvider[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [providersError, setProvidersError] = useState(false);
   const [goalForm, setGoalForm] = useState(goalDefaults);
   const [subscriptionForm, setSubscriptionForm] = useState(subscriptionDefaults);
 
@@ -137,6 +150,27 @@ export default function ProfessionalSuitePage() {
     setGoals(goalData);
     setSubscriptions(subscriptionData);
   };
+
+  useEffect(() => {
+    if (!authUser || providersLoaded) return;
+    getWalletProviders().then((res) => {
+      if (res.ok) {
+        setWalletProviders(res.providers);
+        setProvidersError(false);
+      } else {
+        // Degraded-mode EKSPLISIT (P0.13 §8): API gagal → TIDAK pakai katalog
+        // silent mirror. Hanya di lingkungan dev/tailwind-test kita turunkan ke
+        // fallback TEST_ONLY; produksi menampilkan error (providersError).
+        if (import.meta.env.DEV) {
+          setWalletProviders(TEST_ONLY_WALLET_PROVIDERS);
+        } else {
+          setWalletProviders([]);
+          setProvidersError(true);
+        }
+      }
+      setProvidersLoaded(true);
+    }).catch(() => setProvidersLoaded(true));
+  }, [authUser, providersLoaded]);
 
   useEffect(() => {
     if (!authUser) return;
@@ -332,21 +366,31 @@ export default function ProfessionalSuitePage() {
               <CardSkeleton />
             ) : wallets.length === 0 ? (
               <MiniEmpty title="Belum ada wallet" />
-            ) : wallets.map((wallet) => (
-              <ListRow
-                key={wallet.id}
-                title={wallet.name}
-                meta={`${wallet.type} • ${wallet.institution || 'Tanpa institusi'}`}
-                value={formatCurrency(wallet.balance)}
-                color={wallet.color}
-                onDelete={() => {
-                  if (!authUser) return;
-                  deleteWalletAccount(authUser.uid, wallet.id)
-                    .then(reloadProfessionalData)
-                    .catch((error) => addToast({ type: 'error', title: 'Gagal menghapus wallet', message: error instanceof Error ? error.message : undefined }));
-                }}
-              />
-            ))}
+            ) : wallets.map((wallet) => {
+              const provider = wallet.providerCode ? walletProviders.find((p) => p.code === wallet.providerCode) : null;
+              const vs = walletVerificationState(wallet);
+              const balanceState = vs.balance === 'verified'
+                ? '✓ Saldo terverifikasi'
+                : vs.balance === 'mismatch'
+                  ? '⚠ Saldo tidak cocok'
+                  : 'Saldo belum terverifikasi';
+              return (
+                <ListRow
+                  key={wallet.id}
+                  title={wallet.name}
+                  meta={`${provider ? provider.name : wallet.type} • ${provider ? 'Integrasi manual' : wallet.institution || 'Tanpa institusi'}`}
+                  sub={`${balanceState}`}
+                  value={formatCurrency(wallet.balance)}
+                  color={wallet.color}
+                  onDelete={() => {
+                    if (!authUser) return;
+                    deleteWalletAccount(authUser.uid, wallet.id)
+                      .then(reloadProfessionalData)
+                      .catch((error) => addToast({ type: 'error', title: 'Gagal menghapus wallet', message: error instanceof Error ? error.message : undefined }));
+                  }}
+                />
+              );
+            })}
           </Panel>
 
           <Panel
@@ -438,6 +482,47 @@ export default function ProfessionalSuitePage() {
       <Modal isOpen={modal === 'wallet'} onClose={() => setModal(null)} title="Tambah Wallet" maxWidth="sm">
         <FormShell onSubmit={handleSaveWallet}>
           <Input label="Nama wallet" value={walletForm.name} onChange={(value) => setWalletForm({ ...walletForm, name: value })} />
+          <label className="block text-xs text-app-subtle mb-1" htmlFor="wallet-provider">Provider</label>
+          <select
+            id="wallet-provider"
+            aria-label="Provider"
+            value={walletForm.providerCode ?? ''}
+            onChange={(event) => {
+              const p = event.target.selectedOptions[0];
+              setWalletForm({
+                ...walletForm,
+                providerCode: event.target.value || null,
+                institution: event.target.value ? (p?.text || '') : walletForm.institution,
+              });
+            }}
+            className="w-full px-3 py-2.5 rounded-xl app-field text-sm"
+          >
+            <option value="">Tanpa provider</option>
+            <optgroup label="Bank">
+              {walletProviders.filter((p) => p.type === 'bank').map((p) => (
+                <option key={p.code} value={p.code}>{p.name}</option>
+              ))}
+            </optgroup>
+            <optgroup label="E-Wallet">
+              {walletProviders.filter((p) => p.type === 'e_wallet').map((p) => (
+                <option key={p.code} value={p.code}>{p.name}</option>
+              ))}
+            </optgroup>
+          </select>
+          {providersError ? (
+            <p className="text-xs text-warning">
+              Katalog provider tidak tersedia. Muat ulang untuk mencoba lagi.
+            </p>
+          ) : null}
+          {(() => {
+            const selected = walletProviders.find((p) => p.code === walletForm.providerCode);
+            if (!selected) return null;
+            return (
+              <p className="text-xs text-app-muted">
+                {selected.name} — Integrasi otomatis belum tersedia. Akun ditambahkan secara manual.
+              </p>
+            );
+          })()}
           <Input label="Institusi" value={walletForm.institution} onChange={(value) => setWalletForm({ ...walletForm, institution: value })} />
           <Input label="Saldo" type="number" value={walletForm.balance || ''} onChange={(value) => setWalletForm({ ...walletForm, balance: Number(value) })} />
         </FormShell>
@@ -512,16 +597,17 @@ function MiniEmpty({ title }: { title: string }) {
   return <div className="rounded-2xl border border-dashed border-app-border p-5 text-center text-sm text-app-muted">{title}</div>;
 }
 
-function ListRow({ title, meta, value, color, onDelete }: { title: string; meta: string; value: string; color: string; onDelete: () => void }) {
+function ListRow({ title, meta, sub, value, color, onDelete }: { title: string; meta: string; sub?: string; value: string; color: string; onDelete: () => void }) {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3">
       <span className="h-10 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-app-text">{title}</p>
         <p className="truncate text-xs text-app-subtle">{meta}</p>
+        {sub ? <p className="truncate text-xs text-app-muted">{sub}</p> : null}
       </div>
       <p className="text-xs font-bold text-app-text tabular-nums">{value}</p>
-      <button onClick={onDelete} className="app-icon-button p-1.5 text-app-subtle hover:text-red-500">
+      <button onClick={onDelete} className="app-icon-button p-1.5 text-app-subtle hover:text-red-500" aria-label={`Hapus ${title}`}>
         <Trash2 className="w-3.5 h-3.5" />
       </button>
     </motion.div>

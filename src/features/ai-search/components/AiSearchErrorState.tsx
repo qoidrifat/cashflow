@@ -60,7 +60,7 @@ export default function AiSearchErrorState({
           {onRetry && (
             <button
               onClick={onRetry}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-primary-500 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-600"
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
             >
               <RefreshCw className="h-4 w-4" />
               Coba Lagi

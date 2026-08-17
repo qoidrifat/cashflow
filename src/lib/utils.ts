@@ -17,6 +17,25 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
+ * Format currency DENGAN tanda eksplisit — dedup pola
+ * `\`${v < 0 ? '-' : ''}${formatCurrency(v)}\`` (yang terulang ~9× di
+ * AiHubPage/ReportsPage/BudgetsPage). `formatCurrency` memakai Math.abs,
+ * jadi tanda minus/plus adalah tanggung jawab helper ini:
+ *
+ *   formatSigned(-5_000)          → "-Rp5.000"
+ *   formatSigned(5_000)           → "Rp5.000"
+ *   formatSigned(5_000, { showPlus: true }) → "+Rp5.000" (Δ Saldo / net cashflow)
+ *   formatSigned(0, { showPlus: true })    → "Rp0" (nol TANPA tanda — pola StatCard)
+ *
+ * @param opts.showPlus tampilkan prefix '+' untuk nilai POSITIF (default false).
+ */
+export function formatSigned(amount: number, opts?: { showPlus?: boolean }): string {
+  // minus menang atas showPlus; nol TANPA tanda (hindari "+Rp0" — pola StatCard).
+  const sign = amount < 0 ? '-' : opts?.showPlus && amount > 0 ? '+' : '';
+  return `${sign}${formatCurrency(amount)}`;
+}
+
+/**
  * Format number to compact currency format (e.g., Rp1,5jt)
  */
 export function formatCurrencyCompact(amount: number): string {

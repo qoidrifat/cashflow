@@ -2,6 +2,8 @@ import { apiGet } from '../config/api';
 import type {
   AiUsageResponse, MetricsSummary, FeatureHealth, AlertStatus,
   FeatureCallsResponse, FeatureCallStatus, AICacheStats, AgentSearchEngagement,
+  FeedbackSummaryResponse, RetentionMetrics, RecommendationEngagement, FeedbackRateSummary,
+  TelemetryUsersResponse,
 } from '../types/metrics';
 
 function range(from?: string, to?: string): string {
@@ -42,6 +44,38 @@ export function fetchAgentSearchEngagement(from?: string, to?: string): Promise<
   return apiGet<AgentSearchEngagement>(`/api/admin/metrics/agent-search-engagement${range(from, to)}`);
 }
 
+/** P10.2 — funnel rekomendasi AI: shown/opened/CTR + seri per hari (admin only).
+ * Opsional userId → scoped ke satu user (view per-user panel admin). */
+export function fetchRecommendationEngagement(from?: string, to?: string, userId?: string): Promise<RecommendationEngagement> {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (userId) params.set('userId', userId);
+  const q = params.toString();
+  return apiGet<RecommendationEngagement>(`/api/admin/metrics/recommendation-engagement${q ? `?${q}` : ''}`);
+}
+
+/** Sprint 1.5 — feedback → prioritas perbaikan prompt per feature (admin only). */
+export function fetchFeedbackSummary(): Promise<FeedbackSummaryResponse> {
+  return apiGet<FeedbackSummaryResponse>('/api/admin/metrics/feedback-summary');
+}
+
+/** P10.2i — Feedback Rate: ai_feedback ÷ ai_result_shown (admin only).
+ * Opsional userId → scoped ke satu user (view per-user panel admin). */
+export function fetchFeedbackRate(from?: string, to?: string, userId?: string): Promise<FeedbackRateSummary> {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (userId) params.set('userId', userId);
+  const q = params.toString();
+  return apiGet<FeedbackRateSummary>(`/api/admin/metrics/feedback-rate${q ? `?${q}` : ''}`);
+}
+
+/** P10.2 — daftar user dengan aktivitas telemetry AI (dropdown view per-user, admin only). */
+export function fetchTelemetryUsers(from?: string, to?: string): Promise<TelemetryUsersResponse> {
+  return apiGet<TelemetryUsersResponse>(`/api/admin/metrics/telemetry-users${range(from, to)}`);
+}
+
 export function fetchFeatureCalls(
   from?: string,
   to?: string,
@@ -58,4 +92,9 @@ export function fetchFeatureCalls(
   if (pageSize) params.set('page_size', String(pageSize));
   const q = params.toString();
   return apiGet<FeatureCallsResponse>(`/api/admin/metrics/feature/${feature}/calls${q ? `?${q}` : ''}`);
+}
+
+/** P10.2 — retention D1/D7/D14/D28 dari cohort user + user_active (admin only). */
+export function fetchRetentionMetrics(from?: string, to?: string): Promise<RetentionMetrics> {
+  return apiGet<RetentionMetrics>(`/api/admin/metrics/retention${range(from, to)}`);
 }
