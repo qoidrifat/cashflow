@@ -780,3 +780,56 @@ npm run test:unit -- --run tests/unit/button.test.tsx  # Single component
 npm run test:a11y                    # Accessibility (22 tests)
 npx playwright test -c playwright.visual-local.config.mjs  # Visual (22 tests)
 ```
+
+---
+
+## P4.1 — E2E Test Coverage Expansion (2026-08-19)
+
+### Cakupan
+
+P4.1 menambahkan E2E smoke tests untuk 4 halaman yang sebelumnya belum tercakup:
+
+| Halaman | File Spec | Route | Test | Cakupan Kunci |
+|---------|-----------|-------|------|---------------|
+| SettingsPage | `settings.spec.ts` | `/settings` | 5 | Render, theme toggle (Light/Dark/System), Gmail automation toggles, delete data modal, own accounts input |
+| PrivacyPage | `privacy.spec.ts` | `/privacy` | 4 | Permission brief, 5 privacy sections, export/delete buttons, delete account modal dengan konfirmasi |
+| NotFoundPage | `not-found.spec.ts` | `/*` | 2 | 404 handling untuk path invalid & admin invalid |
+| ProfilePage | `profile.spec.ts` | `/profile` | 5 | Profile header, financial summary (loading→data/empty), quick actions (4 cards), logout modal, version footer |
+
+**Total baru: 16 E2E tests**
+
+### Pattern
+
+Menggunakan established E2E helpers:
+
+```typescript
+import { mintSessionCookie, cleanupTestSessions } from './helpers/mintSession';
+import { setupAuthContext } from './helpers/authContext';
+import { collectPageErrors } from './helpers/errors';
+
+// 1. Mint session ke Turso (isolated DB)
+// 2. Inject cookie + suppress onboarding
+// 3. Navigate + assert elemen kunci
+// 4. Collect page errors → expectClean()
+```
+
+### Gate
+
+```text
+E2E (4 specs)  : 16/16 PASS (isolated local DB)
+E2E typecheck   : PASS
+Unit            : 1484 passed | 5 skipped
+Typecheck       : PASS · Lint PASS
+```
+
+### Commands
+
+```bash
+npm run test:e2e:settings          # Settings page (5 tests)
+npm run test:e2e:privacy           # Privacy page (4 tests)
+npm run test:e2e:not-found         # 404 handling (2 tests)
+npm run test:e2e:profile           # Profile page (5 tests)
+
+# All 4 specs at once:
+npx playwright test -c playwright.e2e-local.config.mjs e2e/settings.spec.ts e2e/privacy.spec.ts e2e/not-found.spec.ts e2e/profile.spec.ts
+```

@@ -67,7 +67,11 @@
     "benchmark:ai": "vitest run tests/benchmark/aiQualityBenchmark.spec.ts",
     "benchmark:ai:live": "bash -c 'BENCH_LIVE=1 vitest run tests/benchmark/aiLiveBenchmark.spec.ts'",
     "test:all": "npm run test:unit && npm run test:e2e",
-    "test:e2e:gmail-review-doubleclick": "playwright test e2e/gmail-review-approve-doubleclick.spec.ts"
+    "test:e2e:gmail-review-doubleclick": "playwright test e2e/gmail-review-approve-doubleclick.spec.ts",
+    "test:e2e:settings": "playwright test e2e/settings.spec.ts",
+    "test:e2e:privacy": "playwright test e2e/privacy.spec.ts",
+    "test:e2e:not-found": "playwright test e2e/not-found.spec.ts",
+    "test:e2e:profile": "playwright test e2e/profile.spec.ts"
   },
   "dependencies": {
     "@google/genai": "^2.9.0",

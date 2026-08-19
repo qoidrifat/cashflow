@@ -689,6 +689,76 @@ Visual      : 22/22 PASS (isolated deterministic DB)
 
 ---
 
+## 17. P4.1 — E2E Test Coverage Expansion (2026-08-19)
+
+### 17.1 Temuan
+
+Audit E2E coverage P3.x mengidentifikasi 4 halaman yang belum memiliki E2E smoke test:
+
+| Halaman | Route | Kompleksitas | Alasan Prioritas |
+|---------|-------|-------------|------------------|
+| SettingsPage | `/settings` | Tinggi | Theme toggle, Gmail sync, export, delete data modal, own accounts |
+| PrivacyPage | `/privacy` | Sedang | Privacy sections, export data, delete account dengan konfirmasi |
+| NotFoundPage | `/*` | Rendah | 404 handling, error boundary |
+| ProfilePage | `/profile` | Sedang | Profile header, financial summary, quick actions, logout |
+
+### 17.2 Yang dibangun
+
+| File Spec | Route | Jumlah Test | Cakupan |
+|-----------|-------|-------------|--------|
+| `settings.spec.ts` | `/settings` | 5 | Render, theme toggle, Gmail automation, delete modal, own accounts |
+| `privacy.spec.ts` | `/privacy` | 4 | Render, 5 privacy sections, export/delete buttons, delete modal |
+| `not-found.spec.ts` | `/*` | 2 | 404 handling untuk path invalid & admin invalid |
+| `profile.spec.ts` | `/profile` | 5 | Profile header, financial summary, quick actions, logout modal, version |
+
+**Total baru: 16 E2E tests** (dari 0 ke 16 untuk halaman-halaman ini)
+
+### 17.3 Hasil gate
+
+```text
+E2E (4 specs)   : 16/16 PASS (isolated local DB)
+E2E typecheck   : PASS
+Unit            : 1484 passed | 5 skipped | 110 test files
+Typecheck       : PASS
+Lint            : PASS (typography guard)
+```
+
+### 17.4 Keputusan desain
+
+- **Pattern konsisten**: Menggunakan `mintSessionCookie()` + `setupAuthContext()` + `collectPageErrors()` — pola yang sama dengan `core-pages.spec.ts`.
+- **Smoke test approach**: Memverifikasi halaman render tanpa JS error + elemen kunci tampil + interaksi dasar (toggle, modal buka/tutup).
+- **No production data dependency**: Test berjalan terhadap isolated DB seeded deterministik.
+- **Strict mode safety**: Menggunakan `.first()` untuk elemen yang muncul di banyak tempat (header + sidebar).
+
+### 17.5 Coverage akhir E2E
+
+Dengan P4.1, semua halaman utama aplikasi kini memiliki E2E coverage:
+
+| Halaman | Spec | Status |
+|---------|------|--------|
+| Dashboard | `dashboard.spec.ts` | ✅ |
+| Transactions | `transactions.spec.ts` | ✅ |
+| Categories | `categories.spec.ts` | ✅ |
+| Budgets | `core-pages.spec.ts` | ✅ |
+| Reports | `core-pages.spec.ts` | ✅ |
+| Notifications | `core-pages.spec.ts` + `notifications-*.spec.ts` | ✅ |
+| Gmail Sync | `gmail-sync.spec.ts` + `gmail-review-*.spec.ts` | ✅ |
+| AI Hub/Conversation | `ai-conversation.spec.ts` + `ai-dogfood.spec.ts` | ✅ |
+| AI Knowledge | `knowledge-assistant.spec.ts` | ✅ |
+| Admin Monitoring | `admin-monitoring-*.spec.ts` | ✅ |
+| Fraud Detection | `fraud-detection.spec.ts` | ✅ |
+| Wallet Onboarding | `wallet-onboarding.spec.ts` | ✅ |
+| Account Ledger | `account-ledger.spec.ts` | ✅ |
+| Balance Anchor | `balance-anchor.spec.ts` | ✅ |
+| Reconciliation | `reconciliation-flow.spec.ts` | ✅ |
+| OAuth | `oauth-state.spec.ts` + `oauth-session-host-consistency.spec.ts` | ✅ |
+| **Settings** | **`settings.spec.ts`** | **✅ NEW** |
+| **Privacy** | **`privacy.spec.ts`** | **✅ NEW** |
+| **NotFound** | **`not-found.spec.ts`** | **✅ NEW** |
+| **Profile** | **`profile.spec.ts`** | **✅ NEW** |
+
+---
+
 ## References
 
 - [REPOSITORY_AUDIT.md](REPOSITORY_AUDIT.md)
