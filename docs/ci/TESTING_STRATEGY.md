@@ -734,3 +734,49 @@ dashboard, transactions) · A11y 22/22 · Visual 16/16 (tanpa regenerasi)
 Build/TSC/Lint/Migration PASS · Golden NetCashFlow 996193.08 (oracle SQL
 independen == engine, delta 0.0000)
 ```
+
+## P4.0 — Component Test Coverage Expansion (2026-08-19)
+
+### Cakupan
+
+P4.0 memperluas component test coverage untuk 3 komponen UI kritis yang belum di-test:
+
+| Komponen | File Test | Test | Cakupan Kunci |
+|----------|-----------|------|---------------|
+| SessionExpiredDialog | `sessionExpiredDialog.test.tsx` | 6 | Conditional rendering, countdown timer, auto-logout, A11y |
+| Button | `button.test.tsx` | 18 | Variants (5), sizes (3), states (3), icons, accessibility |
+| Card | `card.test.tsx` | 9 | Variants (3), click, keyboard, role, aria-label |
+
+### Mocking Pattern
+
+Menggunakan `vi.hoisted` untuk Zustand stores (pola established di project):
+
+```typescript
+const mocks = vi.hoisted(() => ({
+  reset: vi.fn(),
+  logout: vi.fn().mockResolvedValue(undefined),
+  // ...
+}));
+
+vi.mock('../../src/store/useSessionExpiryStore', () => ({
+  useSessionExpiryStore: (selector: (state: any) => any) => 
+    selector({ isExpiring: mocks.isExpiring, reset: mocks.reset }),
+}));
+```
+
+### Gate
+
+```text
+Unit 1484 (+33) · 110 test files
+Typecheck PASS · Lint PASS · Build PASS
+A11y 22/22 · Visual 22/22
+```
+
+### Commands
+
+```bash
+npm run test:unit                    # Full unit suite (1484 tests)
+npm run test:unit -- --run tests/unit/button.test.tsx  # Single component
+npm run test:a11y                    # Accessibility (22 tests)
+npx playwright test -c playwright.visual-local.config.mjs  # Visual (22 tests)
+```

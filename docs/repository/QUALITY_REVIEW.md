@@ -643,6 +643,52 @@ admin-monitoring, ai-timeline, reports baseline dari clean DB.
 - Flake cold-start gmail-sync visual (run pertama stack fresh) — lulus pada
   seluruh run berikutnya (7× beruntun); tidak dilemahkan, dipantau.
 
+## 16. P4.0 — Component Test Coverage Expansion (2026-08-19)
+
+### 16.1 Temuan
+
+Audit test coverage P3.x mengidentifikasi 3 komponen UI kritis yang belum di-test:
+
+| Komponen | Prioritas | Alasan |
+|----------|-----------|--------|
+| `SessionExpiredDialog` | Tinggi | Komponen auth flow kritis dengan countdown timer dan auto-logout |
+| `Button` | Tinggi | Komponen UI fundamental yang digunakan di seluruh aplikasi |
+| `Card` | Sedang | Komponen container serbaguna dengan beberapa varian |
+
+### 16.2 Yang dibangun
+
+| Komponen | File Test | Jumlah Test | Cakupan |
+|----------|-----------|-------------|--------|
+| SessionExpiredDialog | `sessionExpiredDialog.test.tsx` | 6 | Conditional rendering, countdown, auto-logout, A11y |
+| Button | `button.test.tsx` | 18 | Variants, sizes, states, icons, accessibility |
+| Card | `card.test.tsx` | 9 | Variants, click, keyboard, role, aria-label |
+
+### 16.3 Hasil gate
+
+```text
+Unit        : 1484 passed (+33 dari P3.x) | 5 skipped | 110 test files
+Typecheck   : PASS
+Lint        : PASS (typography guard)
+Build       : PASS
+A11y        : 22/22 PASS (0 serious/critical)
+Visual      : 22/22 PASS (isolated deterministic DB)
+```
+
+### 16.4 Keputusan desain
+
+- **Mocking pattern**: Menggunakan `vi.hoisted` untuk Zustand stores (pola yang sudah established di project).
+- **Behavior over implementation**: Test berfokus pada user-visible behavior, bukan implementation detail.
+- **Accessibility-first**: Setiap test memverifikasi A11y attributes (role, aria-label, tabIndex).
+- **No breaking changes**: Semua test existing tetap hijau; tidak ada perubahan kode produksi.
+
+### 16.5 Sisa gap (jujur)
+
+- Komponen layout (AppLayout, BottomNav, Header, Sidebar) tidak di-unit-test karena sudah ter-cover oleh E2E tests.
+- Komponen visual simple (Skeleton, Loading) tidak di-unit-test karena sudah ter-cover oleh visual regression tests.
+- Rekomendasi: coverage saat ini sudah memadai untuk risk-based testing strategy.
+
+---
+
 ## References
 
 - [REPOSITORY_AUDIT.md](REPOSITORY_AUDIT.md)
