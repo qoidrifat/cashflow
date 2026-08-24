@@ -500,6 +500,15 @@ export async function cleanupTestSessions(): Promise<void> {
       sql: `DELETE FROM user WHERE email LIKE 'e2e-%' AND email != ?`,
       args: [seedEmail],
     });
+    // P4.1: Also clean `users` (plural — FK target for wallet_accounts, etc.)
+    // to prevent stale ID mismatches: previous run leaves user row with ID-A
+    // in `users`; new run creates user with ID-B in `user`; beforeAll INSERT
+    // into `users` is a no-op (email already exists with ID-A) → FK to
+    // `users(id)` fails with ID-B → 500 on POST /api/wallets.
+    await turso.execute({
+      sql: `DELETE FROM users WHERE email LIKE 'e2e-%' AND email != ?`,
+      args: [seedEmail],
+    });
   } finally {
     turso.close();
   }
