@@ -1,5 +1,11 @@
 import { defineConfig } from 'playwright/test';
 
+// P4.1: E2E specs (account-ledger, balance-anchor, etc.) call the API directly
+// via process.env.API_BASE_URL. Without this, they default to port 5191 which
+// is only used by the isolated config — causing ECONNREFUSED in the default
+// config (server runs on 5181) and in CI (stability gate uses default config).
+if (!process.env.API_BASE_URL) process.env.API_BASE_URL = 'http://127.0.0.1:5181';
+
 /**
  * Playwright E2E config untuk CashFlow.
  *

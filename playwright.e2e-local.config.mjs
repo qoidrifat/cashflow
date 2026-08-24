@@ -45,6 +45,10 @@ const LOCAL_DB_URL = `file:${LOCAL_DB_PATH.replace(/\\/g, '/')}`;
 const VITE_PORT = 5190 + SHARD * 2;
 const API_PORT = 5191 + SHARD * 2;
 
+// P4.1: E2E specs (account-ledger, balance-anchor, etc.) call the API directly
+// via process.env.API_BASE_URL. Set at module scope so test workers inherit it.
+if (!process.env.API_BASE_URL) process.env.API_BASE_URL = `http://127.0.0.1:${API_PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
