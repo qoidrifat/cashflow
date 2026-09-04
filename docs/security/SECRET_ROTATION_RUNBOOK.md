@@ -11,7 +11,7 @@ presisi per secret. Semua file `.env` TIDAK pernah di-commit (`gitignore`).
 | `BETTER_AUTH_SECRET` | `server/lib/auth.js` — menandatangani cookie sesi | ✅ SUDAH dirotasi (64-char crypto-random, di `server/.env`) | Gratis |
 | `GEMINI_API_KEY` | **TIDAK ADA** (dead config; AI via service-account Vertex) | ✅ DIHAPUS dari `server/.env` | Gratis |
 | `BETTER_AUTH_API_KEY` | **TIDAK ADA** (dead config, 0 reader) | ✅ DIHAPUS dari `server/.env` | Gratis |
-| `TURSO_AUTH_TOKEN` | `server/lib/turso.js`, `server/lib/auth.js` | ⏳ Wajib akses Turso (CLI/dashboard) — lihat §1 | Gratis |
+| `TURSO_AUTH_TOKEN` | `server/lib/turso.js`, `server/lib/auth.js` | ✅ SUDAH dirotasi 16:52 2026-09-04 — token baru exp **2027-09-04** (365 hari); helper fail-closed sukses; boot + health + schema verify OK | Done |
 | `GOOGLE_CLIENT_SECRET` | `server/lib/auth.js` (OAuth Google) | ⏳ Wajib akses GCP Console — lihat §2 | Gratis |
 
 Efek samping yang DIHARAPKAN setelah rotasi `BETTER_AUTH_SECRET`: semua sesi
@@ -92,6 +92,6 @@ PANJANG MINIMAL 32 char dipaksa fail-fast di produksi (`server/lib/auth.js`).
 - [x] `BETTER_AUTH_SECRET` dirotasi & terpasang
 - [x] Dead config dihapus (permukaan bocor berkurang)
 - [x] Helper rotasi Turso siap (`scripts/rotate-turso-token.mjs`, fail-closed)
-- [ ] TURSO_AUTH_TOKEN: buat token baru → helper swap → revoke lama
+- [x] TURSO_AUTH_TOKEN dirotasi 2026-09-04 (exp 2027-09-04) — sisa: revoke token lama bila masih listed di CLI (`turso db tokens invalidate`), atau biarkan mati sendiri
 - [ ] GOOGLE_CLIENT_SECRET: reset di GCP Console → update `.env` → verifikasi login
-- [ ] Semua langkah di atas: `git status` harus tetap bersih (`.env` gitignored)
+- [x] Semua langkah: `git status` tetap bersih (`.env` gitignored, tidak pernah ter-commit)

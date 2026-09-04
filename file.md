@@ -66,12 +66,12 @@ E2E menangkap bug yang lolos dari fase-1: refactor `GET /api/transactions/pagina
 
 | Secret | Pemakaian runtime | Aksi | Status |
 |---|---|---|---|
-| `BETTER_AUTH_SECRET` | `server/lib/auth.js` (tanda tangan cookie sesi) | Generate crypto-random 64-char (`crypto.randomBytes(48).base64url`) + dipasang di `server/.env`. Boot verifikasi: warning "fallback secret development" TIDAK muncul lagi | ✅ dirotasi |
-| `GEMINI_API_KEY` | **0 reader** (dead config; AI via service-account Vertex) | Dihapus dari `server/.env` (2 nilai terekspos) — menghapus permukaan bocor, bukan rotasi | ✅ dihapus |
+| `BETTER_AUTH_SECRET` | `server/lib/auth.js` (tanda tangan cookie sesi) | Crypto-random 64-char dipasang di `server/.env`; boot verifikasi: warning fallback dev TIDAK muncul lagi | ✅ dirotasi |
+| `GEMINI_API_KEY` | **0 reader** (dead config; AI via service-account Vertex) | Dihapus dari `server/.env` (2 nilai terekspos) | ✅ dihapus |
+| `TURSO_AUTH_TOKEN` | `turso.js`, `auth.js` | **SUDAH DIROTASI** (16:52 2026-09-04) — token baru exp 2027-09-04 (365 hari); helper fail-closed sukses (`SELECT 1` verified); boot + health + schema verify OK. Sisa opsional: revoke token lama via CLI | ✅ dirotasi |
+| `GOOGLE_CLIENT_SECRET` | `auth.js` (OAuth Google) | Butuh GCP Console (gratis, tanpa billing) — langkah presisi di runbook §2 | ⏳ butuh akses console |
 | `BETTER_AUTH_API_KEY` | **0 reader** di server/scripts/e2e | Dihapus dari `server/.env` | ✅ dihapus |
 | `GEMINI_HTTP_REFERER` | **0 reader** runtime | Dihapus | ✅ dihapus |
-| `TURSO_AUTH_TOKEN` | `turso.js`, `auth.js` | CLI tidak terpasang + Platform API token tidak tersedia → helper `scripts/rotate-turso-token.mjs` (fail-closed: uji `SELECT 1` dulu, `.env` hanya ditulis bila token valid) + langkah manual di runbook | ⏳ butuh login Turso (gratis) |
-| `GOOGLE_CLIENT_SECRET` | `auth.js` (OAuth Google) | Butuh GCP Console (gratis, tanpa billing) — langkah presisi di runbook §2 | ⏳ butuh akses console |
 
 **Runbook lengkap:** `docs/security/SECRET_ROTATION_RUNBOOK.md` — checklist 2 item sisa (semuanya gratis, tanpa billing).
 **Efek samping BETTER_AUTH_SECRET baru:** semua sesi lama invalid (cookie lama ditandatangani secret lama) → login ulang. Perilaku benar.
