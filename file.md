@@ -60,7 +60,73 @@ E2E menangkap bug yang lolos dari fase-1: refactor `GET /api/transactions/pagina
 | Runtime font check (headless) | WOFF2 loaded, `fontFamily: Manrope`, `theme-color` dark = `#081526` |
 | Visual `tmp-verify/audit-fase3-final.png` | login page render normal, no overflow |
 
-## Fase-2: Hardening & Perf (Pasca-Audit, 2026-09-04)
+## Fase-4: Deploy Gate Secret & Visual Baseline (2026-09-04)
+
+### Rotasi secret (deploy gate)
+
+| Secret | Pemakaian runtime | Aksi | Status |
+|---|---|---|---|
+| `BETTER_AUTH_SECRET` | `server/lib/auth.js` (tanda tangan cookie sesi) | Generate crypto-random 64-char (`crypto.randomBytes(48).base64url`) + dipasang di `server/.env`. Boot verifikasi: warning "fallback secret development" TIDAK muncul lagi | ✅ dirotasi |
+| `GEMINI_API_KEY` | **0 reader** (dead config; AI via service-account Vertex) | Dihapus dari `server/.env` (2 nilai terekspos) — menghapus permukaan bocor, bukan rotasi | ✅ dihapus |
+| `BETTER_AUTH_API_KEY` | **0 reader** di server/scripts/e2e | Dihapus dari `server/.env` | ✅ dihapus |
+| `GEMINI_HTTP_REFERER` | **0 reader** runtime | Dihapus | ✅ dihapus |
+| `TURSO_AUTH_TOKEN` | `turso.js`, `auth.js` | CLI tidak terpasang + Platform API token tidak tersedia → helper `scripts/rotate-turso-token.mjs` (fail-closed: uji `SELECT 1` dulu, `.env` hanya ditulis bila token valid) + langkah manual di runbook | ⏳ butuh login Turso (gratis) |
+| `GOOGLE_CLIENT_SECRET` | `auth.js` (OAuth Google) | Butuh GCP Console (gratis, tanpa billing) — langkah presisi di runbook §2 | ⏳ butuh akses console |
+
+**Runbook lengkap:** `docs/security/SECRET_ROTATION_RUNBOOK.md` — checklist 2 item sisa (semuanya gratis, tanpa billing).
+**Efek samping BETTER_AUTH_SECRET baru:** semua sesi lama invalid (cookie lama ditandatangani secret lama) → login ulang. Perilaku benar.
+
+### Screenshot audit (10 halaman, `docs/assets/screenshots/audit-2026-09-04/`)
+
+Session cookie di-mint ke dev DB untuk user dedicated `audit-shot@cashflow.test`
+(dual-insert `user` + `users` — pola e2e helper; FK transaksi menunjuk `users`).
+Data seed via API (4 kategori, 5 transaksi, 2 budget, wallet, notifikasi).
+**Data sudah dibersihkan penuh** setelah screenshot (8 tabel + user, 27 rows).
+File temp (`*.tmp-*.mjs`, cookie) dihapus.
+
+| # | File | Viewport | Tema |
+|---|---|---|---|
+| 01 | dashboard-light-1440 | desktop | light |
+| 02 | dashboard-dark-1440 | desktop | dark |
+| 03 | transaksi-light-1440 | desktop | light |
+| 04 | budget-light-1440 | desktop | light |
+| 05 | pengaturan-light-1440 | desktop | light |
+| 06 | profil-light-1440 | desktop | light |
+| 07 | dashboard-light-390 | mobile 390×844 @2x | light |
+| 08 | dashboard-dark-390 | mobile 390×844 @2x | dark |
+| 09 | transaksi-light-390 | mobile | light |
+| 10 | lainnya-sheet-light-390 | mobile (sheet terbuka) | light |
+| 11-12 | landing light/dark-1440 | desktop | light/dark |
+
+Verifikasi visual (vision model): bottom nav mobile **background solid** (bukan
+transparan — fix opacity /88 terlihat), sheet Lainnya solid (fix /98), dark mode
+kontras cukup, sidebar/kartu statistik/charts render normal. **Temuan baru kecil:**
+FAB `+` menumpuk di atas sheet Lainnya (z-index FAB > sheet) — dicatat sebagai
+UX polish backlog, bukan blocker.
+
+### Visual regression baseline
+
+- `npm run test:visual:update` via **main config** menghasilkan 2 fail di
+  `reports light/dark` — root cause: main config memakai **dev DB asli** (data
+  transaksi bulan Agustus), sementara `ReportsPage` memfilter bulan berjalan
+  (September) → empty state. Ini limitasi desain main-config, BUKAN regresi
+  perubahan audit.
+- Cara benar (sesuai desain repo): jalankan via `playwright.visual-local.config.mjs`
+  (port 5192/5193, DB file `.test-data/e2e-visual.db` dengan seed deterministik
+  CI-equivalent `mulberry32(20260802)`).
+- Hasil: `--update-snapshots` **22/22 pass** (baseline 8 PNG di-refresh:
+  dashboard, transactions, admin-monitoring — light+dark) → verify check
+  **22/22 pass** (1.3 menit). Diff baseline = efek visual fix audit (chrome
+  solid, kontras red-600, WOFF2) — di-commit.
+
+### Commit
+
+| Commit | Isi |
+|---|---|
+| `617e538` | baseline visual (8 PNG) + helper rotasi Turso + runbook secret |
+
+---
+
 
 Implementasi lanjutan dari backlog §9. Semua item di bawah SUDAH diimplementasikan + diverifikasi.
 
