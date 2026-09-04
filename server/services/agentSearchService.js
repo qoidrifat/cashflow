@@ -236,19 +236,19 @@ function assertProductionSalt() {
   const salt = process.env.AGENT_SEARCH_USER_HASH_SALT;
   const isFallback = !salt || salt === 'cashflow-dev-agent-search-salt-change-in-production';
   if (!isFallback) return;
-  if (process.env.NODE_ENV === 'production') {
+  // Hardening: fail-fast untuk semua env BUKAN development. Sebelumnya hanya
+  // 'production' → staging tanpa NODE_ENV=production masih boleh pakai fallback
+  // → hash bocor. Sekarang staging wajib set env kuat.
+  if (process.env.NODE_ENV !== 'development') {
     throw new Error(
-      '[AgentSearch] PRODUCTION: AGENT_SEARCH_USER_HASH_SALT wajib di-set ke nilai kuat yang unik. ' +
+      '[AgentSearch] AGENT_SEARCH_USER_HASH_SALT wajib di-set ke nilai kuat yang unik. ' +
         'Fallback dev menghasilkan hash yang dapat direkonstruksi. Set env lalu re-sync data store.',
     );
   }
-  if (!saltWarned) {
-    saltWarned = true;
-    logger.warn(
-      { isProduction: process.env.NODE_ENV === 'production' },
-      'AgentSearch: memakai fallback dev AGENT_SEARCH_USER_HASH_SALT. Set env di produksi sebelum launch.',
-    );
-  }
+  logger.warn(
+    { isProduction: process.env.NODE_ENV === 'production' },
+    'AgentSearch: memakai fallback dev AGENT_SEARCH_USER_HASH_SALT. Set env sebelum staging/production launch.',
+  );
 }
 
 export function hashUserId(userId) {

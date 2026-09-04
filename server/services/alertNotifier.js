@@ -196,30 +196,37 @@ async function notifyAdminsInApp(rule) {
   if (userIds.length === 0) return;
 
   const now = new Date().toISOString();
-  for (const userId of userIds) {
-    try {
-      const id = crypto.randomUUID();
-      const dedupeKey = `alert:${rule.name}`;
-      await turso.execute({
-        sql: `INSERT INTO notifications (id, user_id, type, priority, title, message, read, action_label, action_href, dedupe_key, metadata, created_at)
-              VALUES (?, ?, 'alert', 'high', ?, ?, 0, 'Buka Monitoring', '/admin/monitoring', ?, ?, ?)
-              ON CONFLICT(user_id, dedupe_key) DO UPDATE SET
-                title = excluded.title, message = excluded.message, priority = excluded.priority,
-                read = 0, created_at = excluded.created_at`,
-        args: [
-          id,
-          userId,
-          `Alert: ${rule.name}`,
-          `${rule.metricName} ${rule.condition} ${rule.threshold} — nilai saat ini ${rule.currentValue} (window ${rule.windowMinutes}m)`,
-          dedupeKey,
-          JSON.stringify({ alertRule: rule.name }),
-          now,
-        ],
-      });
-      notifyUser(userId, 'notification:new', { id, title: `Alert: ${rule.name}` });
-    } catch (err) {
-      logger.warn({ userId, rule: rule.name, err: err.message }, 'In-app alert gagal — non-blocking');
+  // L1 (audit 2026-09-04): batch 1 round-trip; SSE notify tetap per-user.
+  // ON CONFLICT dedupe per (user_id, dedupe_key) dipertahankan. Error batch
+  // di-swallow (non-blocking) — sama dengan perilaku loop lama.
+  try {
+    await turso.batch(
+      userIds.map((userId) => {
+        const id = crypto.randomUUID();
+        const dedupeKey = `alert:${rule.name}`;
+        return {
+          sql: `INSERT INTO notifications (id, user_id, type, priority, title, message, read, action_label, action_href, dedupe_key, metadata, created_at)
+                VALUES (?, ?, 'alert', 'high', ?, ?, 0, 'Buka Monitoring', '/admin/monitoring', ?, ?, ?)
+                ON CONFLICT(user_id, dedupe_key) DO UPDATE SET
+                  title = excluded.title, message = excluded.message, priority = excluded.priority,
+                  read = 0, created_at = excluded.created_at`,
+          args: [
+            id,
+            userId,
+            `Alert: ${rule.name}`,
+            `${rule.metricName} ${rule.condition} ${rule.threshold} — nilai saat ini ${rule.currentValue} (window ${rule.windowMinutes}m)`,
+            dedupeKey,
+            JSON.stringify({ alertRule: rule.name }),
+            now,
+          ],
+        };
+      }),
+    );
+    for (const userId of userIds) {
+      notifyUser(userId, 'notification:new', { id: null, title: `Alert: ${rule.name}` });
     }
+  } catch (err) {
+    logger.warn({ rule: rule.name, err: err.message }, 'In-app alert batch gagal — non-blocking');
   }
 }
 

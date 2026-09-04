@@ -43,6 +43,7 @@ import {
   validateIsoDate,
   validateInt,
   validateId,
+  validateOptionalString,
 } from '../lib/validation.js';
 import crypto from 'node:crypto';
 
@@ -211,11 +212,29 @@ export function registerTransactionRoutes(app) {
     try {
       const turso = getTurso();
       const userId = req.user.id;
-      const page = Math.max(parseInt(req.query.page || '1', 10), 1);
-      const pageSize = Math.min(Math.max(parseInt(req.query.pageSize || '50', 10), 1), 100);
+      // MEDIUM-V1: validasi query (search ≤ 100, amount [0,1e12], date YYYY-MM-DD).
+      // Sebelumnya search dipakai polos → LIKE 10k char DoS; minAmount NaN → silent drop filter.
+      const queryCheck = validateQuery(req.query, {
+        page: { validate: validateInt, options: { min: 1, max: 100000, clamp: true } },
+        pageSize: { validate: validateInt, options: { min: 1, max: 100, clamp: true } },
+        search: { validate: validateOptionalString, options: { max: 100 } },
+        type: { validate: validateOptionalString, options: { max: 32 } },
+        categoryId: { validate: validateOptionalString, options: { max: 191 } },
+        paymentMethod: { validate: validateOptionalString, options: { max: 100 } },
+        source: { validate: validateOptionalString, options: { max: 50 } },
+        dateFrom: { validate: validateOptionalString, options: { max: 10 } },
+        dateTo: { validate: validateOptionalString, options: { max: 10 } },
+        minAmount: { validate: validateAmount, options: { field: 'minAmount', max: 1e12 } },
+        maxAmount: { validate: validateAmount, options: { field: 'maxAmount', max: 1e12 } },
+        sortBy: { validate: validateOptionalString, options: { max: 32 } },
+      });
+      if (!queryCheck.ok) return sendValidationError(res, queryCheck);
+      const q = queryCheck.value;
+      const page = q.page ?? 1;
+      const pageSize = q.pageSize ?? 50;
       const offset = (page - 1) * pageSize;
 
-      const { type, categoryId, paymentMethod, source, dateFrom, dateTo, minAmount, maxAmount, search, sortBy } = req.query;
+      const { type, categoryId, paymentMethod, source, dateFrom, dateTo, minAmount, maxAmount, search, sortBy } = q;
 
       let whereClause = 'WHERE user_id = ?';
       const args = [userId];
@@ -244,18 +263,23 @@ export function registerTransactionRoutes(app) {
         whereClause += ' AND date <= ?';
         args.push(dateTo);
       }
-      if (minAmount) {
+      // Guard: amount harus finite. validateAmount sudah coerce, tapi Number()
+      // di SQL null-arg eksplisit lebih aman — NaN/'' tidak diterjemahkan benar.
+      if (typeof minAmount === 'number' && Number.isFinite(minAmount)) {
         whereClause += ' AND amount >= ?';
-        args.push(Number(minAmount));
+        args.push(minAmount);
       }
-      if (maxAmount) {
+      if (typeof maxAmount === 'number' && Number.isFinite(maxAmount)) {
         whereClause += ' AND amount <= ?';
-        args.push(Number(maxAmount));
+        args.push(maxAmount);
       }
       if (search) {
-        whereClause += ' AND (merchant LIKE ? OR category_name LIKE ? OR note LIKE ? OR payment_method LIKE ?)';
-        const pattern = `%${search}%`;
-        args.push(pattern, pattern, pattern, pattern);
+        const trimmed = String(search).trim();
+        if (trimmed) {
+          whereClause += ' AND (merchant LIKE ? OR category_name LIKE ? OR note LIKE ? OR payment_method LIKE ?)';
+          const pattern = `%${trimmed}%`;
+          args.push(pattern, pattern, pattern, pattern);
+        }
       }
 
       let orderBy = 'ORDER BY date DESC, created_at DESC';
@@ -276,7 +300,6 @@ export function registerTransactionRoutes(app) {
           orderBy = 'ORDER BY merchant DESC, date DESC';
           break;
       }
-
       // Count query
       const countResult = await turso.execute({
         sql: `SELECT COUNT(*) as total FROM transactions ${whereClause}`,
@@ -284,7 +307,6 @@ export function registerTransactionRoutes(app) {
       });
       const total = Number(countResult.rows[0]?.total || 0);
 
-      // Data query
       const dataResult = await turso.execute({
         sql: `SELECT * FROM transactions ${whereClause} ${orderBy} LIMIT ? OFFSET ?`,
         args: [...args, pageSize, offset],

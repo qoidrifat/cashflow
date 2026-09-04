@@ -186,14 +186,17 @@ export function registerCategoryRoutes(app) {
         if (itemErrors.length > 0) {
           return sendValidationError(res, { ok: false, error: itemErrors.join('; '), errors: itemErrors });
         }
-        for (const cat of cleanedItems) {
-          await turso.execute({
+        // L1 (audit 2026-09-04): N+1 INSERT per kategori → 1 round-trip via
+        // turso.batch(). ON CONFLICT(user_id, id) DO NOTHING dipertahankan agar
+        // idempoten (retry tidak menduplikasi).
+        await turso.batch(
+          cleanedItems.map((cat) => ({
             sql: `INSERT INTO categories (id, user_id, name, type, icon, color, is_default, created_at)
                   VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
                   ON CONFLICT(user_id, id) DO NOTHING`,
             args: [cat.id, userId, cat.name, cat.type, cat.icon || 'MoreHorizontal', cat.color || '#6b7280'],
-          });
-        }
+          })),
+        );
       }
 
       invalidateCategoriesCache(userId);

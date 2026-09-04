@@ -112,9 +112,20 @@ const FEATURE_CALLS_QUERY_SCHEMA = {
   page_size: { validate: validateInt, options: { min: 1, max: 100, clamp: true } },
 };
 
+function parseBoundary(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  // ISO datetime (ada 'T' atau ':') → langsung new Date(); YYYY-MM-DD polos
+  // → tafsirkan UTC midnight (spesifikasi ES Date-only = UTC). Hindari
+  // ambiguitas TZ admin Asia/Jakarta yang mengharapkan hari lokal.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T00:00:00Z`);
+  }
+  return new Date(value);
+}
+
 function parseDateRange(req, defaultDays = 7) {
-  const to = req.query.to ? new Date(req.query.to) : new Date();
-  const from = req.query.from ? new Date(req.query.from) : new Date(Date.now() - defaultDays * 86400_000);
+  const to = parseBoundary(req.query.to, new Date());
+  const from = parseBoundary(req.query.from, new Date(Date.now() - defaultDays * 86400_000));
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
     const err = new Error('Parameter from/to harus tanggal ISO valid.');
     err.status = 400;

@@ -31,7 +31,7 @@ export function registerKnowledgeRoutes(app) {
     });
   });
 
-  app.post('/api/ai/cashflow-knowledge', async (req, res) => {
+  app.post('/api/ai/cashflow-knowledge', async (req, res, next) => {
     const t0 = Date.now();
     const userId = req.user?.id || null;
 
@@ -44,38 +44,40 @@ export function registerKnowledgeRoutes(app) {
       });
     }
 
-    const result = await queryCashflowAssistant({
-      query: validation.value.query,
-      userId,
-    });
-    const latency = Date.now() - t0;
-    const ok = result.ok === true;
+    try {
+      const result = await queryCashflowAssistant({
+        query: validation.value.query,
+        userId,
+      });
+      const latency = Date.now() - t0;
+      const ok = result.ok === true;
 
-    // Observability (non-blocking, tanpa PII). Provider `google_agent_platform`
-    // memisahkan usage jalur P0.14 dari provider existing (vertex_search dll).
-    metricsService.recordAIUsage({
-      feature: 'cashflow_knowledge',
-      provider: 'google_agent_platform',
-      executionTimeMs: latency,
-      status: ok ? 'success' : 'error',
-      userId,
-      metadata: {
-        code: result.code || null,
-        sourceCount: Array.isArray(result.sources) ? result.sources.length : 0,
-      },
-    }).catch(() => {});
-    metricsService.recordSystemMetric({
-      metricName: ok ? 'cashflow_knowledge_count' : 'cashflow_knowledge_error',
-      feature: 'cashflow_knowledge',
-      userId,
-    }).catch(() => {});
-    metricsService.recordSystemMetric({
-      metricName: 'cashflow_knowledge_latency',
-      metricValue: latency,
-      feature: 'cashflow_knowledge',
-      userId,
-    }).catch(() => {});
+      metricsService.recordAIUsage({
+        feature: 'cashflow_knowledge',
+        provider: 'google_agent_platform',
+        executionTimeMs: latency,
+        status: ok ? 'success' : 'error',
+        userId,
+        metadata: {
+          code: result.code || null,
+          sourceCount: Array.isArray(result.sources) ? result.sources.length : 0,
+        },
+      }).catch(() => {});
+      metricsService.recordSystemMetric({
+        metricName: ok ? 'cashflow_knowledge_count' : 'cashflow_knowledge_error',
+        feature: 'cashflow_knowledge',
+        userId,
+      }).catch(() => {});
+      metricsService.recordSystemMetric({
+        metricName: 'cashflow_knowledge_latency',
+        metricValue: latency,
+        feature: 'cashflow_knowledge',
+        userId,
+      }).catch(() => {});
 
-    return res.status(result.statusCode || 200).json(result);
+      return res.status(result.statusCode || 200).json(result);
+    } catch (err) {
+      return next(err);
+    }
   });
 }

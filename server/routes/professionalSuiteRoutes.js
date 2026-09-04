@@ -15,6 +15,7 @@ import { getTurso } from '../lib/turso.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { notifyUser } from '../lib/sse.js';
 import { publicProviderList, isProviderEnabled, matchProviderByInstitutionOrName } from '../lib/providerCatalog.js';
+import { isConstraintError } from '../lib/retry.js';
 import {
   validateBody,
   sendValidationError,
@@ -218,25 +219,43 @@ export function registerProfessionalSuiteRoutes(app) {
         }
       }
 
-      await turso.execute({
-        sql: `INSERT INTO wallet_accounts (id, user_id, name, type, institution, balance, color, archived, opening_balance, opening_balance_date, currency, created_at, updated_at, provider_code)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          id,
-          userId,
-          name,
-          type,
-          institution,
-          Number(balance),
-          color,
-          openingBalance === null ? null : Number(openingBalance),
-          openingBalanceDate || null,
-          String(currency || 'IDR').toUpperCase(),
-          now,
-          now,
-          providerCode,
-        ],
-      });
+      try {
+        await turso.execute({
+          sql: `INSERT INTO wallet_accounts (id, user_id, name, type, institution, balance, color, archived, opening_balance, opening_balance_date, currency, created_at, updated_at, provider_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            id,
+            userId,
+            name,
+            type,
+            institution,
+            Number(balance),
+            color,
+            openingBalance === null ? null : Number(openingBalance),
+            openingBalanceDate || null,
+            String(currency || 'IDR').toUpperCase(),
+            now,
+            now,
+            providerCode,
+          ],
+        });
+      } catch (err) {
+        // Migration 0012 (idx_wallets_user_name_active): dua request activation
+        // simultan bisa sama-sama lolos SELECT di atas → INSERT kedua kena
+        // UNIQUE. Idempoten: kembalikan id existing (pola sama dengan blok
+        // SELECT di atas), BUKAN 500.
+        if (isConstraintError(String(err?.message || err))) {
+          const existing = await turso.execute({
+            sql: `SELECT id FROM wallet_accounts WHERE user_id = ? AND LOWER(name) = LOWER(?) AND archived = 0 LIMIT 1`,
+            args: [userId, name],
+          });
+          if (existing.rows?.[0]) {
+            res.json({ id: String(existing.rows[0].id), idempotent: true });
+            return;
+          }
+        }
+        throw err;
+      }
 
       notifyUser(userId, 'wallet:changed', { id });
       res.json({ id });

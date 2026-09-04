@@ -7,12 +7,24 @@
 /** @type {Map<string, Set<import('express').Response>>} */
 const clients = new Map();
 
+/** Batas koneksi SSE per user — anti memory-exhaustion DoS (audit 2026-09-04). */
+const MAX_CONNECTIONS_PER_USER = 5;
+/** Batas global seluruh user — guard proses, bukan per-user. */
+const MAX_CONNECTIONS_GLOBAL = 1000;
+let totalConnections = 0;
+
 /**
  * Add a SSE client connection for a user.
+ * @returns {boolean} false bila melebihi batas per-user ATAU global.
  */
 export function addSSEClient(userId, res) {
+  if (totalConnections >= MAX_CONNECTIONS_GLOBAL) return false;
   if (!clients.has(userId)) clients.set(userId, new Set());
-  clients.get(userId).add(res);
+  const set = clients.get(userId);
+  if (set.size >= MAX_CONNECTIONS_PER_USER) return false;
+  set.add(res);
+  totalConnections += 1;
+  return true;
 }
 
 /**
@@ -21,17 +33,10 @@ export function addSSEClient(userId, res) {
 export function removeSSEClient(userId, res) {
   const set = clients.get(userId);
   if (set) {
-    set.delete(res);
+    if (set.delete(res)) totalConnections = Math.max(0, totalConnections - 1);
     if (set.size === 0) clients.delete(userId);
   }
 }
-
-/**
- * Send an event to all connected clients for a specific user.
- * @param {string} userId
- * @param {string} event - Event name (e.g., 'transaction:created')
- * @param {object} data - Event data payload
- */
 export function notifyUser(userId, event, data = {}) {
   const set = clients.get(userId);
   if (!set || set.size === 0) return;
@@ -80,6 +85,7 @@ export function closeSSEClients() {
     }
   }
   clients.clear();
+  totalConnections = 0;
 }
 
 /**
@@ -88,6 +94,12 @@ export function closeSSEClients() {
  */
 export function registerSSERoute(app, requireAuthFn) {
   app.get('/api/events', requireAuthFn, (req, res) => {
+    // Cap per-user: tolak koneksi ke-N (5+) dengan 429 sebelum writeHead —
+    // hindari menulis header 200 lalu dibatalkan (memory leak sisi klien).
+    if (!addSSEClient(req.user.id, res)) {
+      res.status(429).json({ error: 'Terlalu banyak koneksi realtime aktif. Coba lagi nanti.', code: 'SSE_CONNECTION_LIMIT' });
+      return;
+    }
     // SSE headers
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -98,9 +110,6 @@ export function registerSSERoute(app, requireAuthFn) {
 
     // Send initial connection event
     res.write(`event: connected\ndata: ${JSON.stringify({ userId: req.user.id })}\n\n`);
-
-    // Register client
-    addSSEClient(req.user.id, res);
 
     // Heartbeat every 30 seconds to keep connection alive
     const heartbeat = setInterval(() => {

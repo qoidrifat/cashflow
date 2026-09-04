@@ -113,6 +113,19 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
   : ['http://localhost:5180', 'http://127.0.0.1:5180', 'http://localhost:4173', 'http://127.0.0.1:4173'];
 
+// S3.1 (audit 2026-09-04): validasi origin di boot — reject `*`, trailing path,
+// dan format non-URL. Operator salah tulis (mis. `ALLOWED_ORIGINS=*` atau
+// `https://app.example.com/`) harus gagal cepat, bukan diam-diam melemahkan
+// CORS. `*` + credentials:true akan ditolak browser, tapi fail-fast lebih jujur.
+for (const origin of ALLOWED_ORIGINS) {
+  if (!/^https?:\/\/[^/]+$/.test(origin)) {
+    throw new Error(
+      `[CORS] ALLOWED_ORIGINS tidak valid: "${origin}". ` +
+        'Format wajib http(s)://host[:port] tanpa path, tanpa wildcard `*`.',
+    );
+  }
+}
+
 const GOOGLE_CLOUD_PROJECT = cleanEnv(
   process.env.GOOGLE_CLOUD_PROJECT
   || process.env.GCP_PROJECT_ID
@@ -280,9 +293,10 @@ app.use(helmet({
       formAction: ["'self'", 'https://accounts.google.com'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
-      // Helm default menambah upgrade-insecure-requests — nonaktifkan agar http
-      // lokal (dev 5180/5181) & static serving nanti tidak dipaksa https.
-      upgradeInsecureRequests: null,
+      // S3.2 (audit 2026-09-04): upgrade http→https hanya di produksi. Dev
+      // (http 5180/5181) TIDAK dipaksa https — bila dipaksa, Vite/HMR & fetch
+      // lokal pecah. Produksi memaksa https untuk semua subresource.
+      upgradeInsecureRequests: NODE_ENV === 'production' ? [] : null,
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -294,8 +308,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
+// S3.4 (audit 2026-09-04): trust proxy hanya boleh di-set di belakang reverse
+// proxy nyata. Di produksi, nilai env salah (mis. dipakai TANPA proxy) membuat
+// req.ip mengikuti X-Forwarded-For yang bisa di-spoof → bypass IP rate limiter.
+// Produksi: maksimal 2 hop (Cloud Run/typical CDN), hardcoded clamp. Dev bebas.
 if (process.env.TRUST_PROXY) {
-  app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+  const trustProxy = Number(process.env.TRUST_PROXY) || 1;
+  app.set('trust proxy', NODE_ENV === 'production' ? Math.min(trustProxy, 2) : trustProxy);
 }
 
 // ===================== Better Auth Handler & Middleware =====================

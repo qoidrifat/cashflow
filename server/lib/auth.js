@@ -219,10 +219,15 @@ export function getAuth() {
       'http://127.0.0.1:5180',
       'http://localhost:5181',
       'http://127.0.0.1:5181',
-      'https://better-auth.com',
-      'https://dash.better-auth.com',
-      'https://*.loca.lt',
-      'https://*.ngrok-free.app',
+      // S2.12 (audit 2026-09-04): wildcard tunneling + origin demo better-auth
+      // HANYA dev/preview. Produksi isi eksplisit via BETTER_AUTH_TRUSTED_ORIGINS.
+      // Wildcast gratis (loca.lt/ngrok) di prod = login-CSRF surface.
+      ...(isProduction ? [] : [
+        'https://better-auth.com',
+        'https://dash.better-auth.com',
+        'https://*.loca.lt',
+        'https://*.ngrok-free.app',
+      ]),
       ...extraOrigins,
     ],
   });
