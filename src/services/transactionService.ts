@@ -193,9 +193,16 @@ function claimGmailMessage(userId: string, gmailMessageId: string): boolean {
  * terhadap klaim tab lain).
  */
 function confirmGmailImport(userId: string, gmailMessageId: string, txId: string): void {
+  // H-9 (M-8): preserve `at` dari klaim existing agar winner logic di
+  // claimGmailMessage (at-tertua) tidak terkalahkan. Sebelumnya `at: Date.now()`
+  // overwrite → klaim ini selalu lebih baru → kalah di arbiter. Cukup tambahkan
+  // confirmedTxId; abaikan bila klaim tidak ada (storage cleared).
+  const existing = readGmailRegistryClaims(userId, gmailMessageId)
+    .find((c) => c.nonce === gmailRegistryNonce);
+  if (!existing) return;
   writeGmailRegistryClaim(userId, gmailMessageId, {
     nonce: gmailRegistryNonce,
-    at: Date.now(),
+    at: existing.at,
     confirmedTxId: txId,
   });
 }
@@ -339,15 +346,23 @@ export interface GetTransactionsPaginatedOptions {
    * Default true = perilaku lama (offline-first: tampilkan cache lokal).
    */
   fallbackToLocal?: boolean;
+  signal?: AbortSignal;
 }
 
 export function listenToTransactions(
   userId: string,
   callback: (transactions: Transaction[]) => void,
-  errorCallback?: (error: Error) => void
+  errorCallback?: (error: Error) => void,
+  options: { signal?: AbortSignal } = {},
 ): () => void {
   const fetchRecent = () => {
-    getRecentTransactions(userId, 50).then(callback).catch(errorCallback);
+    if (options.signal?.aborted) return;
+    getRecentTransactions(userId, 50)
+      .then((data) => { if (!options.signal?.aborted) callback(data); })
+      .catch((err: unknown) => {
+        if (options.signal?.aborted) return;
+        errorCallback?.(err instanceof Error ? err : new Error(String(err)));
+      });
   };
 
   fetchRecent();
@@ -449,7 +464,8 @@ export async function getTransactionsPaginated(
   if (options.sortBy) query.set('sortBy', options.sortBy);
 
   try {
-    const res = await apiGet<any>(`/api/transactions/paginated?${query.toString()}`);
+
+    const res = await apiGet<{ data: unknown[]; page: number; pageSize: number; total: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean }>(`/api/transactions/paginated?${query.toString()}`, options.signal ? { signal: options.signal } : {});
     return {
       ...res,
       data: (res.data || []).map(mapTransaction),
@@ -810,15 +826,19 @@ export async function getTransaction(userId: string, transactionId: string): Pro
  * dipakai getAllTransactions & getTransactionsByDateRange (sebelumnya dua
  * salinan loop identik + guard yang sama, berisiko drift).
  */
-async function fetchAllPaginated(userId: string, extra: Pick<GetTransactionsPaginatedOptions, 'dateFrom' | 'dateTo'> = {}): Promise<Transaction[]> {
+async function fetchAllPaginated(
+  userId: string,
+  extra: Pick<GetTransactionsPaginatedOptions, 'dateFrom' | 'dateTo' | 'signal'> = {},
+): Promise<Transaction[]> {
   const all: Transaction[] = [];
   let page = 1;
-  let result = await getTransactionsPaginated({ userId, page, pageSize: 100, fallbackToLocal: false, ...extra });
+  const base = { userId, pageSize: 100, fallbackToLocal: false, ...extra };
+  let result = await getTransactionsPaginated({ ...base, page });
   all.push(...result.data);
   while (result.hasNextPage) {
     if (page > 1000) throw new Error('Paginasi transaksi tidak konvergen');
     page += 1;
-    result = await getTransactionsPaginated({ userId, page, pageSize: 100, fallbackToLocal: false, ...extra });
+    result = await getTransactionsPaginated({ ...base, page });
     all.push(...result.data);
   }
   return all;
@@ -900,9 +920,13 @@ function registerAllTxSseInvalidators(): void {
   if (sseInvalidatorsRegistered) return;
   sseInvalidatorsRegistered = true;
   for (const evt of ['transaction:created', 'transaction:updated', 'transaction:deleted']) {
-    onSSE(evt, () => invalidateAllTransactionsCache());
+    // HIGH-V4: forward userId dari payload agar tidak clear cache user lain
+    // (cross-user data leak). Payload server: { id, userId, transaction?, ... }.
+    onSSE(evt, (data) => {
+      const userId = (data as { userId?: string } | undefined)?.userId;
+      if (typeof userId === 'string' && userId) invalidateAllTransactionsCache(userId);
+    });
   }
-
   // Cross-tab (2026-08-11): tab LAIN menulis transaksi/registry lokal via
   // localStorage (fallback offline / import gmail) → storage event → cache
   // getAllTransactions user tsb dibersihkan agar tab ini tidak menyajikan
@@ -944,8 +968,15 @@ function registerAllTxSseInvalidators(): void {
  * dipertahankan: kegagalan API → fallback localStorage (pola lama); kegagalan
  * TIDAK di-cache (refetch berikutnya mencoba lagi).
  */
-export async function getAllTransactions(userId: string): Promise<Transaction[]> {
+export async function getAllTransactions(
+  userId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<Transaction[]> {
   registerAllTxSseInvalidators();
+
+  if (options.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
 
   const cached = allTxCache.get(userId);
   if (cached && Date.now() - cached.at < ALL_TX_CACHE_TTL_MS) {
@@ -955,26 +986,18 @@ export async function getAllTransactions(userId: string): Promise<Transaction[]>
   const inFlight = allTxInFlight.get(userId);
   if (inFlight) return inFlight;
 
-  // Definite-assignment (!): closure self-reference `fetch` di dalam body
-  // async yang mengeksekusi setelah `fetch` diisi — TS tidak bisa membuktikan
-  // ini sendiri, jadi assertion eksplisit (pola umum promise in-flight).
   let fetch!: Promise<Transaction[]>;
   const run = (async (): Promise<Transaction[]> => {
     try {
-      const data = await fetchAllPaginated(userId);
-      // Guard identity: kalau invalidasi terjadi saat fetch masih berjalan
-      // (mutasi → allTxInFlight dihapus), jangan tulis ulang cache dengan
-      // data pre-mutasi — race repopulation (review 2026-08-09).
+      const data = await fetchAllPaginated(userId, options);
       if (allTxInFlight.get(userId) === fetch) {
         allTxCache.set(userId, { data, at: Date.now() });
       }
       return data.slice();
-    } catch {
-      // Kegagalan TIDAK di-cache — refetch berikutnya mencoba API lagi.
+    } catch (err) {
+      if (options.signal?.aborted) throw err instanceof Error ? err : new DOMException('Aborted', 'AbortError');
       return readLocalTransactions(userId);
     } finally {
-      // Identity-checked delete: hanya bersihkan kalau masih fetch ini
-      // (bukan fetch baru yang menunggu giliran).
       if (allTxInFlight.get(userId) === fetch) {
         allTxInFlight.delete(userId);
       }

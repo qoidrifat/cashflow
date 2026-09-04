@@ -61,7 +61,7 @@ export default function GmailSyncEtaCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        'rounded-2xl border border-app bg-app-card shadow-sm',
+        'rounded-2xl border border-app-border bg-app-card shadow-sm',
         compact ? 'p-3' : 'p-4 sm:p-5'
       )}
       role="status"

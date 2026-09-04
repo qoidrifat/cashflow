@@ -100,33 +100,40 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authUser) return;
-    getFraudSummary().then(setFraudSummary);
-  }, [authUser]);
+    const ac = new AbortController();
+    getFraudSummary({ signal: ac.signal })
+      .then(setFraudSummary)
+      .catch((err) => {
+        if (ac.signal.aborted) return;
+        const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Gagal memuat ringkasan fraud';
+        addToast({ type: 'error', title: 'Gagal memuat data', message });
+      });
+    return () => ac.abort();
+  }, [authUser, addToast]);
 
   useEffect(() => {
     if (!authUser) return;
 
     setLoading(true);
+    const ac = new AbortController();
     const unsubscribe = listenToTransactions(
       authUser.uid,
       (data) => {
         setTransactions(data);
         setError(null);
-        // loading di-gate oleh summary (sumber kartu) — jangan menampilkan
-        // kartu Rp0 sesaat sebelum summary windowless tiba. Bila summary sudah
-        // error, buka skeleton agar ErrorState yang jujur tampil, bukan
-        // skeleton tak berujung.
         if (summaryResolvedRef.current || hasErrorRef.current) setLoading(false);
       },
       (err) => {
+        if (ac.signal.aborted) return;
         hasErrorRef.current = true;
-        setError(err);
+        const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Gagal memuat data';
+        setError(new Error(message));
         setLoading(false);
-        addToast({ type: 'error', title: 'Gagal memuat data', message: err.message });
+        addToast({ type: 'error', title: 'Gagal memuat data', message });
       }
     );
 
-    return unsubscribe;
+    return () => { ac.abort(); unsubscribe(); };
   }, [authUser, addToast]);
 
   // Ringkasan windowless: Total Saldo & kartu bulanan TIDAK boleh dihitung dari

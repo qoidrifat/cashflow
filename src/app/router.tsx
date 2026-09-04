@@ -4,7 +4,6 @@ import AppLayout from '../components/layout/AppLayout';
 import AuthGuard from '../features/auth/AuthGuard';
 import ErrorBoundary from '../components/ErrorBoundary';
 
-const SplashScreen = lazy(() => import('../features/splash/SplashScreen'));
 const LandingPage = lazy(() => import('../features/landing/LandingPage'));
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
 const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'));
@@ -62,10 +61,6 @@ function withSuspense(element: ReactNode) {
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: withSuspense(<SplashScreen />),
-  },
-  {
     path: '/landing',
     element: withSuspense(<LandingPage />),
   },
@@ -78,6 +73,8 @@ export const router = createBrowserRouter([
     element: withSuspense(<AuthCallbackPage />),
   },
   {
+    // CRITICAL-V1 fix: root '/' diproteksi AuthGuard (bukan splash public).
+    // User belum login → redirect ke /login. Login → /dashboard.
     path: '/',
     element: (
       <AuthGuard>

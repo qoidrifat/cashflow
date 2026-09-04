@@ -1,40 +1,19 @@
 /**
  * API Helper for CashFlow Frontend
- * Calls backend Express endpoints with credentials (cookies)
+ * Calls backend Express endpoints with credentials (cookies).
  */
-
 import { triggerSessionExpired } from '../store/useSessionExpiryStore';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5181';
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function getApiBaseUrl(): string {
   return API_BASE;
 }
 
-/**
- * P1-1: Global 401 handler — centralized session-expiry detection.
- *
- * A 401 from a protected app endpoint (server `requireAuth` →
- * `{ error: 'Unauthorized — silakan login terlebih dahulu.' }`) means the
- * Better Auth session cookie died mid-use. Route it through the existing
- * CF-056 session-expiry flow (`triggerSessionExpired()` → SessionExpiredDialog
- * → `/login?reason=session_expired`). No redirect logic is duplicated here —
- * the store trigger is IDEMPOTENT, so N parallel failing requests produce
- * exactly one dialog (see `useSessionExpiryStore.trigger`).
- *
- * Carve-outs (401 here does NOT mean app-session expiry):
- *  - `/api/gmail/token` — 401 `{ error: 'token_expired' }` is GOOGLE provider
- *    token expiry; `authService.requestGmailAccessToken` already clears its
- *    cache and falls back to Google re-sign-in. Hijacking it would show the
- *    session-expired dialog instead of the Gmail re-auth flow.
- *  - `/api/auth/*` — Better Auth endpoints (e.g. get-session polling); an
- *    unauthenticated response is a NORMAL state check, never a redirect trigger.
- *  - Health endpoints — intentionally public; never an auth signal.
- */
 const SESSION_EXPIRY_EXEMPT_PATHS = ['/api/gmail/token'];
 const SESSION_EXPIRY_EXEMPT_PREFIXES = ['/api/auth/', '/api/health', '/api/agent-search/health'];
 
-/** True when a 401 on this path must NOT trigger the session-expired flow. */
 export function isSessionExpiryExemptPath(path: string): boolean {
   const clean = path.split('?')[0];
   return (
@@ -43,98 +22,103 @@ export function isSessionExpiryExemptPath(path: string): boolean {
   );
 }
 
-/**
- * Invoke the CF-056 session-expiry flow on an HTTP 401 from a protected
- * route. Callers still receive the thrown error afterwards — existing
- * catch/toast behavior is preserved; the dialog runs on top of it.
- */
 export function handleUnauthorizedResponse(path: string, status: number): void {
   if (status !== 401) return;
   if (isSessionExpiryExemptPath(path)) return;
   triggerSessionExpired();
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-    },
-    credentials: 'include',
-  });
-
-  if (!res.ok) {
-    handleUnauthorizedResponse(path, res.status);
-    const errorText = await res.text();
-    throw new Error(errorText || `API GET ${path} failed with status ${res.status}`);
-  }
-
-  return res.json();
-}
+type ApiOptions = { signal?: AbortSignal; timeoutMs?: number };
 
 /**
- * POST helper. `headers` opsional (backward-compatible) — dipakai untuk
- * mengirim `Idempotency-Key` (create-once transaksi) tanpa mengubah
- * pemanggil existing yang hanya kirim (path, body).
+ * Core fetch wrapper dengan AbortController + timeout.
+ * Forward `signal` eksternal agar useEffect cleanup bisa abort mid-flight.
  */
-export async function apiPost<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+export async function apiFetch(
+  path: string,
+  init: RequestInit & ApiOptions = {},
+): Promise<Response> {
+  const { signal: externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS, ...rest } = init;
+  const ac = new AbortController();
+  const onExternalAbort = () => ac.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) ac.abort(externalSignal.reason);
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+  const timer = setTimeout(() => ac.abort(new Error('Request timeout')), timeoutMs);
+  try {
+    return await fetch(`${API_BASE}${path}`, { ...rest, credentials: 'include', signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+  }
+}
+
+async function readError(res: Response, fallback: string): Promise<Error> {
+  const text = await res.text();
+  return new Error(text || `${fallback} (status ${res.status})`);
+}
+
+export async function apiGet<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const res = await apiFetch(path, { method: 'GET', headers: { Accept: 'application/json' }, ...options });
+  if (!res.ok) {
+    handleUnauthorizedResponse(path, res.status);
+    throw await readError(res, `API GET ${path} failed`);
+  }
+  return res.json();
+}
+
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+  options: ApiOptions = {},
+): Promise<T> {
+  const res = await apiFetch(path, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...headers,
-    },
-    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...options,
   });
-
   if (!res.ok) {
     handleUnauthorizedResponse(path, res.status);
-    const errorText = await res.text();
-    throw new Error(errorText || `API POST ${path} failed with status ${res.status}`);
+    throw await readError(res, `API POST ${path} failed`);
   }
-
   return res.json();
 }
 
-export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+export async function apiPut<T>(path: string, body?: unknown, options: ApiOptions = {}): Promise<T> {
+  const res = await apiFetch(path, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...options,
   });
-
   if (!res.ok) {
     handleUnauthorizedResponse(path, res.status);
-    const errorText = await res.text();
-    throw new Error(errorText || `API PUT ${path} failed with status ${res.status}`);
+    throw await readError(res, `API PUT ${path} failed`);
   }
-
   return res.json();
 }
 
-export async function apiDelete<T = { success: boolean }>(path: string, options?: { body?: unknown }): Promise<T> {
-  const hasBody = options?.body !== undefined;
-  const res = await fetch(`${API_BASE}${path}`, {
+export async function apiDelete<T = { success: boolean }>(
+  path: string,
+  options: { body?: unknown } & ApiOptions = {},
+): Promise<T> {
+  const hasBody = options.body !== undefined;
+  const res = await apiFetch(path, {
     method: 'DELETE',
     headers: {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
     },
-    credentials: 'include',
     body: hasBody ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
   });
-
   if (!res.ok) {
     handleUnauthorizedResponse(path, res.status);
-    const errorText = await res.text();
-    throw new Error(errorText || `API DELETE ${path} failed with status ${res.status}`);
+    throw await readError(res, `API DELETE ${path} failed`);
   }
-
   return res.json();
 }

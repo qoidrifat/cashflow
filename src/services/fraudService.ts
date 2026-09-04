@@ -10,18 +10,10 @@
  * dilindungi requireAuth di server.
  */
 import type { FraudFlag, FraudSummary } from '../types';
+import { apiGet, apiPost } from '../config/api';
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || body.message || `HTTP ${response.status}`);
-  }
-  return response.json() as Promise<T>;
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return apiGet<T>(path, signal ? { signal } : {});
 }
 
 /** Label Bahasa Indonesia per rule (dipakai widget dashboard). */
@@ -94,31 +86,27 @@ function mapFlag(raw: RawFraudFlag): FraudFlag {
   };
 }
 
-/** Ambil ringkasan flag untuk widget dashboard. Gagal → null (widget di-sembunyikan). */
-export async function getFraudSummary(): Promise<FraudSummary | null> {
-  try {
-    const data = await api<{
-      ok: boolean;
-      openCount: number;
-      totalCount: number;
-      bySeverity: FraudSummary['bySeverity'];
-      recent: RawFraudFlag[];
-    }>('/api/fraud/summary');
-    return {
-      openCount: data.openCount,
-      totalCount: data.totalCount,
-      bySeverity: data.bySeverity || { low: 0, medium: 0, high: 0, critical: 0 },
-      recent: (data.recent || []).map(mapFlag),
-    };
-  } catch {
-    return null;
-  }
+/** Ambil ringkasan flag untuk widget dashboard. Throw agar caller bisa tangani (DashboardPage tangkap + toast). */
+export async function getFraudSummary(options: { signal?: AbortSignal } = {}): Promise<FraudSummary | null> {
+  const data = await getJson<{
+    ok: boolean;
+    openCount: number;
+    totalCount: number;
+    bySeverity: FraudSummary['bySeverity'];
+    recent: RawFraudFlag[];
+  }>('/api/fraud/summary', options.signal);
+  return {
+    openCount: data.openCount,
+    totalCount: data.totalCount,
+    bySeverity: data.bySeverity || { low: 0, medium: 0, high: 0, critical: 0 },
+    recent: (data.recent || []).map(mapFlag),
+  };
 }
 
 /** Ambil daftar flag terbaru user. */
 export async function getFraudFlags(limit = 50): Promise<FraudFlag[]> {
   try {
-    const data = await api<{ ok: boolean; flags: RawFraudFlag[] }>(`/api/fraud/flags?limit=${limit}`);
+    const data = await getJson<{ ok: boolean; flags: RawFraudFlag[] }>(`/api/fraud/flags?limit=${limit}`);
     return (data.flags || []).map(mapFlag);
   } catch {
     return [];
@@ -132,8 +120,8 @@ export async function getFraudFlags(limit = 50): Promise<FraudFlag[]> {
  */
 export async function getFraudPageData(limit = 100): Promise<{ flags: FraudFlag[]; summary: FraudSummary }> {
   const [flagsData, summaryData] = await Promise.all([
-    api<{ ok: boolean; flags: RawFraudFlag[] }>(`/api/fraud/flags?limit=${limit}`),
-    api<{
+    getJson<{ ok: boolean; flags: RawFraudFlag[] }>(`/api/fraud/flags?limit=${limit}`),
+    getJson<{
       ok: boolean;
       openCount: number;
       totalCount: number;
@@ -155,8 +143,8 @@ export async function getFraudPageData(limit = 100): Promise<{ flags: FraudFlag[
 /** Tandai flag sudah dicek user (menghapusnya dari daftar "open"). */
 export async function reviewFraudFlag(id: string): Promise<boolean> {
   try {
-    const data = await api<{ ok: boolean }>(`/api/fraud/flags/${encodeURIComponent(id)}/review`, { method: 'POST' });
-    return Boolean(data.ok);
+    await apiPost(`/api/fraud/flags/${encodeURIComponent(id)}/review`);
+    return true;
   } catch {
     return false;
   }

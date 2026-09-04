@@ -7,9 +7,12 @@
  *   Manrope © 2018 Michal Puza (OFL.txt: ofl/manrope)
  *   Outfit © 2021 Rodrigo Fuenzalida (OFL.txt: ofl/outfit — lisensi sama)
  */
+/* Subset latin (pyftsubset, unicodes U+0000-00FF + umum) — 165KB→24KB /
+   111KB→34KB (WOFF2 + brotli). Subset script: lihat docs/ui atau regenerate:
+   pyftsubset <ttf> --flavor=woff2 --layout-features='*' --unicodes=... */
 @font-face {
   font-family: 'Manrope';
-  src: url('/fonts/Manrope-Variable.ttf') format('truetype-variations');
+  src: url('/fonts/Manrope-Variable.woff2') format('woff2-variations');
   font-weight: 200 800;
   font-style: normal;
   font-display: swap;
@@ -17,7 +20,7 @@
 
 @font-face {
   font-family: 'Outfit';
-  src: url('/fonts/Outfit-Variable.ttf') format('truetype-variations');
+  src: url('/fonts/Outfit-Variable.woff2') format('woff2-variations');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -32,6 +35,7 @@
     --color-bg: 247 248 251;
     --color-surface: 255 255 255;
     --color-elevated: 255 255 255;
+    --color-card: 255 255 255;
     --color-border: 226 232 240;
     --color-text: 10 26 46;
     --color-muted: 71 85 105;
@@ -41,6 +45,7 @@
        berubah (#94a3b8 di atas bg gelap ~7.3:1 — lolos). */
     --color-subtle: 100 116 139;
     --color-hover: 241 245 249;
+    --color-overlay: 15 23 42; /* slate-900 — scrim modal/walkthrough, dipakai dgn alpha */
     --color-chart-grid: rgba(148, 163, 184, 0.24);
     --color-chart-muted: #64748b;
     --color-chart-tooltip: rgba(255, 255, 255, 0.96);
@@ -54,11 +59,13 @@
     --color-bg: 8 21 38;
     --color-surface: 16 36 58;
     --color-elevated: 13 29 49;
+    --color-card: 16 36 58;
     --color-border: 51 65 85;
     --color-text: 248 250 252;
     --color-muted: 203 213 225;
     --color-subtle: 148 163 184;
     --color-hover: 30 41 59;
+    --color-overlay: 0 0 0;
     --color-chart-grid: rgba(148, 163, 184, 0.22);
     --color-chart-muted: #94a3b8;
     --color-chart-tooltip: rgba(15, 23, 42, 0.94);
@@ -268,14 +275,30 @@
     display: none;
   }
 }
-
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+
+  /* L1 (audit 2026-09-04): kontras text-{red,mint,amber}-500 di light mode
+     2.0–3.8:1, di bawah WCAG AA 4.5:1 untuk teks normal. Doc kontras
+     (docs/ui/DESIGN_TOKENS_AND_CONTRAST.md §5.2) menetapkan pola -600/-300.
+     Override SATU tempat di sini daripada edit 30+ call site: -500 di light
+     naik ke -600 (kontras AA), dark tetap -300 (sudah AA di atas bg gelap).
+     Hanya menaikkan contrast, tidak mengubah hue/brightness yang signifikan.
+     Bila call site memakai dark:text-xxx-300 eksplisit, override dark TIDAK
+     menimpanya (specificity sama, urutan layer utilities > dark: variant). */
+  :root:not(.dark) .text-red-500 {
+    color: rgb(220 38 38); /* red-600 */
+  }
+  :root:not(.dark) .text-mint-500 {
+    color: rgb(4 108 78); /* mint-600 */
+  }
+  :root:not(.dark) .text-amber-500 {
+    color: rgb(180 83 9); /* amber-600 */
+  }
 }
 
-/* ===== Success Check Animation ===== */
 @keyframes success-check-pop {
   0% {
     transform: scale(0.72);

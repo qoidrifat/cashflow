@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../../store/useAppStore';
 import { useAuthStore } from '../../../store/useAuthStore';
 import type { AppNotification, NotificationType } from '../types';
@@ -20,6 +20,7 @@ export function useNotifications(filters: NotificationFilters = {}) {
   const setNotifications = useAppStore((state) => state.setNotifications);
   const [error, setError] = useState<string | null>(null);
   const [refetching, setRefetching] = useState(false);
+  const seqRef = useRef(0);
 
   const filteredNotifications = useMemo(() => {
     return notifications.filter((notification) => {
@@ -36,17 +37,18 @@ export function useNotifications(filters: NotificationFilters = {}) {
 
   const refetch = useCallback(async () => {
     if (!authUser?.uid) return;
+    const seq = ++seqRef.current;
     setRefetching(true);
     setError(null);
     try {
-      // limit 100: server dulu mengabaikan limit & mengembalikan maks 100 baris;
-      // bell badge menghitung unread dari seluruh daftar → semantik dipertahankan.
       const next = await fetchNotifications(authUser.uid, { limit: 100 });
+      if (seq !== seqRef.current) return; // out-of-order: abaikan
       setNotifications(next);
     } catch (refetchError) {
+      if (seq !== seqRef.current) return;
       setError(refetchError instanceof Error ? refetchError.message : 'Gagal memuat notifikasi.');
     } finally {
-      setRefetching(false);
+      if (seq === seqRef.current) setRefetching(false);
     }
   }, [authUser?.uid, setNotifications]);
 

@@ -5,7 +5,7 @@ import {
   signInWithGoogle,
   signOutUser,
 } from '../services/authService';
-
+import { disconnectSSE } from '../lib/sse';
 interface AuthState {
   /** Authenticated user (Better Auth session) */
   authUser: AppUser | null;
@@ -82,6 +82,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ logoutAnimationActive: true });
     try {
       await signOutUser();
+      // H-3 fix: putus SSE agar EventSource tidak auto-reconnect dengan cookie invalid.
+      disconnectSSE();
       set({
         authUser: null,
         isAuthenticated: false,
@@ -92,7 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal logout';
       set({ error: message, logoutAnimationActive: false });
-      throw error; // Re-throw agar caller (ProfileDropdown) bisa membedakan sukses vs gagal
+      throw error;
     }
   },
 

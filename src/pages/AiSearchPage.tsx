@@ -481,7 +481,7 @@ function RecentSearches({
             type="button"
             onClick={() => onRemove(index)}
             aria-label={`Hapus "${entry.query}" dari pencarian terakhir`}
-            className="shrink-0 rounded-full p-1 text-app-subtle opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 focus-visible:opacity-100"
+            className="shrink-0 rounded-full p-1 text-app-subtle opacity-100 sm:opacity-0 transition-opacity hover:text-red-500 sm:group-hover:opacity-100 focus-visible:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </button>

@@ -116,7 +116,7 @@ function TransactionItemInner({ transaction, onClick, delay = 0 }: TransactionIt
           'text-sm font-semibold tabular-nums',
           transaction.type === 'income' || transaction.type === 'refund'
             ? 'text-mint-600 dark:text-mint-300'
-            : 'text-red-500 dark:text-red-300'
+            : 'text-red-600 dark:text-red-300'
         )}>
           {transaction.type === 'income' || transaction.type === 'refund' ? '+' : '-'}
           {formatCurrency(transaction.amount)}

@@ -108,7 +108,7 @@ export function exportMonthlyReportPdf(input: ReportPdfInput) {
             <div class="brand">CashFlow Professional Report</div>
             <h1>${getMonthName(input.month)} ${input.year}</h1>
           </div>
-          ${input.healthScore ? `<div class="score"><span>Health Score</span><strong>${input.healthScore.score}</strong></div>` : ''}
+          ${input.healthScore ? `<div class="score"><span>Health Score</span><strong>${Number(input.healthScore.score) || 0}</strong></div>` : ''}
         </div>
         <div class="grid">
           <div class="card"><div class="label">Pemasukan</div><div class="value">${formatCurrency(income)}</div></div>

@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="CashFlow GenZ - Aplikasi manajemen keuangan pribadi modern untuk Gen Z" />
     <meta name="theme-color" content="#f7f8fb" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <!-- Font self-hosted (public/fonts) — lihat @font-face di src/styles/globals.css -->
     <link rel="icon" type="image/webp" href="/logo/cashflow-icon.webp" />
     <link rel="apple-touch-icon" href="/logo/cashflow-icon.webp" />
-    <title>CashFlow - Kelola Keuangan dengan Gaya Gen Z</title>
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/Manrope-Variable.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/Outfit-Variable.woff2" crossorigin />
     <script>
       (function () {
         try {
@@ -21,6 +21,8 @@
           document.documentElement.dataset.theme = theme;
           document.documentElement.dataset.resolvedTheme = resolved;
           document.documentElement.style.colorScheme = resolved;
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', resolved === 'dark' ? '#081526' : '#f7f8fb');
         } catch (error) {
           document.documentElement.dataset.theme = 'system';
         }

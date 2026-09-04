@@ -56,7 +56,7 @@ export default function BottomNav() {
       <nav
         className={cn(
           'fixed bottom-0 left-0 right-0 z-30',
-          'bg-app-elevated/88 backdrop-blur-2xl',
+          'bg-app-elevated/88 backdrop-blur-md',
           'border-t border-app-border',
           'lg:hidden',
           'safe-area-bottom'

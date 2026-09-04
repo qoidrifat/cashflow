@@ -126,9 +126,8 @@ export default function TransactionForm({ userId, initialData, onSubmit, onCance
           <input
             type="date"
             value={form.date}
+            max={new Date().toISOString().slice(0, 10)}
             onChange={(event) => updateField('date', event.target.value)}
-            className="w-full rounded-2xl px-4 py-3 text-sm app-field"
-            required
           />
         </label>
       </div>

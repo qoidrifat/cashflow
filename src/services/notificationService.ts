@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '../config/api';
 import { logger } from '../lib/logger';
-import { onSSE } from '../lib/sse';
-import type { AppNotification, CreateNotificationInput, NotificationType } from '../types';
+import { onSSE, onSSEStatus } from '../lib/sse';
+import type { AppNotification, CreateNotificationInput, NotificationType, NotificationPriority } from '../types';
 import { mapNotification } from './mappers';
 
 export interface NotificationQueryOptions {
@@ -126,13 +126,19 @@ export function subscribeToNotifications(
   if (!userId) return () => {};
 
   callbacks.onStatus?.(true);
+  const unsubStatus = onSSEStatus((connected) => callbacks.onStatus?.(connected));
 
-  const unsub = onSSE('notification:new', (data) => {
-    if (data.id) {
+  const unsub = onSSE('notification:new', (raw) => {
+    const data = raw as { id?: string; type?: string; priority?: string; title?: string; message?: string };
+    if (data && data.id) {
+      const ALLOWED: ReadonlyArray<NotificationType> = ['transaction', 'budget', 'gmail', 'system', 'success', 'warning', 'error', 'info'];
+      const t: NotificationType = (ALLOWED as ReadonlyArray<string>).includes(data.type || '') ? (data.type as NotificationType) : 'system';
+      const PRIORITY: ReadonlyArray<NotificationPriority> = ['low', 'normal', 'high'];
+      const p: NotificationPriority = (PRIORITY as ReadonlyArray<string>).includes(data.priority || '') ? (data.priority as NotificationPriority) : 'normal';
       callbacks.onInsert?.({
         id: data.id,
-        type: data.type || 'system',
-        priority: data.priority || 'normal',
+        type: t,
+        priority: p,
         title: data.title || 'Notifikasi',
         message: data.message || '',
         read: false,
@@ -144,5 +150,6 @@ export function subscribeToNotifications(
   return () => {
     callbacks.onStatus?.(false);
     unsub();
+    unsubStatus();
   };
 }

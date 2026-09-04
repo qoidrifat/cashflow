@@ -326,7 +326,7 @@ export default function RecurringPage() {
               className={cn(
                 'relative p-4 rounded-xl border transition-all duration-200',
                 rt.active
-                  ? 'bg-app-surface border-app-border hover:border-app-border-hover'
+                  ? 'bg-app-surface border-app-border hover:border-primary-500/40'
                   : 'bg-app-surface/60 border-app-border/50 opacity-60'
               )}
             >
@@ -483,20 +483,23 @@ export default function RecurringPage() {
                 </div>
 
                 {/* Amount */}
-                <div>
-                  <label className="block text-xs font-medium text-app-subtle mb-1.5">Nominal</label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-app-subtle mb-1.5">Nominal</span>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-app-muted">Rp</span>
                     <input
                       type="number"
                       inputMode="numeric"
+                      min={1}
+                      step={1}
                       value={formAmount}
                       onChange={(e) => setFormAmount(e.target.value)}
                       placeholder="0"
+                      aria-label="Nominal transaksi rutin"
                       className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl bg-app-surface border border-app-border text-app-text placeholder:text-app-subtle/50 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500"
                     />
                   </div>
-                </div>
+                </label>
 
                 {/* Interval */}
                 <div className="grid grid-cols-2 gap-3">
@@ -589,26 +592,29 @@ export default function RecurringPage() {
 
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-app-subtle mb-1.5">Mulai</label>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-app-subtle mb-1.5">Mulai</span>
                     <input
                       type="date"
                       value={formStartDate}
                       onChange={(e) => setFormStartDate(e.target.value)}
+                      aria-label="Tanggal mulai transaksi rutin"
                       className="w-full px-3 py-2.5 text-sm rounded-xl bg-app-surface border border-app-border text-app-text focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-app-subtle mb-1.5">
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-app-subtle mb-1.5">
                       Berakhir <span className="text-app-subtle/60">(opsional)</span>
-                    </label>
+                    </span>
                     <input
                       type="date"
                       value={formEndDate}
                       onChange={(e) => setFormEndDate(e.target.value)}
+                      aria-label="Tanggal berakhir transaksi rutin (opsional)"
+                      min={formStartDate || undefined}
                       className="w-full px-3 py-2.5 text-sm rounded-xl bg-app-surface border border-app-border text-app-text placeholder:text-app-subtle/50 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500"
                     />
-                  </div>
+                  </label>
                 </div>
 
                 {/* Note */}

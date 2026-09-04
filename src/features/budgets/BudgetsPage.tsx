@@ -61,19 +61,33 @@ export default function BudgetsPage() {
       () => setLoading(false)
     );
 
-    const unsubscribeTransactions = listenToTransactions(authUser.uid, (data) => {
-      setTransactions(data);
-    });
+    const ac = new AbortController();
+    const unsubscribeTransactions = listenToTransactions(
+      authUser.uid,
+      (data) => setTransactions(data),
+      (err) => {
+        if (ac.signal.aborted) return;
+        const message = err instanceof Error ? err.message : 'Gagal memuat transaksi';
+        addToast({ type: 'error', title: 'Gagal memuat transaksi', message });
+        setTransactions([]);
+      },
+    );
 
-    getAllTransactions(authUser.uid)
+    getAllTransactions(authUser.uid, { signal: ac.signal })
       .then(setHistoricalTransactions)
-      .catch(() => setHistoricalTransactions([]));
+      .catch((err) => {
+        if (ac.signal.aborted) return;
+        const message = err instanceof Error ? err.message : 'Gagal memuat data';
+        addToast({ type: 'error', title: 'Gagal memuat data', message });
+        setHistoricalTransactions([]);
+      });
 
     return () => {
+      ac.abort();
       unsubscribeBudgets();
       unsubscribeTransactions();
     };
-  }, [authUser]);
+  }, [authUser, addToast]);
 
   // Track notified budget statuses to avoid duplicates
   const notifiedKeys = useRef(new Set<string>());

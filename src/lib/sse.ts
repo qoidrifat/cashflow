@@ -4,14 +4,31 @@
  */
 import { getApiBaseUrl } from '../config/api';
 
-type SSEHandler = (data: any) => void;
+type SSEHandler = (data: unknown) => void;
+type SSEStatusHandler = (connected: boolean) => void;
 
 let eventSource: EventSource | null = null;
 const handlers = new Map<string, Set<SSEHandler>>();
+const statusHandlers = new Set<SSEStatusHandler>();
 let isConnecting = false;
+let lastReconnectAttempt = 0;
+const RECONNECT_MIN_INTERVAL_MS = 5_000;
 
-export function connectSSE() {
+function notifyStatus(connected: boolean): void {
+  for (const fn of statusHandlers) {
+    try {
+      fn(connected);
+    } catch (err) {
+      console.error('[SSE] status handler error:', err);
+    }
+  }
+}
+
+export function connectSSE(): void {
   if (eventSource || isConnecting) return;
+  const now = Date.now();
+  if (now - lastReconnectAttempt < RECONNECT_MIN_INTERVAL_MS) return;
+  lastReconnectAttempt = now;
   isConnecting = true;
 
   try {
@@ -20,9 +37,10 @@ export function connectSSE() {
 
     eventSource.onopen = () => {
       isConnecting = false;
+      notifyStatus(true);
     };
 
-    const eventsToListen = [
+    const eventsToListen: ReadonlyArray<string> = [
       'connected',
       'transaction:created',
       'transaction:updated',
@@ -39,59 +57,83 @@ export function connectSSE() {
 
     for (const evt of eventsToListen) {
       eventSource.addEventListener(evt, (e: MessageEvent) => {
+        let data: unknown = {};
         try {
-          const data = JSON.parse(e.data || '{}');
-          dispatch(evt, data);
+          data = JSON.parse(e.data || '{}');
         } catch {
-          dispatch(evt, {});
+          data = {};
         }
+        dispatch(evt, data);
       });
     }
 
     eventSource.onerror = () => {
       isConnecting = false;
+      notifyStatus(false);
+      if (eventSource) {
+        try {
+          eventSource.close();
+        } catch {
+          /* noop */
+        }
+        eventSource = null;
+      }
     };
   } catch {
     isConnecting = false;
+    notifyStatus(false);
   }
 }
 
-export function disconnectSSE() {
+export function disconnectSSE(): void {
   if (eventSource) {
-    eventSource.close();
+    try {
+      eventSource.close();
+    } catch {
+      /* noop */
+    }
     eventSource = null;
   }
   isConnecting = false;
+  lastReconnectAttempt = 0;
   handlers.clear();
+  notifyStatus(false);
 }
 
-function dispatch(event: string, data: any) {
+/** Subscribe status perubahan koneksi SSE (untuk BellIcon WifiOff). */
+export function onSSEStatus(handler: SSEStatusHandler): () => void {
+  statusHandlers.add(handler);
+  return () => {
+    statusHandlers.delete(handler);
+  };
+}
+
+function dispatch(event: string, data: unknown): void {
   const set = handlers.get(event);
-  if (set) {
-    for (const fn of set) {
-      try {
-        fn(data);
-      } catch (err) {
-        console.error(`[SSE] Error in handler for event "${event}":`, err);
-      }
+  if (!set) return;
+  for (const fn of set) {
+    try {
+      fn(data);
+    } catch (err) {
+      console.error(`[SSE] Error in handler for event "${event}":`, err);
     }
   }
 }
 
 export function onSSE(event: string, handler: SSEHandler): () => void {
-  if (!handlers.has(event)) {
-    handlers.set(event, new Set());
+  let set = handlers.get(event);
+  if (!set) {
+    set = new Set();
+    handlers.set(event, set);
   }
-  handlers.get(event)!.add(handler);
+  set.add(handler);
 
   if (!eventSource) {
     connectSSE();
   }
 
   return () => {
-    const set = handlers.get(event);
-    if (set) {
-      set.delete(handler);
-    }
+    const s = handlers.get(event);
+    if (s) s.delete(handler);
   };
 }

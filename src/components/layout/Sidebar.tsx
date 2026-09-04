@@ -53,8 +53,7 @@ export default function Sidebar() {
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={cn(
           'fixed left-0 top-0 z-30 h-screen',
-          'bg-app-elevated/88 backdrop-blur-2xl',
-          'border-r border-app-border',
+          'bg-app-elevated/88 backdrop-blur-md',
           'hidden lg:flex flex-col',
           'shadow-sm'
         )}

@@ -31,7 +31,7 @@ export default function Header({ title, showSearch, onSearchChange }: HeaderProp
     <header className={cn(
       'sticky top-0 z-20',
       'bg-app-elevated/78',
-      'backdrop-blur-2xl',
+      'backdrop-blur-md',
       'border-b border-app-border',
       'shadow-sm shadow-black/[0.02] dark:shadow-black/20'
     )}>

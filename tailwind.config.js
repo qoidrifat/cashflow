@@ -12,11 +12,17 @@ export default {
           bg: 'rgb(var(--color-bg) / <alpha-value>)',
           surface: 'rgb(var(--color-surface) / <alpha-value>)',
           elevated: 'rgb(var(--color-elevated) / <alpha-value>)',
+          card: 'rgb(var(--color-card) / <alpha-value>)',
           border: 'rgb(var(--color-border) / <alpha-value>)',
+          // Guard (check-tailwind-tokens.mjs) menemukan 5 token ini dipakai
+          // 1136× di src tapi TIDAK terdaftar → class senyap tidak di-generate
+          // (silent-drop sama dengan bug app-card 2026-09-04). CSS var sudah
+          // ada di globals.css — cukup daftarkan di sini.
           text: 'rgb(var(--color-text) / <alpha-value>)',
           muted: 'rgb(var(--color-muted) / <alpha-value>)',
           subtle: 'rgb(var(--color-subtle) / <alpha-value>)',
           hover: 'rgb(var(--color-hover) / <alpha-value>)',
+          overlay: 'rgb(var(--color-overlay) / <alpha-value>)',
         },
         primary: {
           50: '#eef2ff',
@@ -78,6 +84,10 @@ export default {
         15: '0.15',
         24: '0.24',
         28: '0.28',
+        72: '0.72',
+        78: '0.78',
+        88: '0.88',
+        98: '0.98',
       },
       fontFamily: {
         sans: ['Manrope', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
