@@ -127,7 +127,8 @@ describe('applyMigrations — siklus hidup pada DB nyata', () => {
     // P2.7 (0009): balance anchor verification status (persisted outcome).
     // P2.8 (0010): transfer candidate review status (reject persist).
     // P0.11 (0011): wallet_accounts.provider_code (link ke provider catalog).
-    expect(status.applied.map((a) => a.version)).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011']);
+    // P2.9 hardening (0012): idx_wallets_user_name_active unique partial index.
+    expect(status.applied.map((a) => a.version)).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012']);
     expect(status.pending).toEqual([]);
     expect(status.checksumConsistent).toBe(true);
 

@@ -120,8 +120,11 @@ describe('GET /api/transactions/summary', () => {
     const [client, userId, opts] = computeFinancialSummaryMock.mock.calls[0];
     expect(userId).toBe('user-a');
     expect(client).toBeDefined();
-    expect(opts.month).toBe(8); // default = bulan server berjalan (Agustus 2026)
-    expect(opts.year).toBe(2026);
+    // default = bulan server berjalan — DINAMIS (test lama pin Agustus 2026,
+    // gagal tiap pergantian bulan). Assert konsisten dengan implementasi:
+    // new Date().getMonth()+1 & getFullYear() saat route dipanggil.
+    expect(opts.month).toBe(new Date().getMonth() + 1);
+    expect(opts.year).toBe(new Date().getFullYear());
   });
 
   it('observability: financial_summary_requested + _completed dicatat (tanpa nominal)', async () => {

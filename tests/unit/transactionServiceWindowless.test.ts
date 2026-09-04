@@ -334,17 +334,31 @@ describe('getAllTransactions cache in-memory + invalidasi (2026-08-09)', () => {
     expect(apiGetMock).toHaveBeenCalledTimes(6); // miss → refetch penuh
   });
 
-  it('invalidasi SSE transaction:created → refetch penuh berikutnya', async () => {
+  it('invalidasi SSE transaction:created dengan payload userId → refetch penuh berikutnya', async () => {
     mockThreePages();
     await getAllTransactions('u-sse');
     expect(apiGetMock).toHaveBeenCalledTimes(3);
 
     const createdHandler = sseHandlers.find((h) => h.event === 'transaction:created');
     expect(createdHandler).toBeDefined();
-    createdHandler!.handler({});
+    // Kontrak H-4 (audit 2026-09-04): invalidator HANYA menyapu cache user
+    // yang di-payload event — bukan seluruh cache (cross-user data leak).
+    createdHandler!.handler({ userId: 'u-sse' });
 
     await getAllTransactions('u-sse');
     expect(apiGetMock).toHaveBeenCalledTimes(6); // cache dibersihkan → refetch
+  });
+
+  it('invalidasi SSE tanpa userId TIDAK menyapu cache user lain (privacy)', async () => {
+    mockThreePages();
+    await getAllTransactions('u-private');
+    const before = apiGetMock.mock.calls.length;
+
+    const createdHandler = sseHandlers.find((h) => h.event === 'transaction:created');
+    createdHandler!.handler({}); // payload tanpa userId (event lama/abnormal)
+
+    await getAllTransactions('u-private');
+    expect(apiGetMock.mock.calls.length).toBe(before); // cache TETAP terpakai
   });
 
   it('invalidasi SSE transaction:updated & transaction:deleted juga terdaftar', async () => {
@@ -355,7 +369,7 @@ describe('getAllTransactions cache in-memory + invalidasi (2026-08-09)', () => {
 
     await getAllTransactions('u-sse2');
     const before = apiGetMock.mock.calls.length;
-    sseHandlers.find((h) => h.event === 'transaction:deleted')!.handler({});
+    sseHandlers.find((h) => h.event === 'transaction:deleted')!.handler({ userId: 'u-sse2' });
     await getAllTransactions('u-sse2');
     expect(apiGetMock.mock.calls.length).toBe(before + 3);
   });
