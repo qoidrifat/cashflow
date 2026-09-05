@@ -280,7 +280,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -291,7 +291,7 @@ jobs:
       # gate). Dipakai untuk menyelidiki mengapa sebuah test flaky.
       - name: Upload stability-gate per-attempt artifacts (flake forensics)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: stability-attempt-artifacts
           path: |
@@ -302,7 +302,7 @@ jobs:
 
       - name: Upload test artifacts — traces · screenshots · videos (on failure)
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: test-results/
@@ -361,7 +361,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-isolated
           path: playwright-report-local/
@@ -370,7 +370,7 @@ jobs:
 
       - name: Upload test artifacts (on failure)
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-isolated
           path: test-results/
@@ -421,7 +421,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-parallel
           path: playwright-report-local/
@@ -430,7 +430,7 @@ jobs:
 
       - name: Upload test artifacts (on failure)
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-parallel
           path: test-results/
@@ -502,7 +502,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-a11y
           path: playwright-report/
@@ -511,7 +511,7 @@ jobs:
 
       - name: Upload test artifacts (on failure)
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-a11y
           path: test-results/
@@ -590,7 +590,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-visual
           path: playwright-report/
@@ -599,7 +599,7 @@ jobs:
       # Diff screenshot (actual vs baseline) untuk debugging visual — hanya saat gagal.
       - name: Upload screenshot diffs (on failure)
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: visual-diffs
           path: |
@@ -709,7 +709,7 @@ jobs:
 
       - name: Upload Playwright report (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-perf
           path: playwright-report/
@@ -718,7 +718,7 @@ jobs:
       # Perf report JSON (test-results/perf/perf-*.json) → trend historis.
       - name: Upload perf report JSON (always)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: perf-reports
           path: test-results/perf/
