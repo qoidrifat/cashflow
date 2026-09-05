@@ -303,6 +303,39 @@ export function validateAndFinalize(
   const useAI = hasAIAmount;
   const useFallback = hasFallbackAmount;
   const parserSource = useAI && useFallback ? 'hybrid' : useAI ? 'ai' : 'fallback';
+  // M-10 (audit 2026-09-04): guard eksplisit sebelum non-null assertion.
+  // `hasAIAmount`/`hasFallbackAmount` adalah type-guard semu (boolean coercion)
+  // — TS tetap melihat `extracted`/`fallbackResult` sebagai optional. Defensive:
+  // bila invarian terlanggar (harusnya mustahil), kembali ke needs_review
+  // alih-alih crash di runtime.
+  if (useAI && !extracted?.amount) {
+    return {
+      finalStatus: 'needs_review',
+      mappedStatus: 'needs_review',
+      confidenceScore: Math.min(confidence, 0.5),
+      confidenceBreakdown,
+      reason: 'Invarian parser melanggar: AI dipilih tanpa nominal valid. Perlu dicek manual.',
+      errorCode: 'PARSER_INVARIANT_VIOLATION',
+      fallbackUsed: useFallback,
+      parserSource,
+      riskFlags,
+      requiresReview: true,
+    };
+  }
+  if (!useAI && !fallbackResult?.amount) {
+    return {
+      finalStatus: 'needs_review',
+      mappedStatus: 'needs_review',
+      confidenceScore: Math.min(confidence, 0.5),
+      confidenceBreakdown,
+      reason: 'Invarian parser melanggar: fallback dipilih tanpa nominal valid. Perlu dicek manual.',
+      errorCode: 'PARSER_INVARIANT_VIOLATION',
+      fallbackUsed: true,
+      parserSource,
+      riskFlags,
+      requiresReview: true,
+    };
+  }
   const finalAmount = useAI ? extracted!.amount! : fallbackResult!.amount!;
   const finalData = useAI ? extracted : fallbackResult?.data || extracted;
 

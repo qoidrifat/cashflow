@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -95,8 +95,13 @@ export default function TransactionsPage() {
     return listenToCategories(authUser.uid, setCategories);
   }, [authUser]);
 
+  // M-5 (audit 2026-09-04): seq guard — respons lama tidak boleh menimpa
+  // respons baru (out-of-order) saat filter/pagination berubah cepat.
+  const loadSeqRef = useRef(0);
+
   const loadTransactions = useCallback(async (targetPage = pagination.page) => {
     if (!authUser) return;
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -122,6 +127,7 @@ export default function TransactionsPage() {
         setPagination((prev) => ({ ...prev, page: result.totalPages, totalPages: result.totalPages }));
         return;
       }
+      if (seq !== loadSeqRef.current) return;
 
       setTransactions(result.data);
       setPagination({
@@ -133,9 +139,10 @@ export default function TransactionsPage() {
         hasPreviousPage: result.hasPreviousPage,
       });
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       setError(err instanceof Error ? err.message : 'Gagal memuat transaksi');
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [
     authUser,
@@ -252,14 +259,16 @@ export default function TransactionsPage() {
         await updateTransaction(authUser.uid, editingTransaction.id, data);
         addToast({ type: 'success', title: 'Transaksi berhasil diperbarui' });
       } else {
-        await addTransaction(authUser.uid, data);
+        const created = await addTransaction(authUser.uid, data);
         addToast({ type: 'success', title: 'Transaksi berhasil ditambahkan' });
         addNotification({
           type: 'transaction',
           title: 'Transaksi berhasil ditambahkan',
           message: `${data.categoryName} sebesar ${formatCurrency(data.amount)} telah dicatat.`,
           actionHref: '/transactions',
-          dedupeKey: `transaction-${Date.now()}`,
+          // M-14: deterministik dari ID transaksi (bukan Date.now() — bisa
+          // sama antar submit di event loop yang sama).
+          dedupeKey: `transaction-created-${created}`,
           read: false,
         });
       }

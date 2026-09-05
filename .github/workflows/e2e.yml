@@ -80,6 +80,10 @@ jobs:
 
       - name: Lint (tsc src)
         run: npm run lint
+        # npm run lint = tsc --noEmit + typography-lint + check-tailwind-tokens
+        # + check-opacity-scale (guard silent-drop design-system ala bug P2.1 &
+        # audit 2026-09-04: token app-card/app.text dsb + modifier /78 /88 dsb
+        # tidak di-generate Tailwind tanpa error build). Regresi token = build gagal.
 
       - name: Typecheck E2E
         run: npm run test:e2e:typecheck

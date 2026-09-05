@@ -118,14 +118,17 @@ export default function QuickAddSheet({ isOpen, onClose, initialType }: QuickAdd
         date: getTodayString(),
       };
 
-      await addTransaction(authUser.uid, data);
+      const created = await addTransaction(authUser.uid, data);
       addToast({ type: 'success', title: 'Transaksi berhasil ditambahkan' });
       addNotification({
         type: 'transaction',
         title: 'Transaksi berhasil ditambahkan',
         message: `${categoryName} sebesar ${formatCurrency(amountNum)} telah dicatat.`,
         actionHref: '/transactions',
-        dedupeKey: `transaction-${Date.now()}`,
+        // M-14 (audit 2026-09-04): dedupeKey deterministik dari ID transaksi
+        // yang baru dibuat — `transaction-${Date.now()}` bisa sama antar dua
+        // submit di event loop yang sama → notifikasi salah dedupe.
+        dedupeKey: `transaction-created-${created}`,
         read: false,
       });
       onClose();

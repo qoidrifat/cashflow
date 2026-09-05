@@ -166,10 +166,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   setNotificationLoading: (loading) => set({ notificationLoading: loading }),
   setRealtimeConnected: (connected) => set({ realtimeConnected: connected }),
 
+  // M-16 (audit 2026-09-04): rollback TIDAK memakai snapshot `previous` —
+  // snapshot diambil sebelum optimistic set, jadi update lain yang terjadi
+  // di antara (mis. optimistic state NotificationsPage / SSE insert) ikut
+  // tertimpa. Rollback per-item via functional set: hanya item `id` yang
+  // dikembalikan ke `read: false`.
   markNotificationRead: (id, optionalUserId) => {
     const userId = optionalUserId || useAuthStore.getState().authUser?.uid;
-    const previous = get().notifications;
-    const current = previous.find((notification) => notification.id === id);
+    const current = get().notifications.find((notification) => notification.id === id);
     if (current?.read) return;
 
     set((state) => ({
@@ -177,7 +181,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         n.id === id ? { ...n, read: true } : n
       ),
     }));
-    if (userId) void markNotificationAsRead(userId, id).catch(() => set({ notifications: previous }));
+    if (userId) {
+      void markNotificationAsRead(userId, id).catch(() =>
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.id === id ? { ...n, read: false } : n
+          ),
+        })),
+      );
+    }
   },
 
   markAllNotificationsRead: (optionalUserId) => {
